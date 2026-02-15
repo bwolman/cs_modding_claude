@@ -1,0 +1,279 @@
+# CS2 Modding Guidelines - Discussion Log
+
+## Topic 1: Source Code Management
+### Status: In Progress
+
+### Decisions Made:
+- **Repo strategy**: One mod per repo
+- **Branching**: Trunk-based (main + short-lived feature branches)
+- **Directory structure**: Solution-based
+
+```
+MyMod/
+├── MyMod.sln
+├── .gitignore
+├── README.md
+├── LICENSE
+├── CHANGELOG.md
+├── src/
+│   └── MyMod/
+│       ├── MyMod.csproj         # .NET Standard 2.1
+│       ├── Mod.cs               # Entry point (implements IMod)
+│       ├── Settings/
+│       ├── Systems/             # ECS game systems
+│       ├── UI/
+│       ├── Patches/             # Harmony patches
+│       └── Resources/           # Localization, embedded assets
+├── docs/
+└── tools/
+```
+
+- **.gitignore**: Standard C#/.NET + CS2 specifics (game DLLs, local build output paths, local config)
+- **Versioning**: SemVer (Major.Minor.Patch)
+
+### Status: Complete
+
+---
+
+## Topic 2: Documentation
+### Status: Complete
+
+### Decisions Made:
+- **Required docs**: README, CHANGELOG, LICENSE in every repo
+- **README**: Standardized template with consistent sections (description, features, installation, compatibility, building from source)
+- **Code docs**: Comprehensive XML doc comments (`///`) on all members including private
+- **License**: MIT (default)
+- **CHANGELOG**: Simple list of changes per version (not keepachangelog format)
+
+---
+
+## Topic 3: Coding Standards
+### Status: Complete
+
+### Decisions Made:
+- **Naming**: Microsoft C# conventions (PascalCase types/methods/properties, camelCase locals/params, _camelCase private fields)
+- **File organization**: One ECS system per file, named after the system
+- **File limits**: Soft guideline ~300 lines max per file, break up large classes
+- **Error handling**: Defensive everywhere — try/catch around risky operations, log all exceptions
+- **Logging**: Use CS2's LogManager (ILog)
+- **Formatting**: Include .editorconfig to enforce indentation, braces, using directives
+
+---
+
+## Topic 4: Build Tools
+### Status: Complete
+
+### Decisions Made:
+- **Build system**: dotnet CLI / MSBuild (`dotnet build`)
+- **Auto-deploy**: Yes, MSBuild post-build step copies DLL to game's Mods/ folder
+- **CI/CD**: None — build and release manually
+- **Target framework**: .NET Standard 2.1
+- **Game assembly references**: Referenced from Cities2_Data/Managed/, Copy Local = No
+
+---
+
+## Topic 5: Testing
+### Status: Complete
+
+### Decisions Made:
+- **Test approach**: In-game + logging (build, auto-deploy, launch, verify via logs and observation)
+- **Test saves**: No standard test save — test on whatever save is convenient
+- **Debugging**: Logging only via CS2's ILog system, no debugger attachment
+- **Workflow**: Build → auto-deploy → launch game → check logs → iterate
+
+---
+
+## Topic 6: Development Ecosystem
+### Status: Complete
+
+### Decisions Made:
+- **IDE**: No preference — developer's choice, document requirements only
+- **Distribution**: PDX Mods (official Paradox platform)
+- **Community tools**: Yes, maintain a curated list of vetted tools, libraries, and resources
+
+---
+
+## All Topics Complete
+
+## Deliverables Created
+
+### Core
+- `CLAUDE.md` — instructions Claude follows automatically
+
+### Reference Docs
+- `docs/coding-standards.md` — naming, patterns, error handling, ECS/Harmony examples
+- `docs/project-setup.md` — setup guide, README template, changelog format, versioning
+- `docs/community-tools.md` — frameworks, resources, namespaces, file locations
+
+### Templates
+- `templates/.gitignore` — C#/.NET + CS2 specifics
+- `templates/.editorconfig` — formatting rules
+- `templates/ModName.csproj` — pre-configured with game refs and auto-deploy
+- `templates/Mod.cs` — IMod entry point with logging
+- `templates/README.md` — standardized README
+- `templates/CHANGELOG.md` — simple version list
+- `templates/Directory.Build.props.example` — local game path config
+
+---
+
+## Topic 7: Research Standards
+### Status: Complete
+
+### Decisions Made:
+- **Research before coding**: Always decompile and trace game systems before writing mod code
+- **Tool**: `ilspycmd` (v9.1, requires .NET 8.0 runtime) for decompiling game DLLs
+- **Game DLLs**: Located at `/Volumes/steamapps/common/Cities Skylines II/Cities2_Data/Managed/`
+- **Research phases**: 7 phases — scope, namespace discovery, component ID, system tracing, prefab tracing, patch point ID, synthesis
+- **Output format**: Standardized template with component maps, system maps, data flow, patch points, mod blueprint
+- **Organization**: `research/topics/<TopicName>/` using game's internal naming conventions
+- **Decompiled source**: Stored in `research/decompiled/`, not committed to git
+- **Completeness**: Research is done when all components, systems, data flows, and patch points are documented
+
+### Deliverables Created:
+- `research/RESEARCH_STANDARDS.md` — phases, workflow, completeness criteria
+- `research/TEMPLATE.md` — template for individual research topics
+- Updated `CLAUDE.md` with Research section
+
+---
+
+## Topic 8: Research — Vehicle OutOfControl & Accidents
+### Status: Complete
+
+### Scope:
+How CS2 handles vehicles going out of control, collisions, and accident aftermath (fire, injuries, police dispatch, cleanup, chain reactions).
+
+### Key Findings:
+
+**Components (9 total)**:
+- `OutOfControl` (Game.Vehicles) — empty marker, tags vehicle as physics-controlled
+- `InvolvedInAccident` (Game.Events) — severity, event ref, frame number
+- `AccidentSite` (Game.Events) — road/building marker with flags, police tracking, timing
+- `Impact` (Game.Events) — temporary event with velocity deltas and severity
+- `AddAccidentSite` (Game.Events) — command component for creating/merging sites
+- `Moving` (Game.Objects) — velocity + angular velocity
+- `Damaged` (Game.Objects) — fire/structural/weather damage channels
+- `Destroyed` (Game.Common) — destruction state with cleanup progress
+- `TrafficAccident` (Game.Events) — empty marker for event type
+
+**Systems (8 total)**:
+- `ImpactSystem` — applies Impact forces, adds OutOfControl + InvolvedInAccident
+- `VehicleOutOfControlSystem` — physics sim (gravity 10m/s², friction, terrain/road collision)
+- `ObjectCollisionSystem` — swept OBB collision detection between moving objects
+- `AccidentVehicleSystem` — post-crash: stops vehicle, creates site, fires, injuries
+- `AccidentSiteSystem` — police requests, chain-reaction staging, cleanup
+- `AccidentCreatureSystem` — pedestrian injuries, stumbling, ambulance requests
+- `AddAccidentSiteSystem` — processes AddAccidentSite commands, merges sites
+- `DamagedVehicleSystem` — maintenance requests for damaged stopped vehicles
+
+**Chain Reaction Mechanism**: AccidentSiteSystem has StageAccident flag (active 3600 frames). When no involved entities remain, it finds passing cars on the road's sublanes and creates new Impact events (severity 5.0, lateral 5 m/s, angular 2 rad/s) — feeding back into ImpactSystem.
+
+**Key Constants**: cleanup timeout 14400 frames (~4 min), bicycle cleanup 300 frames, 50% pedestrian injury / 100% cyclist, 20% fatal injuries, fire = damage.x * fireData.m_StartProbability
+
+**Mod Approach**: Create Impact event entities programmatically (safest). ECS queries for OutOfControl/InvolvedInAccident/AccidentSite. Harmony patches possible but most jobs are Burst-compiled (Transpiler only).
+
+### Deliverables Created:
+- `research/topics/VehicleOutOfControl/README.md` — complete research template
+- `research/topics/VehicleOutOfControl/snippets/` — 7 key decompiled source files
+
+---
+
+## Topic 9: Research — Mod Hotkey Input
+### Status: Complete
+
+### Scope:
+How CS2 handles keyboard input and how mods register rebindable hotkeys via the `Game.Input` and `Game.Settings` frameworks.
+
+### Key Findings:
+
+**Architecture**: CS2 wraps Unity's Input System behind `Game.Input.InputManager` (singleton). Mods use `ProxyAction` (polling/events) and `ProxyBinding` (key paths + modifiers). Never touch Unity `InputAction` directly.
+
+**Registration Pipeline**:
+1. `ModSetting` subclass declares `[SettingsUIKeyboardAction]` on class + `[SettingsUIKeyboardBinding]` on `ProxyBinding` properties
+2. In `OnLoad()`: `RegisterInOptionsUI()` -> `LoadSettings()` -> `RegisterKeyBindings()`
+3. `RegisterKeyBindings()` calls `InputManager.AddActions()` -> creates `ProxyActionMap`/`ProxyAction`
+4. `ProxyBinding.Watcher` auto-syncs properties when player rebinds
+
+**Reading Input**:
+- Polling: `action.WasPressedThisFrame()`, `IsPressed()`, `WasReleasedThisFrame()` in `OnUpdate()`
+- Events: `action.onInteraction += (action, phase) => { ... }`
+
+**Key Types**: `InputManager`, `ProxyAction`, `ProxyActionMap`, `ProxyBinding`, `ProxyModifier`, `ProxyComposite`
+**Key Enums**: `BindingKeyboard` (106 keys), `ActionType` (Button/Axis/Vector2), `ActionComponent`, `RebindOptions`, `ModifierOptions`
+**Key Attributes**: `SettingsUIKeyboardActionAttribute` (class-level), `SettingsUIKeyboardBindingAttribute` (property-level), `SettingsUIBindingMimicAttribute`
+
+**Map name**: `ModSetting.id` = `{AssemblyName}.{Namespace}.{ModType}`
+
+### Deliverables Created:
+- `research/topics/ModHotkeyInput/README.md` — complete research template with code examples
+- `research/topics/ModHotkeyInput/snippets/` — 6 key decompiled/annotated source files
+
+---
+
+## Topic 10: Research — Mod Options UI System
+### Status: Complete
+
+### Scope:
+How CS2's Options UI system works for mods — registering settings pages, rendering widgets, keybinding rebinding UI, and localization. Companion to Topic 9 (ModHotkeyInput).
+
+### Key Findings:
+
+**Architecture**: Reflection-driven — `AutomaticSettings.FillSettingsPage()` scans `ModSetting` subclass properties via reflection. Property type + attributes determine which UI widget is created. No custom UI code needed for standard widgets.
+
+**Widget Type Mapping** (15 combinations):
+- `bool` → Toggle, `bool` + `[SettingsUIButton]` → Button, write-only `bool` → Button
+- `int`/`float` + `[SettingsUISlider]` → Slider, `int`/`string` + `[SettingsUIDropdown]` → Dropdown
+- `string` + `[SettingsUITextInput]` → Text input, `enum` → Enum dropdown
+- `ProxyBinding` → **Keybinding rebind widget** (automatic, no extra attribute needed)
+
+**Key Attributes** (3 categories):
+- **Layout**: `[SettingsUITabOrder]`, `[SettingsUIGroupOrder]`, `[SettingsUISection]`, `[SettingsUIShowGroupName]`, `[SettingsUIButtonGroup]`
+- **Visibility**: `[SettingsUIHidden]`, `[SettingsUIAdvanced]`, `[SettingsUIDeveloper]`, `[SettingsUIHideByCondition]`, `[SettingsUIDisableByCondition]`
+- **Widget config**: `[SettingsUIButton]`, `[SettingsUIConfirmation]`, `[SettingsUISlider]`, `[SettingsUIDropdown]`, `[SettingsUITextInput]`, `[SettingsUIMultilineText]`, `[SettingsUIDirectoryPicker]`
+
+**Keybinding Rebinding Flow**: `InputRebindingUISystem` handles capture, conflict detection (swap/unset), modifier capture (shift/ctrl/alt), and persistence — all automatic for `ProxyBinding` properties.
+
+**Localization Pattern**: Auto-generated keys based on `Options.SECTION[{id}]`, `Options.OPTION[{id}.{ClassName}.{PropertyName}]`, etc. Loaded via `MemorySource` added to `localizationManager`.
+
+**Registration Order**: `RegisterInOptionsUI()` → `LoadSettings()` → `RegisterKeyBindings()` (order matters)
+
+### Deliverables Created:
+- `research/topics/ModOptionsUI/README.md` — complete research template with annotated examples
+- `research/topics/ModOptionsUI/snippets/` — 5 decompiled attribute source files
+
+---
+
+## Topic 11: Research — Mod UI Buttons & Bindings
+### Status: Complete
+
+### Scope:
+How CS2 mods add custom buttons to the game UI (toolbar, panels) and communicate between C# systems and the TypeScript/React frontend via the Colossal UI binding framework.
+
+### Key Findings:
+
+**Architecture**: Two-sided bridge — C# `UISystemBase` subclasses register bindings (ValueBinding, TriggerBinding, CallBinding) that communicate with a TypeScript/React frontend via Coherent (cohtml). Bindings use a `"{group}.{name}"` path convention, with the mod ID as the group.
+
+**Binding Types (3 categories)**:
+- **C# → JS**: `ValueBinding<T>` (push on change), `GetterValueBinding<T>` (auto-poll every frame), `RawValueBinding` (raw writer delegate)
+- **JS → C#**: `TriggerBinding` (0-4 args), `RawTriggerBinding` (raw reader)
+- **JS → C# → JS**: `CallBinding<TResult>` (0-5 args with return value)
+
+**UISystemBase Lifecycle**: `OnCreate()` (register bindings) → `OnGamePreload()` (enable/disable by game mode) → `OnUpdate()` (poll IUpdateBindings) → `OnDestroy()` (auto-cleanup bindings)
+
+**TypeScript Module System**:
+- Entry point: `index.tsx` exports `ModRegistrar` function
+- `moduleRegistry.append(slot, Component)` — inject into game UI (slots: `"GameTopLeft"`, `"Game"`, `"Editor"`)
+- `moduleRegistry.extend(path, name, HOC)` — wrap vanilla components
+- `bindValue(group, name, default)` — subscribe to C# ValueBinding
+- `useValue(binding$)` — React hook for binding values
+- `trigger(group, name, ...args)` — invoke C# TriggerBinding
+
+**Serialization**: Built-in writers/readers for primitives, arrays, lists, dictionaries. Custom types via `IJsonWritable`/`IJsonReadable` interfaces or `ValueWriters.Register<T>()`. Enums serialized as integers. Community pattern: reflection-based `GenericUIWriter<T>` (RoadBuilder).
+
+**Build Setup**: webpack + TypeScript + SCSS. `mod.json` declares module ID. Output bundled to `UI/build/`. Scaffold with `npx create-csii-ui-mod`.
+
+**Observer Pattern**: Value bindings track subscriber count via subscribe/unsubscribe events. Skip serialization when `active` is false (no JS observers listening).
+
+### Deliverables Created:
+- `research/topics/ModUIButtons/README.md` — complete research template with architecture, binding types, module system, serialization, and mod blueprint
+- `research/topics/ModUIButtons/snippets/` — 8 files: decompiled UISystemBase, ValueBinding, GetterValueBinding, TriggerBinding, IJsonWriter+IJsonReader, plus annotated RoadBuilder examples (index.tsx, ModIconButton.tsx, ExtendedUISystemBase.cs, bindings.ts)
+
