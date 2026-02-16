@@ -198,12 +198,22 @@ Component on the selection tracking entity.
 | UIDisable | 0x2 | Disabled when mouse is over UI |
 | ToolDisable | 0x4 | Disabled during full update |
 | FreeCameraDisable | 0x8 | Disabled in free camera |
-| SubElements | 0x20 | Include sub-elements |
+| ElevateOffset | 0x10 | Apply elevation offset to ray |
+| SubElements | 0x20 | Include sub-elements (sub-objects, sub-nets) |
+| Placeholders | 0x40 | Include placeholder entities |
 | Markers | 0x80 | Include markers |
+| NoMainElements | 0x100 | Exclude main elements (only hit sub-elements) |
+| UpgradeIsMain | 0x200 | Treat upgrade entities as main elements |
 | OutsideConnections | 0x400 | Include outside connections |
+| Outside | 0x800 | Include entities outside map bounds |
+| Cargo | 0x1000 | Include cargo entities |
+| Passenger | 0x2000 | Include passenger entities |
 | Decals | 0x4000 | Include decals |
+| EditorContainers | 0x8000 | Include editor container entities |
 | SubBuildings | 0x10000 | Include sub-buildings |
+| PartialSurface | 0x20000 | Include partial surface areas |
 | BuildingLots | 0x40000 | Include building lots |
+| IgnoreSecondary | 0x80000 | Ignore secondary hits |
 
 ### `CollisionMask` (Game.Common) — Vertical layer filtering
 
