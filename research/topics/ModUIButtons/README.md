@@ -317,6 +317,17 @@ writer.Write((int)(object)value);  // Cast enum to int
 
 RoadBuilder's `GenericUIWriter<T>` / `GenericUIReader<T>` use reflection to auto-serialize any object by iterating public properties and fields. This avoids implementing `IJsonWritable` on every type but has runtime reflection cost. See `snippets/RoadBuilder_ExtendedUISystemBase.cs`.
 
+### Note: UI Serialization vs ECS Save/Load Serialization
+
+CS2 has **two separate serialization systems** — don't confuse them:
+
+| System | Namespace | Interfaces | Purpose |
+|--------|-----------|------------|---------|
+| **UI Binding** | `Colossal.UI.Binding` | `IJsonWritable`, `IJsonReadable` | C# ↔ JS data transfer for UI bindings |
+| **ECS Persistence** | `Colossal.Serialization.Entities` | `ISerializable` (with `IWriter`/`IReader`) | Save/load game state for ECS components |
+
+The UI binding interfaces (documented above) use `IJsonWriter.Write()` / `IJsonReader.Read()` to serialize data to/from the cohtml frontend. The ECS persistence interfaces use generic `Serialize<TWriter>(TWriter writer) where TWriter : IWriter` for binary save/load. Recolor uses ECS persistence on its custom `AssignedPalette` and `Swatch` components to persist color data across save/load cycles. ECS persistence is automatic for components implementing `ISerializable` — the game's serialization system handles them during save/load.
+
 ## Build Setup
 
 ### mod.json
