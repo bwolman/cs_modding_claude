@@ -152,6 +152,60 @@ where HeightBonus is a clamped linear function of terrain elevation above a thre
 
 *Source: `Game.dll` -> `Game.Prefabs.TreeData`*
 
+### `Plant` (Game.Objects)
+
+ECS component for non-tree vegetation (bushes, flowers, ground cover).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Pollution | float | Accumulated pollution affecting this plant |
+
+Trees and plants are separate component types — queries targeting vegetation should use `.WithAny<Tree, Plant>()` to include both. Tree_Controller's `DestroyFoliageSystem` and `ModifyTempVegetationSystem` both query for `Tree | Plant`.
+
+*Source: `Game.dll` -> `Game.Objects.Plant`*
+
+### `SubMesh` (Game.Prefabs) — Buffer Element
+
+Buffer element on prefab entities that stores mesh variants. Trees have 6 SubMesh entries corresponding to their lifecycle stages: child, teen, adult, elderly, dead, stump.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_SubMesh | Entity | Reference to the mesh prefab entity |
+| m_Position | float3 | Mesh position offset |
+| m_Rotation | quaternion | Mesh rotation offset |
+| m_Flags | SubMeshFlags | Mesh behavior flags |
+| m_RandomSeed | ushort | Random seed for variation |
+
+Tree_Controller checks `subMeshBuffer.Length > 5` to verify a tree prefab has a stump mesh (6th entry, index 5).
+
+*Source: `Game.dll` -> `Game.Prefabs.SubMesh`*
+
+### Tree Age Constants (`ObjectUtils`)
+
+`Game.Objects.ObjectUtils` defines constants for the float-based tree age representation. The `Tree.m_State` enum tracks discrete lifecycle stages, but the internal age system uses a 0-1 float where each phase occupies a proportion:
+
+| Constant | Value | Cumulative |
+|----------|-------|------------|
+| `TREE_AGE_PHASE_CHILD` | 0.10 | 0.00 – 0.10 |
+| `TREE_AGE_PHASE_TEEN` | 0.15 | 0.10 – 0.25 |
+| `TREE_AGE_PHASE_ADULT` | 0.35 | 0.25 – 0.60 |
+| `TREE_AGE_PHASE_ELDERLY` | 0.35 | 0.60 – 0.95 |
+| `TREE_AGE_PHASE_DEAD` | 0.05 | 0.95 – 1.00 |
+| `MAX_TREE_AGE` | 40f | Maximum age in game-time units |
+
+Tree_Controller's `TreeObjectDefinitionSystem` uses these to compute age thresholds for each `TreeState`:
+
+```csharp
+// Mapping TreeState to cumulative age thresholds:
+{ TreeState.Teen,    TREE_AGE_PHASE_CHILD }                                         // 0.10
+{ TreeState.Adult,   TREE_AGE_PHASE_CHILD + TREE_AGE_PHASE_TEEN }                   // 0.25
+{ TreeState.Elderly, TREE_AGE_PHASE_CHILD + TREE_AGE_PHASE_TEEN + TREE_AGE_PHASE_ADULT }  // 0.60
+{ TreeState.Dead,    ... + TREE_AGE_PHASE_ELDERLY + 0.00001f }                      // 0.95+
+{ TreeState.Stump,   ... + TREE_AGE_PHASE_DEAD }                                    // 1.00
+```
+
+*Source: `Game.dll` -> `Game.Objects.ObjectUtils`*
+
 ### `TerrainAttractiveness` (Game.Simulation)
 
 | Field | Type | Description |
