@@ -277,3 +277,70 @@ How CS2 mods add custom buttons to the game UI (toolbar, panels) and communicate
 - `research/topics/ModUIButtons/README.md` — complete research template with architecture, binding types, module system, serialization, and mod blueprint
 - `research/topics/ModUIButtons/snippets/` — 8 files: decompiled UISystemBase, ValueBinding, GetterValueBinding, TriggerBinding, IJsonWriter+IJsonReader, plus annotated RoadBuilder examples (index.tsx, ModIconButton.tsx, ExtendedUISystemBase.cs, bindings.ts)
 
+---
+
+## Topic 12: Workflow Management — GitHub Issues
+### Status: Complete
+
+### Decisions Made:
+- **Tracking**: GitHub Issues for all work items (features, bugs, research, chores)
+- **Labels**: Standard set — `feature`, `bug`, `research`, `chore`, `priority:high`, `priority:low`, `blocked`, `wontfix`
+- **Issue lifecycle**: Open → In Progress (assign) → PR references issue → Close on merge
+- **Milestones**: Map to SemVer releases (e.g. milestone `v1.0.0`)
+- **Branch naming**: `feature/123-short-desc`, `fix/456-short-desc`, `research/12-topic`, `chore/8-desc`
+- **Commit references**: `Fixes #123` or `Closes #123` for auto-close on merge
+- **Issue templates**: Bug report and feature request templates in `.github/ISSUE_TEMPLATE/`
+
+### Deliverables Created:
+- `docs/workflow.md` — full workflow guide with labels, lifecycle, milestones, branch naming
+- `.github/ISSUE_TEMPLATE/bug_report.md` — structured bug report template
+- `.github/ISSUE_TEMPLATE/feature_request.md` — structured feature request template
+- Updated `CLAUDE.md` with Workflow section
+
+---
+
+## Topic 13: Research — Tool Raycast & Entity Selection
+### Status: Complete
+
+### Scope:
+How CS2 casts rays from the camera through the mouse cursor to detect world entities, and how the tool system uses those results to highlight and select entities for mods.
+
+### Key Findings:
+
+**Architecture**: Three-layer pipeline — `ToolRaycastSystem` configures and submits raycasts, `RaycastSystem` executes them via Burst jobs against a spatial quad tree, and tool systems (`DefaultToolSystem`, etc.) consume the results for hover highlighting and click selection.
+
+**Components (8 key types)**:
+- `RaycastInput` (Game.Common) — configuration struct with TypeMask, RaycastFlags, CollisionMask, layer filters
+- `RaycastHit` (Game.Common) — hit result with entity, position, normal, distance
+- `RaycastResult` (Game.Common) — accumulated closest-hit, implements IAccumulable
+- `ControlPoint` (Game.Tools) — tool-level wrapper around RaycastHit with snap/elevation data
+- `Highlighted` (Game.Tools) — empty marker component for visual highlighting
+- `Temp` (Game.Tools) — temporary preview entity with TempFlags (Select, Dragging, Create, Delete)
+- `CreationDefinition` (Game.Tools) — command component for creating/selecting entities
+- `SelectionElement` (Game.Tools) — buffer element for multi-selection tracking
+
+**Systems (6 key systems)**:
+- `RaycastSystem` — core engine: quad tree broad phase → per-entity intersection → closest hit accumulation
+- `ToolRaycastSystem` — bridge: converts mouse pos to ray, configures filters, submits to RaycastSystem
+- `ToolSystem` — orchestrator: manages active tool, `selected` entity, update phases, input barriers
+- `ToolBaseSystem` — abstract base: `InitializeRaycast()` (configuration point), `GetRaycastResult()` (convenience)
+- `DefaultToolSystem` — pointer tool: hover → highlight → click → select. States: Default/MouseDown/Dragging
+- `SelectedUpdateSystem` — cleanup: validates selection exists, follows entity references if deleted
+
+**Key Enums**:
+- `TypeMask` — 13 flags: Terrain, StaticObjects, MovingObjects, Net, Zones, Areas, Routes, Labels, Water, Icons, WaterSources, Lanes
+- `RaycastFlags` — 20 flags: disable flags, SubElements, Markers, OutsideConnections, Decals, SubBuildings, BuildingLots
+- `CollisionMask` — 4 flags: OnGround, Overground, Underground, ExclusiveGround
+
+**Selection Flow**: Mouse pos → ToolRaycastSystem builds ray → RaycastSystem finds closest entity → DefaultToolSystem.Update() creates CreationDefinition with Select flag → Generate systems create Temp entity with TempFlags.Select → rendering highlights it → user clicks → DefaultToolSystem.Apply() reads Temp entities → sets ToolSystem.selected → UI shows info panel
+
+**Mod Approaches**:
+1. Read-only: poll `ToolSystem.selected` each frame (simplest)
+2. Postfix `DefaultToolSystem.InitializeRaycast()` to modify TypeMask/flags (change what's selectable)
+3. Programmatic: call `RaycastSystem.AddInput()` directly with custom RaycastInput (independent raycasts)
+4. Custom tool: subclass `ToolBaseSystem` with full control (most flexible)
+
+### Deliverables Created:
+- `research/topics/ToolRaycast/README.md` — complete research template with component map, system map, data flow, patch points, mod blueprint with code examples
+- `research/topics/ToolRaycast/snippets/` — 7 decompiled source files (RaycastSystem, ToolRaycastSystem, ToolSystem, ToolBaseSystem, DefaultToolSystem, SelectionToolSystem, SelectedUpdateSystem)
+

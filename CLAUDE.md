@@ -33,6 +33,15 @@ ModName/
 - **Never commit** game DLLs, build output, or local config
 - Build with `dotnet build` — post-build step auto-deploys to game's Mods/ folder
 
+## Workflow
+
+- Track features, bugs, and tasks via **GitHub Issues**
+- Use labels: `feature`, `bug`, `research`, `chore`
+- Branch names reference issue number: `feature/123-short-desc`, `fix/456-short-desc`
+- Link commits/PRs to issues with `Fixes #123` or `Closes #123`
+- Group issues into **milestones** matching SemVer releases
+- See `docs/workflow.md` for full workflow details and issue templates
+
 ## C# Conventions
 
 - **Microsoft C# naming**: PascalCase for types/methods/properties, camelCase for locals/params, `_camelCase` for private fields
@@ -87,3 +96,4 @@ Before writing mod code, research the relevant game systems by decompiling game 
 - `docs/coding-standards.md` — detailed C# and CS2 patterns
 - `docs/project-setup.md` — setup guide and templates
 - `docs/community-tools.md` — curated tools and resources
+- `docs/workflow.md` — GitHub Issues workflow, labels, branch naming, and issue templates
