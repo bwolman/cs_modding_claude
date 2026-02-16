@@ -205,6 +205,18 @@ using (InputManager.instance.CreateOverlayBarrier("MyScreen"))
 
 For permanent barriers (e.g., `ToolSystem.m_ToolActionBarrier`), keep a reference, toggle `blocked`, and call `Dispose()` in `OnDestroy()`. The map's `UpdateState()` is triggered automatically when `barrier.blocked` changes.
 
+## The `controlOverWorld` Guard
+
+`InputManager.controlOverWorld` is a boolean property that indicates whether the player has input focus on the game world (as opposed to UI panels, text fields, or menus). Mods should check this before processing hotkey presses to avoid triggering actions when the player is typing in a search box or interacting with UI elements.
+
+```csharp
+// In OnUpdate():
+if (!InputManager.instance.controlOverWorld) return;
+if (_myAction.WasPressedThisFrame()) { /* ... */ }
+```
+
+This guard is distinct from the `shouldBeEnabled` / InputBarrier mechanism — those prevent the `ProxyAction` from firing at all, while `controlOverWorld` is an application-level check that mods must implement themselves. Used by yenyang's QCommon2 `QInputSystem` as a standard pattern.
+
 ## Verdict
 
 **Mod keyboard shortcuts work globally during normal gameplay but are silently blocked in 6 specific contexts.**
