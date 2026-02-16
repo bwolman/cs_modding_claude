@@ -217,6 +217,7 @@ Base class for mod settings. Handles keybinding registration lifecycle.
 | `UnregisterInOptionsUI()` | Removes settings page |
 | `RegisterKeyBindings()` | Reads all `ProxyBinding` properties, builds `ProxyAction.Info[]`, calls `InputManager.AddActions()`, creates watchers |
 | `InitializeKeyBindings()` | Called in constructor. Reads binding attributes via reflection, sets initial `ProxyBinding` values |
+| `GetAction(actionName)` | Convenience wrapper: returns `InputManager.instance.FindAction(id, actionName)`. Preferred over manual `FindAction` calls since it auto-fills the map name from `settings.id`. |
 
 **Registration flow in `RegisterKeyBindings()`**:
 1. Collects all `ProxyBinding` properties via reflection
@@ -463,8 +464,12 @@ public partial class MyHotkeySystem : GameSystemBase
     protected override void OnCreate()
     {
         base.OnCreate();
-        _triggerAction = InputManager.instance.FindAction(
-            Mod.Settings.id, "TriggerAction");
+        // Option A: Use ModSetting.GetAction() (preferred — auto-fills map name)
+        _triggerAction = Mod.Settings.GetAction("TriggerAction");
+
+        // Option B: Manual lookup via InputManager
+        // _triggerAction = InputManager.instance.FindAction(
+        //     Mod.Settings.id, "TriggerAction");
     }
 
     protected override void OnUpdate()
