@@ -344,3 +344,57 @@ How CS2 casts rays from the camera through the mouse cursor to detect world enti
 - `research/topics/ToolRaycast/README.md` — complete research template with component map, system map, data flow, patch points, mod blueprint with code examples
 - `research/topics/ToolRaycast/snippets/` — 7 decompiled source files (RaycastSystem, ToolRaycastSystem, ToolSystem, ToolBaseSystem, DefaultToolSystem, SelectionToolSystem, SelectedUpdateSystem)
 
+---
+
+## Topic 14: Research — Water & Sewage Pipe Network
+### Status: Complete
+
+### Scope:
+How CS2 routes fresh water from pumping stations through underground pipes to buildings, and how sewage flows back to treatment outlets. The entire pipe network simulation.
+
+### Key Findings:
+
+**Architecture**: CPU-based max-flow graph solver running on a 128-frame cycle. The graph uses WaterPipeNode vertices and WaterPipeEdge edges, with separate flow computations for fresh water and sewage on the same topology. A virtual super-source connects all producers (pumps) and a virtual super-sink connects all consumers (buildings).
+
+**Components (10 key types)**:
+- `WaterPipeNode` (Game.Simulation) — graph vertex with pollution tracking
+- `WaterPipeEdge` (Game.Simulation) — graph edge with dual fresh/sewage capacity and flow, plus status flags (WaterShortage, SewageBackup, WaterDisconnected, SewageDisconnected)
+- `WaterPipeBuildingConnection` (Game.Simulation) — links buildings directly to pipe graph (producer + consumer edges)
+- `WaterPipeNodeConnection` (Game.Simulation) — links road segments to pipe graph nodes
+- `WaterPipeValveConnection` (Game.Simulation) — links entities to valve nodes
+- `WaterConsumer` (Game.Buildings) — building water demand/fulfillment with connection flags
+- `GroundWater` (Game.Simulation) — 256x256 grid with amount, pollution, max per cell
+- `WaterPipeConnection` (Game.Net) — road/pipe segment capacity (fresh, sewage, storm)
+- `WaterPipeParameterData` (Game.Prefabs) — singleton with all tuning parameters
+- `ConnectedFlowEdge` (Game.Simulation) — adjacency list buffer on each node
+
+**Systems (10 key systems)**:
+- `WaterPipeFlowSystem` — central solver: 3-phase cycle (Prepare → Flow → Apply)
+- `WaterPipeFlowJob` — Burst-compiled max-flow with 6 sub-phases (Producer → PostProducer → Trade → PostTrade → FluidFlow → Complete)
+- `AdjustWaterConsumptionSystem` — recalculates building demand from prefabs, fees, occupancy
+- `DispatchWaterSystem` — distributes solved flow to building WaterConsumer components
+- `WaterPipePollutionSystem` — propagates pollution through pipe network
+- `GroundWaterSystem` — 256x256 groundwater grid with replenishment, flow, and purification
+- `WaterPipeBuildingGraphSystem` — creates pipe graph for buildings with direct connections
+- `WaterPipeEdgeGraphSystem` — creates pipe edges for road/pipe segments
+- `WaterPipeRoadConnectionGraphSystem` — creates pipe nodes for road segments
+- `WaterPipeGraphUtils` — static helpers for creating/deleting flow edges and nodes
+
+**Solve Cycle (128-frame)**:
+Frame 64: AdjustWaterConsumption → Frame 65: Prepare graph → Frames 66-125: Max-flow solver → Frame 62: Apply results → Frame 63: Dispatch to buildings
+
+**Mod Approaches**:
+1. Read-only: query WaterConsumer to check building water status
+2. Modify WaterPipeParameterData singleton to change global water parameters
+3. Postfix AdjustWaterConsumptionSystem.OnUpdate to override building consumption
+4. Postfix DispatchWaterSystem.OnUpdate to override dispatch results
+5. Use WaterPipeGraphUtils to create custom pipe edges
+
+### Deliverables Created:
+- `research/topics/WaterSewagePipes/README.md` — complete research template with 10 components, 10 systems, data flow, 4 patch points, 5 code examples
+- `research/topics/WaterSewagePipes/snippets/` — 20 decompiled source files
+- `site/water-sewage-pipes.html` — GitHub Pages documentation
+- Cross-references added to WaterSystem research and water-system.html
+- Sidebar updated on all 27 site pages
+- GitHub labels initialized, issue #8 created and closed
+
