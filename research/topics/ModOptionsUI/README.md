@@ -178,24 +178,29 @@ public bool ResetKeybindings { set { ... } }
 
 **Target**: Class, Struct, Property, Field | **Purpose**: Visible in page but hidden from search
 
-#### `[SettingsUIHideByCondition(Type checkType, string checkMethod, bool invert = false)]`
+#### `[SettingsUIHideByCondition(Type checkType, string checkMember, bool invert = false)]`
 
 **Target**: Class or Property | **Purpose**: Dynamically hides based on runtime condition
 
+The `checkMember` parameter accepts both **method names** and **property names** that return `bool`. The `AutomaticSettings` reflection engine resolves both.
+
 ```csharp
+// Using a method:
 [SettingsUIHideByCondition(typeof(MySettings), nameof(IsFeatureDisabled))]
 public int FeatureIntensity { get; set; }
-
 public bool IsFeatureDisabled() => !EnableFeature;
+
+// Using a property (also works):
+[SettingsUIHideByCondition(typeof(MySettings), nameof(ShowAdvanced), invert: true)]
+public int AdvancedSetting { get; set; }
+public bool ShowAdvanced { get; set; }
 ```
 
-The method must be accessible on the settings class instance.
-
-#### `[SettingsUIDisableByCondition(Type checkType, string checkMethod, bool invert = false)]`
+#### `[SettingsUIDisableByCondition(Type checkType, string checkMember, bool invert = false)]`
 
 **Target**: Class or Property | **Purpose**: Dynamically grays out (disabled but visible)
 
-Same signature as HideByCondition.
+Same signature as HideByCondition -- also accepts both method and property names.
 
 ### Widget Configuration Attributes
 
