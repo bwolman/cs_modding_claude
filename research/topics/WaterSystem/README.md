@@ -171,10 +171,15 @@ The central orchestrator for the entire water surface simulation.
   - `kDefaultSeaLevel = 511.7f` -- default sea level height
   - Texture size: 2048x2048
 - **Key properties**:
-  - `SeaLevel` -- current sea level (writes trigger `UpdateSeaLevel()`)
+  - `SeaLevel` -- current sea level (get/set). Setting it requires calling `UpdateSeaLevel()` afterwards to propagate the change to the simulation.
+  - `WaterSimSpeed` -- int, simulation speed multiplier. 0 = paused. Mods should skip water processing when this is 0.
+  - `UseLegacyWaterSources` -- bool, whether the map uses legacy (pre-update) water source format.
   - `GetSurfaceData(out JobHandle)` -- returns CPU-readable water depth array
   - `GetSurfacesData(out JobHandle)` -- includes backdrop data
   - `AddSurfaceReader(JobHandle)` -- register dependency on surface data
+- **Key methods**:
+  - `UpdateSeaLevel()` -- must be called after setting `SeaLevel` to push the change to the GPU simulation
+  - `CalculateSourceMultiplier(WaterSourceData source, float3 position)` -- computes the flow multiplier for a water source, normalizing contribution across cells within its radius. Used by Water_Features to properly scale custom water sources.
 - **OnUpdate()**: Collects all WaterSourceData entities into a NativeList<WaterSourceCache> via SourceJob, then flips the double-buffered cache.
 - **Simulate()** (called from OnSimulateGPU): Runs the GPU simulation loop:
   1. `EvaporateStep` -- evaporation and rain
