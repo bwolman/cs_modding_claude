@@ -328,8 +328,10 @@
        +---> Accident: ImpactSystem -> AddAccidentSiteSystem
        |         |
        |         v
-       |     AccidentSiteSystem checks InvolvedInAccident severity
-       |         |  recalculates RequirePolice flag each tick
+       |     AccidentSiteSystem (every 64 frames):
+       |         |  1. Clears RequirePolice unconditionally
+       |         |  2. Re-sets RequirePolice if severity > 0 + valid target
+       |         |     OR detected unsecured crime + valid target
        |         v
        |     Creates: ServiceRequest + PoliceEmergencyRequest + RequestGroup(4)
        |
@@ -380,15 +382,50 @@
 
   <p>
     Police emergency dispatch has an extra layer of complexity. The
-    <code>AccidentSiteSystem</code> runs every 64 frames and recalculates the
-    <code>RequirePolice</code> flag from scratch each tick. It sets the flag only when:
+    <code>AccidentSiteSystem</code> runs every 64 frames and uses a
+    <strong>clear-then-evaluate</strong> pattern for the <code>RequirePolice</code> flag.
+    On every tick, for every <code>AccidentSite</code> entity, the system:
   </p>
 
-  <ul>
-    <li>At least one involved entity has <code>InvolvedInAccident.m_Severity &gt; 0</code> AND a
-        valid non-moving target exists, OR</li>
-    <li>The site is a crime scene with <code>CrimeDetected</code> flag set</li>
-  </ul>
+  <ol>
+    <li><strong>Unconditionally clears</strong> <code>RequirePolice</code>:
+        <code>accidentSite.m_Flags &amp;= ~AccidentSiteFlags.RequirePolice;</code></li>
+    <li><strong>Conditionally re-sets</strong> <code>RequirePolice</code> only when:
+      <ul>
+        <li>At least one involved entity has <code>InvolvedInAccident.m_Severity &gt; 0</code>
+            AND a valid non-moving target entity exists, OR</li>
+        <li>The site is an unsecured crime scene (<code>CrimeScene</code> set, <code>Secured</code>
+            not set) with <code>CrimeDetected</code> flag set AND a valid target exists</li>
+      </ul>
+    </li>
+  </ol>
+
+  <p>
+    The decompiled code from <code>AccidentSiteJob</code> shows this pattern explicitly.
+    <code>num2</code> is the maximum severity from <code>InvolvedInAccident</code> targets, and
+    <code>entity2</code> is the highest-severity non-moving entity:
+  </p>
+
+  <pre><code class="language-csharp">// Step 1: UNCONDITIONAL CLEAR
+accidentSite.m_Flags &amp;= ~AccidentSiteFlags.RequirePolice;
+
+// Step 2: CONDITIONAL RE-SET based on severity and crime scene status
+if (num2 &gt; 0f || (accidentSite.m_Flags &amp; (AccidentSiteFlags.Secured | AccidentSiteFlags.CrimeScene)) == AccidentSiteFlags.CrimeScene)
+{
+    if (num2 &gt; 0f || (accidentSite.m_Flags &amp; AccidentSiteFlags.CrimeDetected) != 0)
+    {
+        if (entity2 != Entity.Null)
+        {
+            accidentSite.m_Flags |= AccidentSiteFlags.RequirePolice;
+            RequestPoliceIfNeeded(...);
+        }
+    }
+}</code></pre>
+
+  <p>
+    The unconditional clear means any value set by a mod <em>before</em>
+    <code>AccidentSiteSystem</code> runs will be wiped. See the modding warning below.
+  </p>
 
   <p>
     The <code>PoliceEmergencyDispatchSystem.ValidateSite()</code> method then checks:
@@ -409,6 +446,45 @@
     This means: if <code>RequirePolice</code> is not set, or if <code>Secured</code> is already
     set, the request gets destroyed. A mod that wants police at every accident must ensure
     <code>RequirePolice</code> stays set.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Modding Warning: UpdateBefore vs UpdateAfter for RequirePolice</h2>
+
+  <p>
+    Because <code>AccidentSiteSystem</code> <strong>unconditionally clears</strong>
+    <code>RequirePolice</code> before evaluating whether to re-set it, the system ordering
+    of any mod that modifies this flag is critical:
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Ordering</th>
+        <th>Result</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>[UpdateBefore(typeof(AccidentSiteSystem))]</code></td>
+        <td><strong>WRONG.</strong> Your <code>RequirePolice</code> value will be unconditionally
+            wiped by the <code>&amp;= ~RequirePolice</code> clear at the top of the system's
+            evaluation loop. Your changes are lost every tick.</td>
+      </tr>
+      <tr>
+        <td><code>[UpdateAfter(typeof(AccidentSiteSystem))]</code></td>
+        <td><strong>CORRECT.</strong> Your system runs after the clear-and-evaluate cycle. You can
+            safely set <code>RequirePolice</code> and it will persist until the next
+            <code>AccidentSiteSystem</code> tick (64 frames later). The
+            <code>PoliceEmergencyDispatchSystem</code> will see your flag during the intervening
+            dispatch ticks.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The same pattern applies to <code>MovingVehicles</code>, which is also unconditionally cleared
+    then conditionally re-set each tick.
   </p>
 
   <!-- ============================================================ -->
@@ -628,20 +704,261 @@ private void DispatchAmbulanceTo(Entity citizen)
   </table>
 
   <!-- ============================================================ -->
+  <h2>Archetype Safety: Do Not Add Building Components to Citizens</h2>
+
+  <p>
+    In CS2's ECS, every entity has an <strong>archetype</strong> determined by its exact set of
+    component types. Adding or removing a component moves the entity to a different archetype,
+    changing which <code>EntityQuery</code> results it appears in. This creates a subtle and
+    dangerous pitfall for modders working with cross-domain dispatch.
+  </p>
+
+  <h3>The Problem</h3>
+
+  <p>
+    <code>RescueTarget</code> is defined in the <code>Game.Buildings</code> namespace. It is a
+    building-domain component -- the game adds it to <strong>building</strong> entities that need
+    fire rescue (e.g., collapsed structures). The <code>FireRescueDispatchSystem.ValidateTarget()</code>
+    method checks for <code>OnFire</code> or <code>RescueTarget</code> on the target entity.
+  </p>
+
+  <p>
+    It may seem logical to add <code>RescueTarget</code> to a <strong>citizen</strong> entity to
+    make fire engines respond to citizen emergencies. <strong>Do not do this.</strong> Adding a
+    building-domain component to a citizen entity changes the citizen's archetype, which causes
+    three problems:
+  </p>
+
+  <ol>
+    <li>
+      <strong>Matches queries it should not match.</strong> Systems that query for entities with
+      <code>RescueTarget</code> (building rescue systems, cleanup systems) will pick up this
+      citizen entity and may process it incorrectly.
+    </li>
+    <li>
+      <strong>Drops out of queries it should match.</strong> Some systems use
+      <code>ComponentType.Exclude</code> or archetype-based chunk filtering. An unexpected
+      component can cause the entity to silently disappear from these queries.
+    </li>
+    <li>
+      <strong>Breaks <code>HealthcareDispatchSystem</code>.</strong> Healthcare-adjacent systems
+      that iterate over citizen archetypes may skip entities with unexpected building-domain
+      components. This can result in ambulances never being dispatched or citizens being silently
+      ignored by the healthcare pipeline.
+    </li>
+  </ol>
+
+  <h3>Bad Example: RescueTarget on Citizens</h3>
+
+  <p>
+    The "Send Fire Engines to an Accident Scene" example above adds <code>RescueTarget</code> to
+    <strong>accident site entities</strong> (road segments or event entities), which is acceptable
+    because those are not citizen entities. However, applying the same pattern to citizens is
+    dangerous:
+  </p>
+
+  <pre><code class="language-csharp">// BAD: Adding a building-domain component to a citizen entity
+EntityManager.AddComponentData(citizenEntity, new RescueTarget(Entity.Null));</code></pre>
+
+  <p>
+    This changes the citizen's archetype from something like
+    <code>[Citizen, CurrentBuilding, HouseholdMember, HealthProblem, ...]</code> to
+    <code>[Citizen, CurrentBuilding, HouseholdMember, HealthProblem, RescueTarget, ...]</code>.
+    Any system querying citizen archetypes without expecting <code>RescueTarget</code> may behave
+    unpredictably.
+  </p>
+
+  <h3>Recommended: Custom Tag Components</h3>
+
+  <p>
+    Instead of reusing game components from other domains, define a custom tag component in your
+    mod's namespace:
+  </p>
+
+  <pre><code class="language-csharp">namespace YourMod.Components
+{
+    /// &lt;summary&gt;
+    /// Tag component marking a citizen as needing fire rescue.
+    /// Uses a mod-specific type to avoid archetype conflicts with
+    /// Game.Buildings.RescueTarget.
+    /// &lt;/summary&gt;
+    public struct NeedsFireRescue : IComponentData
+    {
+        public Entity m_Request;
+    }
+}</code></pre>
+
+  <p>Then create a custom system that:</p>
+
+  <ol>
+    <li>Queries for citizens with your <code>NeedsFireRescue</code> tag</li>
+    <li>Creates <code>FireRescueRequest</code> entities pointing to the citizen's
+        <strong>current building</strong> (not the citizen) as the target</li>
+    <li>Adds <code>RescueTarget</code> to the <strong>building</strong> entity (where it belongs),
+        not the citizen</li>
+  </ol>
+
+  <p>This keeps citizen archetypes clean and avoids breaking <code>HealthcareDispatchSystem</code>
+     or any other system that queries citizens.</p>
+
+  <h3>General Rule</h3>
+
+  <p>
+    <strong>Never add components from one domain to entities of another domain:</strong>
+  </p>
+
+  <ul>
+    <li>Do not add <code>Game.Buildings.*</code> components to citizen or vehicle entities</li>
+    <li>Do not add <code>Game.Citizens.*</code> components to building or vehicle entities</li>
+    <li>Do not add <code>Game.Vehicles.*</code> components to citizen or building entities</li>
+  </ul>
+
+  <p>
+    If you need cross-domain relationships, use custom components in your mod's namespace and a
+    bridging system that operates on the correct entity types.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>RescueTarget Lifecycle</h2>
+
+  <p>
+    <code>RescueTarget</code> (<code>Game.Buildings</code>) is a component added to
+    <strong>collapsed/destroyed buildings</strong> that need fire engine rescue crews. It is used
+    exclusively for disaster rescue (not for active fires). The full lifecycle is managed by two systems:
+    <code>CollapsedBuildingSystem</code> (creation and removal) and <code>FireEngineAISystem</code>
+    (response behavior).
+  </p>
+
+  <h3>Lifecycle Stages</h3>
+
+  <ol>
+    <li>
+      <strong>Created by CollapsedBuildingSystem:</strong> When a building is destroyed, the
+      <code>Destroyed</code> component is added with <code>m_Cleared</code> starting negative (collapse
+      animation). Once <code>m_Cleared</code> reaches 0, the system checks
+      <code>BuildingFlags.RequireRoad</code>. Road-connected buildings get <code>RescueTarget</code>
+      added and a <code>FireRescueRequest</code> created with type <code>Disaster</code> and priority
+      <code>10f</code>. Non-road buildings skip rescue entirely (<code>m_Cleared</code> set to 1.0).
+    </li>
+    <li>
+      <strong>Updated:</strong> <code>FireExtinguishingJob</code> updates <code>m_Request</code> to link
+      the responding fire engine's request to the rescue target.
+    </li>
+    <li>
+      <strong>Used:</strong> <code>FireEngineAISystem</code> checks for <code>RescueTarget</code> in two
+      key methods:
+      <ul>
+        <li><code>BeginExtinguishing</code>: When a fire engine arrives at a target, checks
+            <code>OnFire</code> first, then falls back to <code>RescueTarget</code> to determine behavior.</li>
+        <li><code>SelectNextDispatch</code>: When selecting the next assignment, validates
+            Disaster-type requests by checking <code>RescueTarget</code> is still present on the target.</li>
+      </ul>
+    </li>
+    <li>
+      <strong>Work performed:</strong> <code>FireEngineAISystem</code>'s
+      <code>ObjectExtinguishIterator.TryExtinguish</code> checks for a <code>Destroyed</code> component
+      with <code>m_Cleared &lt; 1.0</code> and advances clearing progress at rate
+      <code>4/15 * clearRate</code> per tick. The engine stays until clearing is complete.
+    </li>
+    <li>
+      <strong>Cleanup by CollapsedBuildingSystem:</strong> Every 64 frames, the system checks all entities
+      with <code>RescueTarget</code>. If <code>Destroyed.m_Cleared &gt;= 1.0</code>, it removes the
+      <code>RescueTarget</code> component. If <code>m_Cleared &lt; 1.0</code>, it re-creates the
+      <code>FireRescueRequest</code> to keep fire engines coming until the job is done.
+    </li>
+  </ol>
+
+  <p>
+    <strong>Modding implication:</strong> If you add <code>RescueTarget</code> to an entity that is NOT a
+    destroyed building, <code>CollapsedBuildingSystem</code> will NOT clean it up (the system only queries
+    entities with <code>Destroyed</code>). Your mod must handle its own cleanup. A lingering
+    <code>RescueTarget</code> will cause <code>FireRescueDispatchSystem</code> to consider fire rescue
+    requests for that entity as valid even after the original event is over.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Fire Engine AI at Non-Fire RescueTarget</h2>
+
+  <p>
+    When a fire engine is dispatched to a <code>RescueTarget</code> entity that is NOT on fire, the
+    following sequence occurs in <code>FireEngineAISystem.BeginExtinguishing</code>:
+  </p>
+
+  <ol>
+    <li><strong>Arrival:</strong> The fire engine reaches the target (path end reached).</li>
+    <li><strong>OnFire check:</strong> The system checks for <code>OnFire</code> first. If present, the
+        engine enters the <strong>Extinguishing</strong> state.</li>
+    <li><strong>RescueTarget fallback:</strong> If no <code>OnFire</code> but <code>RescueTarget</code>
+        is present, the engine enters the <strong>Rescueing</strong> state (note: &quot;Rescueing&quot; is
+        a typo in the game code, not &quot;Rescuing&quot;).</li>
+    <li><strong>Vehicle stops:</strong> <code>StopVehicle</code> is called to halt the engine at the
+        location.</li>
+    <li><strong>TryExtinguishFire evaluation:</strong> The system calls <code>TryExtinguishFire</code>,
+        which behaves differently depending on the entity state:
+      <ul>
+        <li>If the entity has the <code>Destroyed</code> component with <code>m_Cleared &lt; 1.0</code>:
+            the engine advances rubble clearing progress at a rate of <code>4/15 * clearRate</code>.</li>
+        <li>If the entity is NOT destroyed AND NOT on fire: <code>TryExtinguishFire</code> returns
+            <code>false</code> immediately (nothing to do).</li>
+      </ul>
+    </li>
+    <li><strong>Next dispatch:</strong> When <code>TryExtinguishFire</code> returns <code>false</code>,
+        the engine calls <code>SelectNextDispatch</code> to find another assignment or returns to its
+        station/depot.</li>
+  </ol>
+
+  <h3>Key Answer</h3>
+
+  <p>
+    At a non-fire, non-destroyed <code>RescueTarget</code>, the fire engine enters the
+    <code>Rescueing</code> state, stops, calls <code>TryExtinguishFire</code> which finds nothing to do
+    (no fire intensity to reduce, no rubble to clear), returns <code>false</code>, and the engine
+    immediately moves on to the next dispatch or returns to the station.
+    <strong>It does NOT idle indefinitely.</strong>
+  </p>
+
+  <p>
+    This is important for mods that add <code>RescueTarget</code> to accident sites or other non-fire
+    entities: the fire engine will arrive, briefly stop, determine there is nothing to do, and leave. If
+    the goal is to have the fire engine perform some action at the scene, a Harmony patch on
+    <code>TryExtinguishFire</code> or <code>BeginExtinguishing</code> would be needed to inject custom
+    behavior.
+  </p>
+
+  <h3>Destroyed Entity Clearing</h3>
+
+  <p>
+    For entities that have the <code>Destroyed</code> component (e.g., collapsed buildings), the fire
+    engine will actively clear rubble at a rate of <code>4/15 * clearRate</code> per tick. The engine stays
+    until <code>m_Cleared &gt;= 1.0</code>. This is the intended use case for <code>RescueTarget</code>
+    without <code>OnFire</code> -- rubble clearing at destroyed buildings.
+  </p>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
     <li>How does the pathfinder match <code>SetupTargetType.PolicePatrol</code> to stations? Does it filter by PolicePurpose flags or only by distance?</li>
-    <li>When <code>RescueTarget</code> is added manually to a non-burning entity, does the fire engine AI handle it correctly after arrival?</li>
+    <li>What happens if multiple requests exist for the same AccidentSite? The system checks <code>m_PoliceRequest</code> on AccidentSite -- does this prevent duplicates?</li>
     <li>How do reversed requests (station/vehicle proactively seeking work) interact with manually-created forward requests?</li>
     <li>Does <code>PolicePatrolDispatchSystem</code> ever create emergency-type responses, or is patrol strictly separate?</li>
+  </ul>
+
+  <h3>Answered Questions</h3>
+
+  <ul>
+    <li><strong>When <code>RescueTarget</code> is added manually to a non-burning entity, does the fire engine AI handle it correctly after arrival?</strong>
+        Yes. The fire engine enters <code>Rescueing</code> state, stops, calls <code>TryExtinguishFire</code>.
+        If the entity is not on fire and not destroyed, <code>TryExtinguishFire</code> returns <code>false</code>
+        immediately and the engine moves on to its next dispatch or returns to the station. It does not idle
+        indefinitely. See &quot;Fire Engine AI at Non-Fire RescueTarget&quot; section above.</li>
   </ul>
 
   <!-- ============================================================ -->
   <h2>Sources</h2>
 
   <ul>
-    <li>Decompiled from: Game.dll -- Game.Simulation (ServiceRequest, ServiceDispatch, Dispatched, HandleRequest, RequestGroup, PoliceEmergencyRequest, FireRescueRequest, HealthcareRequest, ServiceRequestSystem, AccidentSiteSystem, PoliceEmergencyDispatchSystem, FireRescueDispatchSystem, HealthcareDispatchSystem, FireSimulationSystem, HealthProblemSystem)</li>
+    <li>Decompiled from: Game.dll -- Game.Simulation (ServiceRequest, ServiceDispatch, Dispatched, HandleRequest, RequestGroup, PoliceEmergencyRequest, FireRescueRequest, HealthcareRequest, ServiceRequestSystem, AccidentSiteSystem, PoliceEmergencyDispatchSystem, FireRescueDispatchSystem, HealthcareDispatchSystem, FireSimulationSystem, HealthProblemSystem, FireEngineAISystem, CollapsedBuildingSystem)</li>
     <li>Decompiled from: Game.dll -- Game.Events (AccidentSite, AccidentSiteFlags, OnFire, InvolvedInAccident)</li>
     <li>Decompiled from: Game.dll -- Game.Citizens (HealthProblem, HealthProblemFlags)</li>
     <li>Decompiled from: Game.dll -- Game.Prefabs (PolicePurpose), Game.Buildings (RescueTarget)</li>
