@@ -293,7 +293,26 @@ Also supports dynamic form: `[SettingsUIDisplayName(typeof(MySettings), "GetDisp
 
 #### `[SettingsUISetter(Type setterType, string setterMethod)]`
 
-**Target**: Property | **Purpose**: Custom callback before the property setter
+**Target**: Property | **Purpose**: Custom callback invoked when the property value changes in the UI.
+
+The callback method must be an instance method on the specified `setterType` (typically the settings class itself) and takes a single parameter matching the property type. This is useful for triggering side effects when a setting changes — e.g., enabling/disabling ECS systems, updating UI panels, or applying settings immediately.
+
+```csharp
+[SettingsUISetter(typeof(MySettings), nameof(OnToggleChanged))]
+public bool MyToggle { get; set; }
+
+// Called when the user changes MyToggle in the Options UI.
+// The parameter receives the new value.
+public void OnToggleChanged(bool value)
+{
+    // Example: enable/disable an ECS system based on the toggle
+    World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<MyFeatureSystem>()
+        .Enabled = value;
+}
+```
+
+Used by BetterBulldozer (enable/disable removal systems) and TopoToggle (update panel visibility).
 
 #### `[SettingsUIValueVersion(Type versionGetterType, string versionGetterMethod)]`
 
