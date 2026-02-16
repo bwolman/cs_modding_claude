@@ -287,6 +287,19 @@ Central orchestrator for all tools. Manages which tool is active, coordinates up
   - All layer/type masks cleared
   - Flags cleared except disable flags
 
+### `ObjectToolBaseSystem` (Game.Tools) — Specialized base for object manipulation tools
+
+- **Base class**: ToolBaseSystem (abstract)
+- **Purpose**: Extends `ToolBaseSystem` with object-specific infrastructure: `CreationDefinition` generation, prefab attachment handling, brush support, and object placement/transform logic.
+- **Key additions over ToolBaseSystem**:
+  - `GetPrefab()` / `TrySetPrefab(PrefabBase)` — abstract prefab management
+  - `CreateDefinitionsJob` (Burst) — Generates `CreationDefinition` entities with proper transforms, snapping, attachment data
+  - `AttachmentData` struct — Tracks attachment entity + offset for object-to-object snapping
+  - Built-in brush support — BrushIterator for painting objects across areas
+  - Spatial queries via `NativeQuadTree` for object placement validation
+- **When to use**: Choose `ObjectToolBaseSystem` over `ToolBaseSystem` when your tool places, moves, or transforms objects (buildings, trees, props). MoveIt extends this class for its entity manipulation tool. Use `ToolBaseSystem` directly for simpler tools that only read raycast results (inspection, selection-only tools).
+- **Used by**: `ObjectToolSystem` (vanilla object placer), MoveIt's `MIT` tool class
+
 ### `DefaultToolSystem` (Game.Tools)
 
 The "pointer" tool — active when no placement/construction tool is selected. Handles hovering, clicking to select, and dragging.
