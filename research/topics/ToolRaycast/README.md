@@ -96,6 +96,12 @@ Tool-level wrapper around a raycast hit. Created from `RaycastHit` via construct
 
 Empty marker component. Added to entities that the tool system wants to visually highlight (hover effect). The rendering system reads this.
 
+**Direct entity highlighting**: Mods can add/remove `Highlighted` directly on entities to control highlighting without going through the `CreationDefinition` → `Temp` pipeline. When modifying `Highlighted`, you **must** also add `BatchesUpdated` (from `Game.Rendering`) to the same entity so the rendering system picks up the change. Pattern:
+- **Highlight**: `EntityManager.AddComponent<Highlighted>(entity)` + `EntityManager.AddComponent<BatchesUpdated>(entity)`
+- **Un-highlight**: `EntityManager.RemoveComponent<Highlighted>(entity)` + `EntityManager.AddComponent<BatchesUpdated>(entity)`
+
+This approach is used by Anarchy's `AnarchyComponentsToolSystem` for custom entity hovering that bypasses the standard `DefaultToolSystem` selection pipeline.
+
 *Source: `Game.dll` → `Game.Tools.Highlighted`*
 
 ### `Temp` (Game.Tools)
@@ -909,12 +915,112 @@ public class SelectionPollingSystem : GameSystemBase
 }
 ```
 
+### Example 8: Direct entity highlighting with Highlighted + BatchesUpdated
+
+Instead of going through the `CreationDefinition` → `Temp` pipeline, mods can directly add/remove the `Highlighted` component on real entities. This gives full control over which entities are highlighted without requiring a custom tool's selection logic. The critical detail is that `BatchesUpdated` must always accompany changes to `Highlighted` so the rendering system refreshes.
+
+```csharp
+using Game.Common;
+using Game.Rendering;
+using Game.Tools;
+using Unity.Entities;
+using Unity.Jobs;
+using UnityEngine.Scripting;
+
+/// <summary>
+/// Custom tool that directly highlights the hovered entity using
+/// the Highlighted component instead of CreationDefinition/Temp.
+/// Based on the pattern used by Anarchy's AnarchyComponentsToolSystem.
+/// </summary>
+public class DirectHighlightTool : ToolBaseSystem
+{
+    private EntityQuery m_HighlightedQuery;
+    private Entity m_PreviousEntity;
+
+    public override string toolID => "Direct Highlight Tool";
+    public override PrefabBase GetPrefab() => null;
+    public override bool TrySetPrefab(PrefabBase prefab) => false;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Query to find all currently highlighted entities (for cleanup).
+        m_HighlightedQuery = SystemAPI.QueryBuilder()
+            .WithAll<Highlighted>()
+            .WithNone<Deleted, Temp>()
+            .Build();
+    }
+
+    protected override void OnStopRunning()
+    {
+        base.OnStopRunning();
+
+        // Clean up all highlights when tool is deactivated.
+        if (!m_HighlightedQuery.IsEmptyIgnoreFilter)
+        {
+            // BatchesUpdated tells the renderer to refresh these entities.
+            EntityManager.AddComponent<BatchesUpdated>(m_HighlightedQuery);
+            EntityManager.RemoveComponent<Highlighted>(m_HighlightedQuery);
+        }
+
+        m_PreviousEntity = Entity.Null;
+    }
+
+    public override void InitializeRaycast()
+    {
+        base.InitializeRaycast();
+        m_ToolRaycastSystem.typeMask = TypeMask.StaticObjects | TypeMask.MovingObjects;
+        m_ToolRaycastSystem.collisionMask = CollisionMask.OnGround | CollisionMask.Overground;
+    }
+
+    [Preserve]
+    protected override JobHandle OnUpdate(JobHandle inputDeps)
+    {
+        if (!GetRaycastResult(out Entity entity, out RaycastHit hit))
+        {
+            // No hit — clear any existing highlight.
+            ClearHighlights();
+            m_PreviousEntity = Entity.Null;
+            return inputDeps;
+        }
+
+        if (entity != m_PreviousEntity)
+        {
+            // Hovered entity changed — clear old highlight, apply new one.
+            ClearHighlights();
+
+            if (!EntityManager.HasComponent<Highlighted>(entity))
+            {
+                // Add Highlighted to show the hover effect.
+                EntityManager.AddComponent<Highlighted>(entity);
+                // BatchesUpdated is REQUIRED so the renderer picks up the change.
+                EntityManager.AddComponent<BatchesUpdated>(entity);
+            }
+
+            m_PreviousEntity = entity;
+        }
+
+        return inputDeps;
+    }
+
+    private void ClearHighlights()
+    {
+        if (!m_HighlightedQuery.IsEmptyIgnoreFilter)
+        {
+            EntityManager.AddComponent<BatchesUpdated>(m_HighlightedQuery);
+            EntityManager.RemoveComponent<Highlighted>(m_HighlightedQuery);
+        }
+    }
+}
+```
+
 ## Open Questions
 
 - [x] How does DefaultToolSystem configure the raycast? — Documented in InitializeRaycast override
 - [x] What is the entity resolution chain for icons? — Icon → Target → Owner chain documented
 - [x] Where does highlighting come from? — CreationDefinition with Select flag → Temp with Select flag → rendering
-- [ ] Exact rendering path for Highlighted component vs Temp+Select — likely shader-level, out of scope
+- [x] Exact rendering path for Highlighted component vs Temp+Select — Both produce visual highlighting; Highlighted is direct (add to real entity + BatchesUpdated), Temp+Select goes through CreationDefinition pipeline. Mods like Anarchy use Highlighted directly.
 - [ ] How does the quad tree get populated (which system inserts entities)? — Likely ObjectUpdateSystem or similar, not traced
 
 ## Sources
