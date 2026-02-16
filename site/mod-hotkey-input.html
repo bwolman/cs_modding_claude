@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mod Hotkey Input - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav><a href="index.html">Home</a><span class="sep">/</span><span>Mod Hotkey Input</span></nav>
+
+<div class="container">
+
+<h1>Mod Hotkey Input</h1>
+
+<div class="scope">
+  <p><strong>What this covers:</strong> How CS2 handles keyboard input and how mods register rebindable hotkeys that appear in the Options UI.</p>
+  <p><strong>Why it matters:</strong> Any mod that needs to trigger logic from a keyboard shortcut must go through this system. It gives you rebindable keys for free.</p>
+  <p><strong>Out of scope:</strong> Gamepad bindings, text input fields, and direct Unity Input System usage. Mods should only use the CO wrapper layer.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>How It Works</h2>
+
+<p>CS2 wraps Unity's Input System behind a singleton called <code>InputManager</code>. You never touch Unity's <code>InputAction</code> directly. Instead, you declare your hotkeys as attributes on a settings class, and the framework handles registration, rebinding, and persistence automatically.</p>
+
+<p>The process has three stages: <strong>declare</strong>, <strong>register</strong>, and <strong>read</strong>.</p>
+
+<h3>1. Declare: Settings Class with Attributes</h3>
+
+<p>You subclass <code>ModSetting</code> and use two kinds of attributes:</p>
+
+<ul>
+  <li><strong>Class-level:</strong> <code>[SettingsUIKeyboardAction]</code> declares an action by name (e.g., "TogglePanel").</li>
+  <li><strong>Property-level:</strong> <code>[SettingsUIKeyboardBinding]</code> on a <code>ProxyBinding</code> property sets the default key and links it to the action via <code>actionName</code>.</li>
+</ul>
+
+<pre><code class="language-csharp">[FileLocation(nameof(MyMod))]
+[SettingsUIKeyboardAction("TriggerAction", ActionType.Button)]
+public class MyModSettings : ModSetting
+{
+    public MyModSettings(IMod mod) : base(mod) { }
+
+    [SettingsUIKeyboardBinding(BindingKeyboard.F5, "TriggerAction", shift: true)]
+    public ProxyBinding TriggerActionBinding { get; set; }
+
+    public override void SetDefaults() { }
+}</code></pre>
+
+<p>This declares a "TriggerAction" action with a default binding of <code>Shift+F5</code>. The constructor calls <code>InitializeKeyBindings()</code> internally, which reads the attributes via reflection and populates the <code>ProxyBinding</code> properties.</p>
+
+<h3>2. Register: Wire It Up in OnLoad</h3>
+
+<p>In your <code>IMod.OnLoad()</code>, you call three methods in this exact order:</p>
+
+<pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
+{
+    Settings = new MyModSettings(this);
+
+    Settings.RegisterInOptionsUI();   // 1. Add settings page to Options
+    AssetDatabase.global.LoadSettings( // 2. Load saved rebindings from disk
+        nameof(MyMod), Settings, new MyModSettings(this));
+    Settings.RegisterKeyBindings();    // 3. Register actions with InputManager
+
+    updateSystem.UpdateAt&lt;MyHotkeySystem&gt;(SystemUpdatePhase.MainLoop);
+}</code></pre>
+
+<p>Order matters. <code>RegisterKeyBindings()</code> must come last because it reads the binding values that may have been overwritten by <code>LoadSettings()</code>. It builds <code>ProxyAction.Info</code> structs, calls <code>InputManager.AddActions()</code>, and creates watchers that auto-sync your properties when the player rebinds.</p>
+
+<h3>3. Read: Poll or Subscribe in a System</h3>
+
+<p>Look up your action in <code>OnCreate()</code>, then poll it each frame in <code>OnUpdate()</code>:</p>
+
+<pre><code class="language-csharp">public partial class MyHotkeySystem : GameSystemBase
+{
+    private ProxyAction _triggerAction;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _triggerAction = InputManager.instance.FindAction(
+            Mod.Settings.id, "TriggerAction");
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_triggerAction != null &amp;&amp; _triggerAction.WasPressedThisFrame())
+        {
+            Log.Info("Hotkey pressed!");
+        }
+    }
+}</code></pre>
+
+<p>The map name is <code>ModSetting.id</code>, which has the format <code>{AssemblyName}.{Namespace}.{ModType}</code>.</p>
+
+<!-- ============================================================ -->
+<h2>Data Flow</h2>
+
+<p>The full lifecycle from mod load to player rebind:</p>
+
+<div class="diagram">
+ModSetting constructor
+  |-- InitializeKeyBindings()
+  |     reads [SettingsUIKeyboardBinding] attrs via reflection
+  |     populates ProxyBinding properties with default paths + modifiers
+  |
+  v
+Mod.OnLoad()
+  |-- RegisterInOptionsUI()     --> Options page appears in game
+  |-- LoadSettings()            --> saved rebindings override defaults
+  |-- RegisterKeyBindings()
+  |     reads [SettingsUIKeyboardAction] class attrs
+  |     groups ProxyBinding properties by actionName
+  |     builds ProxyAction.Info[] with composites
+  |     calls InputManager.AddActions()
+  |       creates ProxyActionMap for the mod's ID
+  |       creates ProxyAction per action
+  |       creates ProxyComposite per device
+  |     creates ProxyBinding.Watcher per property
+  |
+  v
+ECS System.OnCreate()
+  |-- FindAction(settings.id, "ActionName") --> ProxyAction
+  |
+  v
+ECS System.OnUpdate()  (every frame)
+  |-- action.WasPressedThisFrame() / IsPressed() / etc.
+  |
+  v
+Player rebinds in Options UI
+  |-- InputManager.SetBinding() updates the path
+  |-- ProxyBinding.Watcher fires --> property auto-updates
+  |-- settings saved to disk via AssetDatabase
+</div>
+
+<!-- ============================================================ -->
+<h2>Key Components</h2>
+
+<h3>InputManager</h3>
+
+<p>Singleton that owns all action maps. This is your main entry point for looking up actions.</p>
+
+<table>
+  <tr><th>Member</th><th>Returns</th><th>Description</th></tr>
+  <tr><td><code>instance</code></td><td>InputManager</td><td>Singleton accessor</td></tr>
+  <tr><td><code>FindAction(map, action)</code></td><td>ProxyAction</td><td>Look up an action by map and name</td></tr>
+  <tr><td><code>TryFindAction(map, action, out)</code></td><td>bool</td><td>Safe lookup, returns false if not found</td></tr>
+  <tr><td><code>AddActions(ProxyAction.Info[])</code></td><td>void</td><td>Register new actions (called by RegisterKeyBindings)</td></tr>
+  <tr><td><code>SetBinding(binding, out result)</code></td><td>void</td><td>Set or rebind a binding</td></tr>
+  <tr><td><code>CreateActionBarrier(map, action, name)</code></td><td>InputBarrier</td><td>Block a specific action from processing input</td></tr>
+  <tr><td><code>DeferUpdating()</code></td><td>IDisposable</td><td>Defer binding resolution until disposed</td></tr>
+</table>
+
+<h4>Built-in Map Names</h4>
+
+<table>
+  <tr><th>Constant</th><th>Value</th></tr>
+  <tr><td><code>kNavigationMap</code></td><td>"Navigation"</td></tr>
+  <tr><td><code>kMenuMap</code></td><td>"Menu"</td></tr>
+  <tr><td><code>kCameraMap</code></td><td>"Camera"</td></tr>
+  <tr><td><code>kToolMap</code></td><td>"Tool"</td></tr>
+  <tr><td><code>kShortcutsMap</code></td><td>"Shortcuts"</td></tr>
+  <tr><td><code>kEditorMap</code></td><td>"Editor"</td></tr>
+  <tr><td><code>kDebugMap</code></td><td>"Debug"</td></tr>
+</table>
+
+<h4>Modifier Path Constants</h4>
+
+<table>
+  <tr><th>Constant</th><th>Value</th></tr>
+  <tr><td><code>kShiftName</code></td><td><code>&lt;Keyboard&gt;/shift</code></td></tr>
+  <tr><td><code>kCtrlName</code></td><td><code>&lt;Keyboard&gt;/ctrl</code></td></tr>
+  <tr><td><code>kAltName</code></td><td><code>&lt;Keyboard&gt;/alt</code></td></tr>
+</table>
+
+<h3>ProxyAction</h3>
+
+<p>Wraps a Unity <code>InputAction</code>. This is what you poll each frame or subscribe to for events.</p>
+
+<h4>Polling Methods</h4>
+
+<table>
+  <tr><th>Method</th><th>Returns</th><th>Use When</th></tr>
+  <tr><td><code>WasPressedThisFrame()</code></td><td>bool</td><td>Fire once on key-down (toggle, trigger)</td></tr>
+  <tr><td><code>IsPressed()</code></td><td>bool</td><td>Fire every frame while held (hold-to-activate)</td></tr>
+  <tr><td><code>WasReleasedThisFrame()</code></td><td>bool</td><td>Fire once on key-up (end hold)</td></tr>
+  <tr><td><code>WasPerformedThisFrame()</code></td><td>bool</td><td>Fire when action fully performed</td></tr>
+  <tr><td><code>ReadValue&lt;T&gt;()</code></td><td>T</td><td>Read value for Axis/Vector2 actions</td></tr>
+</table>
+
+<h4>Event Subscription</h4>
+
+<pre><code class="language-csharp">// Subscribe to interaction events instead of polling
+action.onInteraction += (action, phase) =&gt;
+{
+    // phase: Started, Performed, or Canceled
+};
+// When no subscribers remain, Unity callbacks are auto-unhooked.</code></pre>
+
+<h3>ProxyBinding</h3>
+
+<p>Struct representing one binding: which map, action, device, key path, and modifiers.</p>
+
+<table>
+  <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>m_MapName</code></td><td>string</td><td>Action map name</td></tr>
+  <tr><td><code>m_ActionName</code></td><td>string</td><td>Action name within the map</td></tr>
+  <tr><td><code>m_Path</code></td><td>string</td><td>Unity input path (e.g. <code>&lt;Keyboard&gt;/f5</code>)</td></tr>
+  <tr><td><code>m_Modifiers</code></td><td>ProxyModifier[]</td><td>Modifier keys (shift, ctrl, alt)</td></tr>
+  <tr><td><code>m_Device</code></td><td>DeviceType</td><td>Keyboard, Mouse, or Gamepad</td></tr>
+  <tr><td><code>m_Component</code></td><td>ActionComponent</td><td>Press, Negative, Positive, etc.</td></tr>
+</table>
+
+<p>Key properties: <code>isSet</code> (path non-empty), <code>isBuiltIn</code> (game-original), <code>isRebindable</code> (player can change), <code>hasConflicts</code> (binding collisions).</p>
+
+<p>The nested type <code>ProxyBinding.Watcher</code> auto-syncs your property values when the player rebinds in the Options UI.</p>
+
+<!-- ============================================================ -->
+<h2>Settings Attributes</h2>
+
+<h3>SettingsUIKeyboardAction (class-level)</h3>
+
+<p>Applied to the settings class. Declares an input action. Use <code>AllowMultiple = true</code> to declare several actions on one class.</p>
+
+<table>
+  <tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>name</code></td><td>string</td><td>required</td><td>Action name (must match binding's actionName)</td></tr>
+  <tr><td><code>type</code></td><td>ActionType</td><td>Button</td><td>Button, Axis, or Vector2</td></tr>
+  <tr><td><code>rebindOptions</code></td><td>RebindOptions</td><td>All</td><td>What the player can rebind (Key, Modifiers, All)</td></tr>
+  <tr><td><code>modifierOptions</code></td><td>ModifierOptions</td><td>Allow</td><td>Whether modifiers are allowed</td></tr>
+  <tr><td><code>canBeEmpty</code></td><td>bool</td><td>true</td><td>Whether the binding can be unset</td></tr>
+</table>
+
+<h3>SettingsUIKeyboardBinding (property-level)</h3>
+
+<p>Applied to <code>ProxyBinding</code> properties. Sets the default key for a binding. The <code>actionName</code> parameter links it to its class-level action declaration.</p>
+
+<pre><code class="language-csharp">// Button with default key and modifiers
+[SettingsUIKeyboardBinding(BindingKeyboard.F5, "TriggerAction", shift: true)]
+
+// Button with no default key (player must bind manually)
+[SettingsUIKeyboardBinding("SecretFeature")]
+
+// Axis or Vector2 component
+[SettingsUIKeyboardBinding(BindingKeyboard.W, AxisComponent.Positive, "MoveAxis")]</code></pre>
+
+<p>The attribute converts <code>BindingKeyboard</code> enum values to Unity paths internally (e.g. <code>BindingKeyboard.F5</code> becomes <code>&lt;Keyboard&gt;/f5</code>).</p>
+
+<h3>SettingsUIBindingMimic (property-level)</h3>
+
+<p>Mirrors a built-in game binding. Your mod's key automatically updates when the player rebinds the original.</p>
+
+<pre><code class="language-csharp">[SettingsUIBindingMimic("Shortcuts", "ToggleInfoViews")]
+public ProxyBinding MirrorBinding { get; set; }</code></pre>
+
+<!-- ============================================================ -->
+<h2>Key Enums</h2>
+
+<table>
+  <tr><th>Enum</th><th>Values</th><th>Usage</th></tr>
+  <tr><td><code>ActionType</code></td><td>Button, Axis, Vector2</td><td>What kind of input the action reads</td></tr>
+  <tr><td><code>ActionComponent</code></td><td>None, Press, Negative, Positive, Down, Up, Left, Right</td><td>Which part of a composite binding</td></tr>
+  <tr><td><code>DeviceType</code></td><td>None, Keyboard (1), Mouse (2), Gamepad (4), All (7)</td><td>Flags enum for device filtering</td></tr>
+  <tr><td><code>RebindOptions</code></td><td>None, Key (1), Modifiers (2), All (3)</td><td>What the player can rebind</td></tr>
+  <tr><td><code>ModifierOptions</code></td><td>Disallow, Allow, Ignore</td><td>Whether modifier keys are supported</td></tr>
+  <tr><td><code>Mode</code></td><td>DigitalNormalized, Digital, Analog</td><td>Input processing mode</td></tr>
+</table>
+
+<p><code>BindingKeyboard</code> has 106 values covering all standard keys: letters (A-Z), digits (0-9), function keys (F1-F12), navigation, editing, numpad, and symbols.</p>
+
+<!-- ============================================================ -->
+<h2>Examples</h2>
+
+<h3>Toggle with WasPressedThisFrame</h3>
+
+<p>The most common pattern. Fires once when the key goes down.</p>
+
+<pre><code class="language-csharp">[FileLocation(nameof(ToggleOverlayMod))]
+[SettingsUIKeyboardAction("ToggleOverlay", ActionType.Button)]
+public class ToggleOverlaySettings : ModSetting
+{
+    public ToggleOverlaySettings(IMod mod) : base(mod) { }
+
+    [SettingsUIKeyboardBinding(BindingKeyboard.H, "ToggleOverlay", ctrl: true)]
+    public ProxyBinding ToggleOverlayBinding { get; set; }
+
+    public override void SetDefaults() { }
+}</code></pre>
+
+<pre><code class="language-csharp">public partial class ToggleOverlaySystem : GameSystemBase
+{
+    private ProxyAction _toggleAction;
+    private bool _overlayVisible;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _toggleAction = InputManager.instance.FindAction(
+            ToggleOverlayMod.Settings.id, "ToggleOverlay");
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_toggleAction != null &amp;&amp; _toggleAction.WasPressedThisFrame())
+        {
+            _overlayVisible = !_overlayVisible;
+            Log.Info($"Overlay toggled: {_overlayVisible}");
+        }
+    }
+}</code></pre>
+
+<h3>Multiple Actions</h3>
+
+<p>Stack multiple <code>[SettingsUIKeyboardAction]</code> attributes on one class. Each <code>ProxyBinding</code> property links to its action via <code>actionName</code>.</p>
+
+<pre><code class="language-csharp">[FileLocation(nameof(ZoneToolMod))]
+[SettingsUIKeyboardAction("CycleZoneUp", ActionType.Button)]
+[SettingsUIKeyboardAction("CycleZoneDown", ActionType.Button)]
+[SettingsUIKeyboardAction("ResetZone", ActionType.Button)]
+public class ZoneToolSettings : ModSetting
+{
+    public ZoneToolSettings(IMod mod) : base(mod) { }
+
+    [SettingsUIKeyboardBinding(BindingKeyboard.PageUp, "CycleZoneUp")]
+    public ProxyBinding CycleZoneUpBinding { get; set; }
+
+    [SettingsUIKeyboardBinding(BindingKeyboard.PageDown, "CycleZoneDown")]
+    public ProxyBinding CycleZoneDownBinding { get; set; }
+
+    [SettingsUIKeyboardBinding(BindingKeyboard.R, "ResetZone", ctrl: true, shift: true)]
+    public ProxyBinding ResetZoneBinding { get; set; }
+
+    public override void SetDefaults() { }
+}</code></pre>
+
+<h3>Hold-to-Activate with IsPressed</h3>
+
+<p>Use <code>IsPressed()</code> for continuous input while a key is held, and <code>WasReleasedThisFrame()</code> to detect when it stops.</p>
+
+<pre><code class="language-csharp">protected override void OnUpdate()
+{
+    if (_boostAction.IsPressed())
+    {
+        // Apply speed multiplier every frame while held
+    }
+
+    if (_boostAction.WasReleasedThisFrame())
+    {
+        // Revert to normal speed
+    }
+}</code></pre>
+
+<h3>Event-Driven with onInteraction</h3>
+
+<p>Subscribe instead of polling. Useful outside the ECS update loop or when you need phase distinction.</p>
+
+<pre><code class="language-csharp">protected override void OnCreate()
+{
+    base.OnCreate();
+    _action = InputManager.instance.FindAction(
+        MyMod.Settings.id, "TriggerAction");
+    _action.onInteraction += OnHotkeyInteraction;
+}
+
+private void OnHotkeyInteraction(ProxyAction action, InputActionPhase phase)
+{
+    switch (phase)
+    {
+        case InputActionPhase.Started:   Log.Info("Key down");       break;
+        case InputActionPhase.Performed: Log.Info("Performed");      break;
+        case InputActionPhase.Canceled:  Log.Info("Key released");   break;
+    }
+}
+
+protected override void OnDestroy()
+{
+    if (_action != null)
+        _action.onInteraction -= OnHotkeyInteraction;
+    base.OnDestroy();
+}</code></pre>
+
+<h3>Defensive Lookup with TryFindAction</h3>
+
+<pre><code class="language-csharp">if (InputManager.instance.TryFindAction(MyMod.Settings.id, "TriggerAction", out var action))
+{
+    _triggerAction = action;
+}
+else
+{
+    Log.Warn("Failed to find TriggerAction -- keybinding may not be registered yet.");
+}</code></pre>
+
+<h3>Unbound Default (Optional Keybinding)</h3>
+
+<p>Declare an action with no default key. The player binds it themselves in Options. Good for advanced or niche shortcuts.</p>
+
+<pre><code class="language-csharp">[SettingsUIKeyboardAction("SecretFeature", ActionType.Button, canBeEmpty: true)]
+public class AdvancedToolSettings : ModSetting
+{
+    // No default key -- pass only the actionName
+    [SettingsUIKeyboardBinding("SecretFeature")]
+    public ProxyBinding SecretFeatureBinding { get; set; }
+}</code></pre>
+
+<h3>Blocking Input with Barriers</h3>
+
+<p>Temporarily prevent an action from firing (e.g., while a text field has focus).</p>
+
+<pre><code class="language-csharp">private InputBarrier _barrier;
+
+public void OnTextFieldFocused()
+{
+    _barrier = _hotkeyAction.CreateBarrier("TextFieldFocus");
+}
+
+public void OnTextFieldBlurred()
+{
+    _barrier?.Dispose();
+    _barrier = null;
+}</code></pre>
+
+<!-- ============================================================ -->
+<h2>Key Points to Remember</h2>
+
+<ul>
+  <li><strong>Map name</strong> is <code>ModSetting.id</code> (format: <code>{Assembly}.{Namespace}.{ModType}</code>).</li>
+  <li><strong>Action name</strong> in <code>[SettingsUIKeyboardBinding]</code> must match the name in <code>[SettingsUIKeyboardAction]</code>. If omitted, it defaults to the property name.</li>
+  <li><strong>Registration order</strong> matters: <code>RegisterInOptionsUI()</code> then <code>LoadSettings()</code> then <code>RegisterKeyBindings()</code>.</li>
+  <li><strong>Rebinding</strong> comes free with <code>RegisterInOptionsUI()</code> -- players see bindings in Options and can change them.</li>
+  <li><strong>Persistence</strong> is automatic via <code>AssetDatabase</code>.</li>
+  <li><strong>Barriers</strong> block input temporarily; <strong>Activators</strong> enable/disable per device type.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>Open Questions</h2>
+
+<ul>
+  <li>How does <code>shouldBeEnabled</code> interact with the automatic enabling done by <code>RegisterKeyBindings()</code>? Is it necessary to set it explicitly for mod actions?</li>
+  <li>What happens if two mods register the same action name in different maps? Cross-mod conflict resolution is unclear.</li>
+  <li>How does the <code>Usages</code> system filter when actions are active (gameplay vs. menus)?</li>
+  <li>Can mod actions use <code>SettingsUIMouseBindingAttribute</code> for mouse buttons? How do the <code>BindingMouse</code> enum values map?</li>
+  <li>What is the full <code>InputBarrier</code> lifecycle? When should mods create and dispose barriers?</li>
+  <li>How does <code>SettingsUIBindingMimicAttribute</code> interact with mod-registered bindings -- can a mod mirror a built-in shortcut and extend it?</li>
+</ul>
+
+<footer>
+  <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1 (.NET 8.0).</p>
+  <p>Reference: <a href="https://cs2.paradoxwikis.com/Mod_Key_Binding">Mod Key Binding - CS2 Wiki</a></p>
+</footer>
+
+</div>
+
+</body>
+</html>

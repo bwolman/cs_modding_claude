@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mod Options UI - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav><a href="index.html">Home</a><span class="sep">/</span><span>Mod Options UI</span></nav>
+
+<div class="container">
+
+<h1>Mod Options UI System</h1>
+
+<div class="scope">
+  <p><strong>What this covers:</strong> How to add a settings page to the in-game Options screen -- registering settings, choosing widgets, rebindable keybindings, and localization.</p>
+  <p><strong>Why it matters:</strong> This is how your mod exposes user-configurable options. The game handles all rendering and persistence for you.</p>
+  <p><strong>What this does NOT cover:</strong> Custom UI beyond the Options page, the Cohtml rendering layer, or keybinding registration on the input side (see the companion topic <em>ModHotkeyInput</em>).</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>How It Works</h2>
+
+<p>The Options UI is <strong>reflection-driven</strong>. You write a C# class that extends <code>ModSetting</code>, decorate its properties with attributes, and register it. The game scans your class at registration time, reads the property types and attributes, and builds the entire settings page automatically.</p>
+
+<p>There are three things to understand:</p>
+
+<ol>
+  <li><strong>Property type</strong> determines the default widget (bool = toggle, enum = dropdown, etc.)</li>
+  <li><strong>Attributes</strong> override or configure the widget (<code>[SettingsUISlider]</code>, <code>[SettingsUIButton]</code>, etc.)</li>
+  <li><strong>Layout attributes</strong> on the class control tabs, groups, and ordering</li>
+</ol>
+
+<p>You never instantiate UI widgets yourself. You just describe what you want through types and attributes, and the engine does the rest.</p>
+
+<h3>The Registration Sequence</h3>
+
+<p>Order matters. In your <code>IMod.OnLoad()</code>, follow this exact sequence:</p>
+
+<pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
+{
+    // 1. Create settings instance
+    Settings = new MyModSettings(this);
+
+    // 2. Register in Options UI (triggers reflection scan)
+    Settings.RegisterInOptionsUI();
+
+    // 3. Load saved values from disk (overrides defaults)
+    AssetDatabase.global.LoadSettings(nameof(MyMod), Settings, new MyModSettings(this));
+
+    // 4. Register keybindings with InputManager (if you have any)
+    Settings.RegisterKeyBindings();
+
+    // 5. Load localization strings
+    LoadLocalization();
+}</code></pre>
+
+<!-- ============================================================ -->
+<h2>Data Flow</h2>
+
+<div class="diagram">
+ModSetting subclass (your code)
+  |
+  |-- Properties: bool, int, float, string, enum, ProxyBinding
+  |-- Attributes: [SettingsUISection], [SettingsUISlider], ...
+  |
+  v
+RegisterInOptionsUI()
+  |
+  +--&gt; AutomaticSettings.FillSettingsPage()
+  |      |-- Reads class-level attrs (TabOrder, GroupOrder, ShowGroupName)
+  |      |-- Iterates public instance properties
+  |      |-- Skips [SettingsUIHidden] and [SettingsUIDeveloper]
+  |      |-- Maps property type + attrs --&gt; WidgetType
+  |      +-- Returns SettingPageData
+  |
+  v
+Options Screen Opens
+  |-- OptionsUISystem renders pages
+  |-- Built-in pages first, then mod pages by registration order
+  |
+  v
+User Changes a Setting
+  |-- Widget calls property setter on your ModSetting instance
+  |-- For keybindings: InputRebindingUISystem captures new key
+  +-- ApplyAndSave() persists to disk via AssetDatabase</div>
+
+<!-- ============================================================ -->
+<h2>Widget Type Mapping</h2>
+
+<p>The engine's <code>AutomaticSettings.GetWidgetType()</code> method decides which widget to render based on your property's C# type and any attributes applied to it.</p>
+
+<table>
+  <thead>
+    <tr><th>Property Type</th><th>Attribute(s)</th><th>Widget</th></tr>
+  </thead>
+  <tbody>
+    <tr><td><code>bool</code> (read+write)</td><td>none</td><td>Toggle</td></tr>
+    <tr><td><code>bool</code> (read+write)</td><td><code>[SettingsUIButton]</code></td><td>Button</td></tr>
+    <tr><td><code>bool</code> (read+write)</td><td><code>[SettingsUIButton]</code> + <code>[SettingsUIConfirmation]</code></td><td>Button with confirmation dialog</td></tr>
+    <tr><td><code>bool</code> (write-only)</td><td>none</td><td>Button (automatic)</td></tr>
+    <tr><td><code>int</code></td><td><code>[SettingsUISlider]</code></td><td>Int slider</td></tr>
+    <tr><td><code>int</code></td><td><code>[SettingsUIDropdown]</code></td><td>Int dropdown</td></tr>
+    <tr><td><code>float</code></td><td><code>[SettingsUISlider]</code></td><td>Float slider</td></tr>
+    <tr><td><code>string</code> (read+write)</td><td><code>[SettingsUITextInput]</code></td><td>Text input field</td></tr>
+    <tr><td><code>string</code> (read+write)</td><td><code>[SettingsUIDropdown]</code></td><td>String dropdown</td></tr>
+    <tr><td><code>string</code> (read+write)</td><td><code>[SettingsUIDirectoryPicker]</code></td><td>Directory picker</td></tr>
+    <tr><td><code>string</code> (read-only)</td><td><code>[SettingsUIMultilineText]</code></td><td>Multiline text block</td></tr>
+    <tr><td><code>string</code> (read-only)</td><td>none</td><td>String display</td></tr>
+    <tr><td><code>enum</code></td><td>none</td><td>Enum dropdown</td></tr>
+    <tr><td><code>ProxyBinding</code></td><td>none</td><td>Keybinding rebind widget</td></tr>
+  </tbody>
+</table>
+
+<p><strong>Key insight:</strong> <code>ProxyBinding</code> properties trigger the keybinding widget automatically. No extra widget attribute is needed beyond <code>[SettingsUIKeyboardBinding]</code> for setting the default key.</p>
+
+<!-- ============================================================ -->
+<h2>Attribute Reference</h2>
+
+<h3>Layout Attributes</h3>
+
+<p>These go on the <strong>class</strong> to define the page structure.</p>
+
+<h4>[SettingsUITabOrder]</h4>
+<p>Declares tabs and their left-to-right order.</p>
+<pre><code class="language-csharp">[SettingsUITabOrder("General", "Keybindings", "Advanced")]
+public class MySettings : ModSetting { ... }</code></pre>
+
+<h4>[SettingsUIGroupOrder]</h4>
+<p>Declares groups and their top-to-bottom order within tabs.</p>
+<pre><code class="language-csharp">[SettingsUIGroupOrder("Behavior", "Display", "Advanced")]</code></pre>
+
+<h4>[SettingsUISection]</h4>
+<p>Goes on a <strong>property</strong> to place it into a specific tab and group.</p>
+<pre><code class="language-csharp">[SettingsUISection("General", "Behavior")]
+public bool MyToggle { get; set; }</code></pre>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>tab</code></td><td>string</td><td>"General"</td><td>Tab name</td></tr>
+    <tr><td><code>simpleGroup</code></td><td>string</td><td>""</td><td>Group in simple view</td></tr>
+    <tr><td><code>advancedGroup</code></td><td>string</td><td>same as simple</td><td>Group in advanced view</td></tr>
+  </tbody>
+</table>
+
+<p>Overloads: <code>(group)</code> uses the default "General" tab. <code>(tab, group)</code> uses the same group for both views. <code>(tab, simpleGroup, advancedGroup)</code> lets you separate them.</p>
+
+<h4>[SettingsUIShowGroupName]</h4>
+<p>Makes group header labels visible. Without this, groups organize properties but render no header. Use the parameterless form to show all headers, or pass specific group names.</p>
+
+<h4>[SettingsUIButtonGroup]</h4>
+<p>Goes on <strong>properties</strong>. Groups multiple button properties into a horizontal row. All buttons sharing the same group name appear side by side.</p>
+
+<pre><code class="language-csharp">[SettingsUIButton]
+[SettingsUIButtonGroup("ImportExport")]
+public bool ImportConfig { set { /* ... */ } }
+
+[SettingsUIButton]
+[SettingsUIButtonGroup("ImportExport")]
+public bool ExportConfig { set { /* ... */ } }</code></pre>
+
+<h3>Visibility Attributes</h3>
+
+<table>
+  <thead><tr><th>Attribute</th><th>Target</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td><code>[SettingsUIHidden]</code></td><td>Class, Property, Field</td><td>Completely excluded from Options UI</td></tr>
+    <tr><td><code>[SettingsUIAdvanced]</code></td><td>Class, Property</td><td>Only shown in advanced mode</td></tr>
+    <tr><td><code>[SettingsUIDeveloper]</code></td><td>Class, Property</td><td>Only shown in developer mode</td></tr>
+    <tr><td><code>[SettingsUISearchHidden]</code></td><td>Class, Property, Field</td><td>Visible on page but hidden from search</td></tr>
+  </tbody>
+</table>
+
+<h4>[SettingsUIHideByCondition]</h4>
+<p>Dynamically hides a property based on a runtime condition. The method must be on the settings class and return <code>bool</code>. When it returns <code>true</code>, the widget is hidden.</p>
+
+<pre><code class="language-csharp">[SettingsUIHideByCondition(typeof(MySettings), nameof(IsFeatureDisabled))]
+public int FeatureIntensity { get; set; }
+
+public bool IsFeatureDisabled() => !EnableFeature;</code></pre>
+
+<h4>[SettingsUIDisableByCondition]</h4>
+<p>Same signature as <code>HideByCondition</code>, but grays out the widget instead of hiding it. The widget remains visible but cannot be interacted with.</p>
+
+<p>Both attributes accept an optional third parameter <code>invert</code>. When <code>true</code>, the logic is flipped: the widget is hidden/disabled when the method returns <code>false</code>.</p>
+
+<h3>Widget Configuration Attributes</h3>
+
+<h4>[SettingsUISlider]</h4>
+<p>Renders an <code>int</code> or <code>float</code> property as a slider.</p>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>min</code></td><td>float</td><td>0</td><td>Minimum value</td></tr>
+    <tr><td><code>max</code></td><td>float</td><td>100</td><td>Maximum value</td></tr>
+    <tr><td><code>step</code></td><td>float</td><td>1</td><td>Step increment</td></tr>
+    <tr><td><code>unit</code></td><td>string</td><td>"integer"</td><td>Unit label ("percentage", "angle", etc.)</td></tr>
+    <tr><td><code>scalarMultiplier</code></td><td>float</td><td>1</td><td>Display multiplier</td></tr>
+    <tr><td><code>updateOnDragEnd</code></td><td>bool</td><td>false</td><td>Only apply when drag ends</td></tr>
+  </tbody>
+</table>
+
+<pre><code class="language-csharp">[SettingsUISlider(min = 0, max = 100, step = 5, unit = "percentage")]
+public int Volume { get; set; } = 50;</code></pre>
+
+<h4>[SettingsUIDropdown]</h4>
+<p>Renders a property as a dropdown with custom items. Points to a method that returns <code>DropdownItem&lt;T&gt;[]</code> matching the property type.</p>
+
+<pre><code class="language-csharp">[SettingsUIDropdown(typeof(MySettings), nameof(GetStyleOptions))]
+public string SelectedStyle { get; set; }
+
+public DropdownItem&lt;string&gt;[] GetStyleOptions()
+{
+    return new[]
+    {
+        new DropdownItem&lt;string&gt; { value = "default", displayName = "Default" },
+        new DropdownItem&lt;string&gt; { value = "compact", displayName = "Compact" },
+    };
+}</code></pre>
+
+<h4>[SettingsUIButton] and [SettingsUIConfirmation]</h4>
+<p>Makes a <code>bool</code> property render as a clickable button. Write-only <code>bool</code> properties get button behavior automatically. Add <code>[SettingsUIConfirmation]</code> to show a confirmation dialog before executing -- useful for destructive actions like "Reset to Defaults".</p>
+
+<h4>Other Widget Attributes</h4>
+<table>
+  <thead><tr><th>Attribute</th><th>Property Type</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td><code>[SettingsUITextInput]</code></td><td>string (read+write)</td><td>Free-form text input</td></tr>
+    <tr><td><code>[SettingsUIMultilineText]</code></td><td>string (read-only)</td><td>Multiline text block with optional icon</td></tr>
+    <tr><td><code>[SettingsUIDirectoryPicker]</code></td><td>string (read+write)</td><td>Directory picker button</td></tr>
+  </tbody>
+</table>
+
+<h3>Metadata Attributes</h3>
+
+<table>
+  <thead><tr><th>Attribute</th><th>Target</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><code>[SettingsUIDisplayName]</code></td><td>Enum, Property</td><td>Override display name localization</td></tr>
+    <tr><td><code>[SettingsUIDescription]</code></td><td>Enum, Property</td><td>Override tooltip/description localization</td></tr>
+    <tr><td><code>[SettingsUIWarning]</code></td><td>Property</td><td>Warning indicator on a specific option</td></tr>
+    <tr><td><code>[SettingsUIPageWarning]</code></td><td>Class</td><td>Warning indicator on the entire page</td></tr>
+    <tr><td><code>[SettingsUITabWarning]</code></td><td>Class</td><td>Warning indicator on a specific tab</td></tr>
+    <tr><td><code>[SettingsUISetter]</code></td><td>Property</td><td>Custom callback before the property setter</td></tr>
+    <tr><td><code>[SettingsUIValueVersion]</code></td><td>Property</td><td>Forces widget re-read when version changes</td></tr>
+    <tr><td><code>[SettingsUICustomFormat]</code></td><td>Property</td><td>Custom number formatting (decimal places, sign, separators)</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2>Keybinding Rebinding</h2>
+
+<p>When you register a <code>ProxyBinding</code> property, the game provides a fully automatic keybinding capture UI. The player clicks the keybinding widget, presses a key, and the system handles everything -- including conflict detection.</p>
+
+<div class="diagram">
+Player clicks keybinding widget
+  |
+  v
+InputRebindingUISystem.Start()
+  |-- Blocks all keyboard/mouse/gamepad input
+  |-- Starts Unity RebindingOperation
+  |-- Modifier keys (shift, ctrl, alt) captured separately
+  |
+  v
+Player presses key
+  |
+  +--[No conflict]--&gt; Applies immediately via InputManager.SetBinding()
+  |
+  +--[Conflict]--&gt; UI shows resolution options:
+                     "Swap" -- both bindings exchange keys
+                     "Unset" -- conflicting binding is cleared
+  |
+  v
+ProxyBinding.Watcher fires
+  |-- Property value auto-updates on ModSetting instance
+  +-- Settings persisted via AssetDatabase</div>
+
+<p>Modifier capture runs in parallel. Only <code>shift</code>, <code>ctrl</code>, and <code>alt</code> are supported as modifiers, and only when <code>binding.allowModifiers &amp;&amp; binding.isModifiersRebindable</code>.</p>
+
+<!-- ============================================================ -->
+<h2>Localization</h2>
+
+<p>Every element in the Options UI needs a localization key. The keys follow a predictable pattern based on your mod's ID. For a mod with id <code>"MyAssembly.MyNamespace.MyMod"</code>:</p>
+
+<table>
+  <thead><tr><th>Element</th><th>Key Pattern</th></tr></thead>
+  <tbody>
+    <tr><td>Page title</td><td><code>Options.SECTION[{id}]</code></td></tr>
+    <tr><td>Tab label</td><td><code>Options.TAB[{id}.TabName]</code></td></tr>
+    <tr><td>Group label</td><td><code>Options.GROUP[{id}.GroupName]</code></td></tr>
+    <tr><td>Option label</td><td><code>Options.OPTION[{id}.{className}.PropertyName]</code></td></tr>
+    <tr><td>Option tooltip</td><td><code>Options.OPTION_DESCRIPTION[{id}.{className}.PropertyName]</code></td></tr>
+    <tr><td>Confirmation warning</td><td><code>Options.WARNING[{id}.{className}.PropertyName]</code></td></tr>
+    <tr><td>Enum value</td><td><code>Options.{id}.ENUMTYPENAME[ValueName]</code></td></tr>
+    <tr><td>Keybinding label</td><td><code>Options.OPTION[{id}/ActionName/binding]</code></td></tr>
+    <tr><td>Input map label</td><td><code>Options.INPUT_MAP[{id}]</code></td></tr>
+  </tbody>
+</table>
+
+<h3>Helper Methods</h3>
+
+<p><code>ModSetting</code> provides helper methods so you don't have to construct these keys by hand:</p>
+
+<table>
+  <thead><tr><th>Method</th><th>Returns</th></tr></thead>
+  <tbody>
+    <tr><td><code>GetSettingsLocaleID()</code></td><td><code>"Options.SECTION[{id}]"</code></td></tr>
+    <tr><td><code>GetOptionLabelLocaleID("Prop")</code></td><td><code>"Options.OPTION[{id}.{name}.Prop]"</code></td></tr>
+    <tr><td><code>GetOptionDescLocaleID("Prop")</code></td><td><code>"Options.OPTION_DESCRIPTION[{id}.{name}.Prop]"</code></td></tr>
+    <tr><td><code>GetOptionTabLocaleID("Tab")</code></td><td><code>"Options.TAB[{id}.Tab]"</code></td></tr>
+    <tr><td><code>GetOptionGroupLocaleID("Group")</code></td><td><code>"Options.GROUP[{id}.Group]"</code></td></tr>
+    <tr><td><code>GetEnumValueLocaleID(MyEnum.Foo)</code></td><td><code>"Options.{id}.MYENUM[Foo]"</code></td></tr>
+    <tr><td><code>GetBindingKeyLocaleID("Action")</code></td><td><code>"Options.OPTION[{id}/Action/binding]"</code></td></tr>
+    <tr><td><code>GetBindingMapLocaleID()</code></td><td><code>"Options.INPUT_MAP[{id}]"</code></td></tr>
+  </tbody>
+</table>
+
+<p>Use these instead of hand-crafting key strings. Example:</p>
+
+<pre><code class="language-csharp">var sources = new Dictionary&lt;string, string&gt;();
+sources[settings.GetSettingsLocaleID()] = "My Mod Name";
+sources[settings.GetOptionTabLocaleID("General")] = "General";
+sources[settings.GetOptionLabelLocaleID("AutoStart")] = "Auto Start";
+sources[settings.GetOptionDescLocaleID("AutoStart")] = "Start the mod automatically.";
+sources[settings.GetEnumValueLocaleID(AnchorPosition.TopLeft)] = "Top Left";
+sources[settings.GetBindingKeyLocaleID("ToggleWindow")] = "Toggle Window";
+sources[settings.GetBindingMapLocaleID()] = "My Mod Name";
+
+GameManager.instance.localizationManager.AddSource("en-US", new MemorySource(sources));</code></pre>
+
+<!-- ============================================================ -->
+<h2>Examples</h2>
+
+<h3>Minimal Settings Page</h3>
+
+<p>The simplest possible settings page: one toggle, no tabs, no groups.</p>
+
+<pre><code class="language-csharp">[FileLocation(nameof(SimpleExampleMod))]
+public class SimpleSettings : ModSetting
+{
+    public SimpleSettings(IMod mod) : base(mod) { }
+
+    // A read+write bool renders as a Toggle automatically.
+    public bool ShowOverlay { get; set; } = true;
+
+    public override void SetDefaults()
+    {
+        ShowOverlay = true;
+    }
+}</code></pre>
+
+<h3>Multi-Tab Layout with Keybindings</h3>
+
+<p>A complete settings class with tabs, groups, a slider, a keybinding, conditional visibility, and a reset button.</p>
+
+<pre><code class="language-csharp">[FileLocation(nameof(MyMod))]
+[SettingsUITabOrder("General", "Keybindings")]
+[SettingsUIGroupOrder("Behavior", "Display")]
+[SettingsUIShowGroupName]
+[SettingsUIKeyboardAction("ToggleWindow", ActionType.Button)]
+public class MyModSettings : ModSetting
+{
+    public MyModSettings(IMod mod) : base(mod) { }
+
+    // --- General &gt; Behavior ---
+    [SettingsUISection("General", "Behavior")]
+    public bool EnableFeature { get; set; } = true;
+
+    [SettingsUISection("General", "Behavior")]
+    [SettingsUISlider(min = 0, max = 100, step = 5, unit = "percentage")]
+    [SettingsUIDisableByCondition(typeof(MyModSettings), nameof(IsFeatureDisabled))]
+    public int Intensity { get; set; } = 50;
+
+    public bool IsFeatureDisabled() =&gt; !EnableFeature;
+
+    // --- General &gt; Display ---
+    [SettingsUISection("General", "Display")]
+    public MyDisplayMode DisplayMode { get; set; } = MyDisplayMode.Normal;
+
+    // --- Keybindings tab ---
+    [SettingsUISection("Keybindings", "Keybindings")]
+    [SettingsUIKeyboardBinding(BindingKeyboard.F5, "ToggleWindow", shift: true)]
+    public ProxyBinding ToggleWindowBinding { get; set; }
+
+    // --- Reset button ---
+    [SettingsUISection("General", "Reset")]
+    [SettingsUIButton]
+    [SettingsUIConfirmation]
+    public bool ResetSettings
+    {
+        set { SetDefaults(); ApplyAndSave(); }
+    }
+
+    public override void SetDefaults()
+    {
+        EnableFeature = true;
+        Intensity = 50;
+        DisplayMode = MyDisplayMode.Normal;
+    }
+}
+
+public enum MyDisplayMode { Normal, Compact, Detailed }</code></pre>
+
+<h3>Conditional Visibility</h3>
+
+<p>Showing how to hide or disable widgets based on other setting values.</p>
+
+<pre><code class="language-csharp">[FileLocation(nameof(ConditionalExampleMod))]
+public class ConditionalSettings : ModSetting
+{
+    public ConditionalSettings(IMod mod) : base(mod) { }
+
+    [SettingsUISection("General", "Feature")]
+    public bool EnableNotifications { get; set; } = true;
+
+    // Grayed out when notifications are off (visible but not interactive)
+    [SettingsUISection("General", "Feature")]
+    [SettingsUISlider(min = 1, max = 30, step = 1, unit = "integer")]
+    [SettingsUIDisableByCondition(typeof(ConditionalSettings), nameof(IsNotificationsDisabled))]
+    public int NotificationInterval { get; set; } = 5;
+
+    // Completely hidden when notifications are off
+    [SettingsUISection("General", "Feature")]
+    [SettingsUIHideByCondition(typeof(ConditionalSettings), nameof(IsNotificationsDisabled))]
+    public bool PlaySound { get; set; } = false;
+
+    public bool IsNotificationsDisabled() =&gt; !EnableNotifications;
+
+    public override void SetDefaults()
+    {
+        EnableNotifications = true;
+        NotificationInterval = 5;
+        PlaySound = false;
+    }
+}</code></pre>
+
+<!-- ============================================================ -->
+<h2>Key Assemblies</h2>
+
+<table>
+  <thead><tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr></thead>
+  <tbody>
+    <tr><td>Game.dll</td><td><code>Game.Settings</code></td><td><code>Setting</code> base class, all <code>SettingsUI*</code> attributes</td></tr>
+    <tr><td>Game.dll</td><td><code>Game.Modding</code></td><td><code>ModSetting</code> (mod-specific subclass)</td></tr>
+    <tr><td>Game.dll</td><td><code>Game.UI.Menu</code></td><td><code>AutomaticSettings</code> (reflection engine), <code>OptionsUISystem</code> (rendering), <code>InputRebindingUISystem</code> (keybinding capture)</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2>Open Questions</h2>
+
+<ul>
+  <li>How does <code>Apply()</code> vs <code>ApplyAndSave()</code> differ in practice? Is <code>Apply()</code> called automatically when the user changes a value in the UI?</li>
+  <li>What is the exact behavior of <code>[SettingsUIValueVersion]</code> -- when does the version getter get called to trigger a widget refresh?</li>
+  <li>Can mods add localization for multiple languages, and how does fallback work when a key is missing?</li>
+  <li>How does <code>[SettingsUIPlatform]</code> interact with CS2's platform support?</li>
+  <li>Is there a way to listen for setting changes from another mod's settings (cross-mod communication)?</li>
+  <li>What is <code>DropdownItem&lt;T&gt;</code> -- where is it defined and what fields does it have besides <code>value</code> and <code>displayName</code>?</li>
+</ul>
+
+<footer>
+  <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Last updated 2026-02-15.</p>
+</footer>
+
+</div>
+
+</body>
+</html>

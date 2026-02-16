@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Citizen Sickness - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav><a href="index.html">Home</a><span class="sep">/</span><span>Citizen Sickness</span></nav>
+
+  <div class="container">
+    <h1>Citizen Sickness</h1>
+
+    <div class="scope">
+      <p><strong>Goal:</strong> Understand how to programmatically make citizens sick in CS2 -- either a single citizen or everyone inside a building.</p>
+      <p><strong>Use cases:</strong> Disease outbreak events, hazard zone mechanics, custom gameplay triggers.</p>
+      <p><strong>Not covered:</strong> Ambulance dispatch AI, hospital treatment, pollution-caused sickness. This focuses strictly on the "make sick" mechanism.</p>
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>How It Works</h2>
+
+    <p>CS2 treats sickness as a <strong>component</strong> on citizen entities. A healthy citizen simply does not have a <code>HealthProblem</code> component. When you want to make someone sick, you create a command entity that tells the game's existing system to attach <code>HealthProblem</code> to the target citizen.</p>
+
+    <p>The key insight: you do not add <code>HealthProblem</code> directly. Instead, you create a temporary <strong>event entity</strong> carrying an <code>AddHealthProblem</code> component. The game's <code>AddHealthProblemSystem</code> picks it up on the next simulation frame and does the real work -- adding the component, merging flags, stopping movement if needed, firing game events, and logging journal data.</p>
+
+    <p>This is the same pipeline the game uses internally for fires, building collapses, and natural disease. By using it, your mod gets correct behavior for free.</p>
+
+    <h3>The Event Pipeline</h3>
+
+    <div class="diagram"><pre>Mod code                          Game system (next frame)
+--------                          -------------------------
+
+Create entity with:               AddHealthProblemSystem picks it up:
+  - Event tag                       |
+  - AddHealthProblem {              +-- Citizen already sick?
+      m_Target = citizen,           |     Merge flags (OR)
+      m_Flags  = Sick,              |
+      m_Event  = Entity.Null        +-- New sickness?
+    }                               |     Add HealthProblem component
+                                    |
+                                    +-- RequireTransport set?
+                                    |     Stop citizen movement
+                                    |
+                                    +-- Fire trigger events
+                                    |     (CitizenGotSick, etc.)
+                                    |
+                                    +-- Create journal entry</pre></div>
+
+    <h3>Natural Sickness</h3>
+
+    <p>The game also generates sickness organically via <code>SicknessCheckSystem</code>. Once per game day, it checks every healthy citizen against an exponential probability curve based on <code>Citizen.m_Health</code> (0-255):</p>
+
+    <div class="diagram"><pre>Health value    Sickness factor (t)    Meaning
+-----------    -------------------    -------
+   255              ~0.000            Virtually immune
+   200              ~0.000            Very healthy
+   100              ~0.001            Tiny chance
+    50              ~0.032            Noticeable risk
+    10              ~0.512            Coin flip
+     0               1.000            Guaranteed sick</pre></div>
+
+    <p>The formula is: <code>t = saturate(pow(2, 10 - health * 0.1) * 0.001)</code>. The final probability is <code>lerp(min, max, t)</code> using values from the <code>HealthEventData</code> prefab. For disease events, this is further modified by <code>CityModifier.DiseaseProbability</code> (e.g., polluted water increases it).</p>
+
+    <!-- ============================================================ -->
+    <h2>Key Components</h2>
+
+    <h3>HealthProblem</h3>
+    <p>Attached to citizens who have an active health issue. Absent on healthy citizens.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Flags</code></td><td><code>HealthProblemFlags</code></td><td>Bitfield describing the problem type</td></tr>
+      <tr><td><code>m_Event</code></td><td><code>Entity</code></td><td>The event entity that caused this (fire, accident, or <code>Entity.Null</code>)</td></tr>
+      <tr><td><code>m_HealthcareRequest</code></td><td><code>Entity</code></td><td>Active ambulance/hearse request</td></tr>
+      <tr><td><code>m_Timer</code></td><td><code>byte</code></td><td>Delay timer for healthcare notification</td></tr>
+    </table>
+
+    <h3>HealthProblemFlags</h3>
+    <p>A flags enum (<code>byte</code>) that can be combined with bitwise OR:</p>
+    <table>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+      <tr><td><code>Sick</code></td><td>1</td><td>Citizen is sick, seeks healthcare on their own</td></tr>
+      <tr><td><code>Dead</code></td><td>2</td><td>Citizen is dead</td></tr>
+      <tr><td><code>Injured</code></td><td>4</td><td>Citizen is injured (accident)</td></tr>
+      <tr><td><code>RequireTransport</code></td><td>8</td><td>Needs ambulance/hearse pickup</td></tr>
+      <tr><td><code>InDanger</code></td><td>0x10</td><td>In a burning building</td></tr>
+      <tr><td><code>Trapped</code></td><td>0x20</td><td>In a collapsed building</td></tr>
+      <tr><td><code>NoHealthcare</code></td><td>0x40</td><td>No healthcare available</td></tr>
+    </table>
+
+    <p>Common combinations for mods:</p>
+    <ul>
+      <li><code>Sick</code> -- mild sickness, citizen walks to hospital</li>
+      <li><code>Sick | RequireTransport</code> -- severe, citizen collapses and waits for ambulance</li>
+      <li><code>Dead | RequireTransport</code> -- dead, needs hearse</li>
+    </ul>
+
+    <h3>AddHealthProblem</h3>
+    <p>The command component you create on event entities. This is your primary interface for making citizens sick.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Target</code></td><td><code>Entity</code></td><td>The citizen to affect</td></tr>
+      <tr><td><code>m_Flags</code></td><td><code>HealthProblemFlags</code></td><td>Which flags to set</td></tr>
+      <tr><td><code>m_Event</code></td><td><code>Entity</code></td><td>Parent event entity (use <code>Entity.Null</code> for standalone)</td></tr>
+    </table>
+
+    <h3>CurrentBuilding</h3>
+    <p>Tracks which building a citizen is physically inside <em>right now</em>. This is the key for finding "all citizens in a building."</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_CurrentBuilding</code></td><td><code>Entity</code></td><td>The building the citizen is currently in</td></tr>
+    </table>
+
+    <h3>Citizen</h3>
+    <p>Core citizen data. The fields most relevant to sickness:</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Health</code></td><td><code>byte</code></td><td>Health score (0-255), drives natural sickness probability</td></tr>
+      <tr><td><code>m_WellBeing</code></td><td><code>byte</code></td><td>Well-being score (0-255)</td></tr>
+      <tr><td><code>m_SicknessPenalty</code></td><td><code>int</code></td><td>Accumulated penalty from repeated sickness</td></tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <h2>Data Flow: Building to Citizens</h2>
+
+    <p>There are two distinct relationships between buildings and citizens. Understanding the difference is critical:</p>
+
+    <div class="diagram"><pre>Building entity
+    |
+    +-- DynamicBuffer&lt;Renter&gt;  (who LIVES here)
+    |       |
+    |       +-- Household entity
+    |               |
+    |               +-- DynamicBuffer&lt;HouseholdCitizen&gt;
+    |                       |
+    |                       +-- Citizen entity (has HouseholdMember back-link)
+    |
+    +-- Citizens also track physical location independently:
+            |
+            Citizen entity --> CurrentBuilding.m_CurrentBuilding --> Building entity
+
+
+KEY DISTINCTION:
+  CurrentBuilding  = where the citizen IS right now (work, shop, home)
+  Renter chain     = where the citizen LIVES (permanent address)
+
+A citizen at work: CurrentBuilding = office, but Renter chain = home</pre></div>
+
+    <!-- ============================================================ -->
+    <h2>Examples</h2>
+
+    <h3>Make a Single Citizen Sick</h3>
+    <p>Create an event entity with <code>AddHealthProblem</code>. The system handles the rest.</p>
+
+<pre><code class="language-csharp">public void MakeCitizenSick(EntityManager entityManager, Entity citizenEntity)
+{
+    EntityArchetype archetype = entityManager.CreateArchetype(
+        ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+        ComponentType.ReadWrite&lt;AddHealthProblem&gt;()
+    );
+
+    Entity eventEntity = entityManager.CreateEntity(archetype);
+    entityManager.SetComponentData(eventEntity, new AddHealthProblem
+    {
+        m_Event  = Entity.Null,
+        m_Target = citizenEntity,
+        m_Flags  = HealthProblemFlags.Sick
+    });
+    // Processed next frame by AddHealthProblemSystem
+}</code></pre>
+
+    <p>For severe sickness (citizen collapses, ambulance dispatched), change the flags:</p>
+
+<pre><code class="language-csharp">m_Flags = HealthProblemFlags.Sick | HealthProblemFlags.RequireTransport</code></pre>
+
+    <h3>Make All Occupants of a Building Sick</h3>
+    <p>Query all citizens with <code>CurrentBuilding</code>, filter by the target building, and create an event for each. This catches everyone physically present -- residents, workers, and visitors.</p>
+
+<pre><code class="language-csharp">public partial class BuildingSicknessSystem : GameSystemBase
+{
+    private EntityQuery _citizenQuery;
+    private EntityArchetype _eventArchetype;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _citizenQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Citizen&gt;(),
+            ComponentType.ReadOnly&lt;CurrentBuilding&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+        _eventArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+            ComponentType.ReadWrite&lt;AddHealthProblem&gt;()
+        );
+    }
+
+    public void MakeAllOccupantsSick(Entity buildingEntity)
+    {
+        var entityHandle = GetEntityTypeHandle();
+        var buildingHandle = GetComponentTypeHandle&lt;CurrentBuilding&gt;(true);
+        var chunks = _citizenQuery.ToArchetypeChunkArray(Allocator.Temp);
+
+        try
+        {
+            foreach (ArchetypeChunk chunk in chunks)
+            {
+                var entities  = chunk.GetNativeArray(entityHandle);
+                var buildings = chunk.GetNativeArray(ref buildingHandle);
+
+                for (int i = 0; i &lt; entities.Length; i++)
+                {
+                    if (buildings[i].m_CurrentBuilding == buildingEntity)
+                    {
+                        Entity cmd = EntityManager.CreateEntity(_eventArchetype);
+                        EntityManager.SetComponentData(cmd, new AddHealthProblem
+                        {
+                            m_Event  = Entity.Null,
+                            m_Target = entities[i],
+                            m_Flags  = HealthProblemFlags.Sick
+                        });
+                    }
+                }
+            }
+        }
+        finally
+        {
+            chunks.Dispose();
+        }
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+    <h3>Make All Residents Sick (by Address)</h3>
+    <p>If you want permanent residents rather than current occupants, walk the <code>Renter</code> buffer chain:</p>
+
+<pre><code class="language-csharp">public void MakeAllResidentsSick(Entity buildingEntity)
+{
+    if (!EntityManager.TryGetBuffer&lt;Renter&gt;(buildingEntity, true, out var renters))
+        return;
+
+    for (int i = 0; i &lt; renters.Length; i++)
+    {
+        Entity household = renters[i].m_Renter;
+        if (!EntityManager.HasComponent&lt;Household&gt;(household))
+            continue;
+        if (!EntityManager.TryGetBuffer&lt;HouseholdCitizen&gt;(household, true, out var citizens))
+            continue;
+
+        for (int j = 0; j &lt; citizens.Length; j++)
+        {
+            Entity cmd = EntityManager.CreateEntity(_eventArchetype);
+            EntityManager.SetComponentData(cmd, new AddHealthProblem
+            {
+                m_Event  = Entity.Null,
+                m_Target = citizens[j].m_Citizen,
+                m_Flags  = HealthProblemFlags.Sick
+            });
+        }
+    }
+}</code></pre>
+
+    <h3>Check If a Citizen Is Sick</h3>
+    <p>The presence of the <code>HealthProblem</code> component itself is the indicator. No component means healthy.</p>
+
+<pre><code class="language-csharp">if (!entityManager.HasComponent&lt;HealthProblem&gt;(citizenEntity))
+{
+    // Citizen is healthy
+    return;
+}
+
+HealthProblem problem = entityManager.GetComponentData&lt;HealthProblem&gt;(citizenEntity);
+bool isSick    = (problem.m_Flags &amp; HealthProblemFlags.Sick) != 0;
+bool isDead    = (problem.m_Flags &amp; HealthProblemFlags.Dead) != 0;
+bool needsHelp = (problem.m_Flags &amp; HealthProblemFlags.RequireTransport) != 0;</code></pre>
+
+    <!-- ============================================================ -->
+    <h2>Configuration</h2>
+
+    <p>Global healthcare parameters are stored in the <code>HealthcareParameterData</code> singleton:</p>
+
+    <table>
+      <tr><th>Parameter</th><th>Field</th><th>Purpose</th></tr>
+      <tr><td>Building destroy death rate</td><td><code>m_BuildingDestoryDeathRate</code></td><td>Chance of death when a building is destroyed</td></tr>
+      <tr><td>Transport warning time</td><td><code>m_TransportWarningTime</code></td><td>Delay before ambulance notification appears</td></tr>
+      <tr><td>No-resource treatment penalty</td><td><code>m_NoResourceTreatmentPenalty</code></td><td>Penalty when hospital lacks resources</td></tr>
+      <tr><td>Death rate curve</td><td><code>m_DeathRate</code></td><td>AnimationCurve controlling death probability</td></tr>
+    </table>
+
+    <p>Per-event configuration lives in <code>HealthEventData</code> prefabs:</p>
+
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Purpose</th></tr>
+      <tr><td><code>m_HealthEventType</code></td><td><code>HealthEventType</code></td><td>Disease, Injury, or Death</td></tr>
+      <tr><td><code>m_OccurenceProbability</code></td><td><code>Bounds1</code></td><td>Min/max probability range (interpolated by health)</td></tr>
+      <tr><td><code>m_TransportProbability</code></td><td><code>Bounds1</code></td><td>Min/max chance of needing ambulance</td></tr>
+      <tr><td><code>m_RequireTracking</code></td><td><code>bool</code></td><td>If true, creates full event entity; if false, lightweight</td></tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <h2>Patch Points</h2>
+
+    <h3>Recommended: No Patches Needed</h3>
+    <p>For basic sickness triggering, the ECS event approach (creating <code>AddHealthProblem</code> entities) is sufficient and avoids Harmony entirely. The game's system handles deduplication, merging, journal tracking, and movement stopping.</p>
+
+    <h3>Harmony: AddHealthProblemSystem.OnUpdate()</h3>
+    <p>If you need to intercept or modify how sickness is applied:</p>
+    <ul>
+      <li><strong>Prefix</strong> -- block or filter which citizens receive health problems</li>
+      <li><strong>Postfix</strong> -- add custom effects after sickness is applied</li>
+    </ul>
+    <p>Risk: this is central to <em>all</em> health problem assignment. Blocking it also prevents fire and collapse casualties.</p>
+
+    <h3>Direct Component Manipulation</h3>
+    <p>You can bypass the event pipeline entirely with <code>EntityCommandBuffer.AddComponent&lt;HealthProblem&gt;()</code>. This is simpler but skips journal tracking, trigger events, and movement stopping. Use only when those side effects are not needed.</p>
+
+    <!-- ============================================================ -->
+    <h2>Open Questions</h2>
+
+    <ul>
+      <li>What determines <code>Citizen.m_Health</code> decay over time? The system that degrades or restores health was not traced.</li>
+      <li>How does <code>m_SicknessPenalty</code> accumulate and affect gameplay? It is serialized but the reading system was not traced.</li>
+      <li>What happens when a citizen with <code>Sick</code> (without <code>RequireTransport</code>) reaches a hospital? The treatment/recovery flow was not traced.</li>
+      <li>Are there different sickness severities beyond flag combinations, or is all sickness treated uniformly?</li>
+    </ul>
+
+    <footer>
+      <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-15.</p>
+    </footer>
+  </div>
+</body>
+</html>

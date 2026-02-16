@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mod UI Buttons - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav><a href="index.html">Home</a><span class="sep">/</span><span>Mod UI Buttons</span></nav>
+
+<div class="container">
+
+<h1>Mod UI Buttons &amp; Bindings</h1>
+
+<div class="scope">
+  <p><strong>What this covers:</strong> How CS2 mods add custom buttons and panels to the game UI, and how C# systems communicate with the TypeScript/React frontend through the Colossal UI binding framework.</p>
+  <p><strong>Why it matters:</strong> Every mod that needs a toolbar button, settings panel, or any visible UI element uses this system. It is the bridge between your game logic and what the player sees.</p>
+  <p><strong>Prerequisites:</strong> Familiarity with ECS systems (GameSystemBase) and basic React/TypeScript.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>How It Works</h2>
+
+<p>The CS2 UI is a two-layer system. Your mod logic runs in C# as an ECS system. The visible UI runs in a TypeScript/React frontend rendered by Coherent (cohtml). The binding framework connects the two layers.</p>
+
+<p>There are three communication patterns:</p>
+
+<ul>
+  <li><strong>C# to JS</strong> -- Push data to the frontend with <code>ValueBinding&lt;T&gt;</code>. The UI re-renders automatically when values change.</li>
+  <li><strong>JS to C#</strong> -- The frontend fires events back to C# with <code>TriggerBinding</code>. Think button clicks and user input.</li>
+  <li><strong>JS to C# to JS</strong> -- Call a C# function and get a return value with <code>CallBinding&lt;TResult&gt;</code>.</li>
+</ul>
+
+<p>Every binding is identified by a two-part path: <code>"{group}.{name}"</code>. By convention, use your mod ID (from <code>mod.json</code>) as the group. This prevents collisions with other mods and vanilla systems.</p>
+
+<div class="diagram">
+C# (UISystemBase subclass)                    TypeScript / React
+-------------------------------                ----------------------
+
+ValueBinding&lt;bool&gt;("MyMod", "IsActive")  ---&gt;  bindValue("MyMod", "IsActive")
+   .Update(true)                                useValue(isActive$) re-renders
+
+TriggerBinding("MyMod", "Toggle")         &lt;---  trigger("MyMod", "Toggle")
+   callback fires in C#                         button.onSelect fires in JS
+
+CallBinding&lt;string&gt;("MyMod", "GetName")  &lt;--&gt;  bound function call
+   returns value to JS                          receives return value
+</div>
+
+<!-- ============================================================ -->
+<h2>The C# Side: UISystemBase</h2>
+
+<p><code>UISystemBase</code> (in <code>Game.UI</code>) is the base class for all mod UI systems. It extends <code>GameSystemBase</code>, so it participates in the ECS update loop. You register bindings in <code>OnCreate()</code>, and the system handles the rest.</p>
+
+<h3>Lifecycle</h3>
+
+<div class="diagram">
+OnCreate()
+  |-- Initialize binding lists
+  |-- Create and register bindings via AddBinding() / AddUpdateBinding()
+
+OnGamePreload(purpose, mode)
+  |-- Sets Enabled = (gameMode &amp; mode) != 0
+  |-- System auto-disables in unsupported modes
+
+OnUpdate()  [every frame when Enabled]
+  |-- Polls all IUpdateBinding instances (getter bindings)
+  |-- Pushes changed values to JS
+
+OnDestroy()
+  |-- Auto-removes all bindings from the global registry
+</div>
+
+<h3>Key Members</h3>
+
+<table>
+  <tr><th>Member</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>m_Bindings</code></td><td><code>List&lt;IBinding&gt;</code></td><td>All registered bindings</td></tr>
+  <tr><td><code>m_UpdateBindings</code></td><td><code>List&lt;IUpdateBinding&gt;</code></td><td>Bindings polled each frame</td></tr>
+  <tr><td><code>gameMode</code></td><td><code>virtual GameMode</code></td><td>Controls which game modes the system is active in (default: <code>GameMode.All</code>)</td></tr>
+</table>
+
+<h3>Registration Methods</h3>
+
+<table>
+  <tr><th>Method</th><th>Use For</th></tr>
+  <tr><td><code>AddBinding(IBinding)</code></td><td>ValueBinding, TriggerBinding, CallBinding -- anything that does not need per-frame polling</td></tr>
+  <tr><td><code>AddUpdateBinding(IUpdateBinding)</code></td><td>GetterValueBinding, RawValueBinding -- bindings that poll a data source every frame</td></tr>
+</table>
+
+<p>Both methods register the binding globally via <code>GameManager.instance.userInterface.bindings.AddBinding()</code>.</p>
+
+<!-- ============================================================ -->
+<h2>Binding Types</h2>
+
+<h3>C# to JS (Value Bindings)</h3>
+
+<table>
+  <tr><th>Type</th><th>How It Works</th></tr>
+  <tr><td><code>ValueBinding&lt;T&gt;</code></td><td>Push a value with <code>.Update(newValue)</code>. Only sends if the value actually changed (uses <code>EqualityComparer&lt;T&gt;</code>).</td></tr>
+  <tr><td><code>GetterValueBinding&lt;T&gt;</code></td><td>Polls a <code>Func&lt;T&gt;</code> getter every frame. Only sends on change. Must use <code>AddUpdateBinding()</code>.</td></tr>
+  <tr><td><code>RawValueBinding</code></td><td>Untyped -- takes an <code>Action&lt;IJsonWriter&gt;</code> delegate, called every frame.</td></tr>
+</table>
+
+<h3>JS to C# (Trigger Bindings)</h3>
+
+<table>
+  <tr><th>Type</th><th>Callback Signature</th></tr>
+  <tr><td><code>TriggerBinding</code></td><td><code>Action</code> (no arguments)</td></tr>
+  <tr><td><code>TriggerBinding&lt;T&gt;</code></td><td><code>Action&lt;T&gt;</code></td></tr>
+  <tr><td><code>TriggerBinding&lt;T1,T2&gt;</code></td><td><code>Action&lt;T1,T2&gt;</code></td></tr>
+  <tr><td><code>TriggerBinding&lt;T1,T2,T3&gt;</code></td><td><code>Action&lt;T1,T2,T3&gt;</code></td></tr>
+  <tr><td><code>TriggerBinding&lt;T1,T2,T3,T4&gt;</code></td><td><code>Action&lt;T1,T2,T3,T4&gt;</code></td></tr>
+</table>
+
+<h3>JS to C# to JS (Call Bindings)</h3>
+
+<table>
+  <tr><th>Type</th><th>Callback Signature</th></tr>
+  <tr><td><code>CallBinding&lt;TResult&gt;</code></td><td><code>Func&lt;TResult&gt;</code> (no arguments, returns value)</td></tr>
+  <tr><td><code>CallBinding&lt;T1,TResult&gt;</code></td><td><code>Func&lt;T1,TResult&gt;</code></td></tr>
+  <tr><td>Up to <code>CallBinding&lt;T1..T5,TResult&gt;</code></td><td>Up to 5 arguments with return value</td></tr>
+</table>
+
+<h3>Inheritance Hierarchy</h3>
+
+<div class="diagram">
+IBinding                          -- Attach/Detach to cohtml View
++-- BindingBase (abstract)        -- group, name, path properties
+|   +-- EventBindingBase          -- observer subscribe/unsubscribe tracking
+|   |   +-- RawEventBindingBase   -- owns JsonWriter for sending events
+|   |       +-- ValueBinding&lt;T&gt;
+|   |       +-- GetterValueBinding&lt;T&gt;  (also IUpdateBinding)
+|   |       +-- RawValueBinding        (also IUpdateBinding)
+|   +-- RawTriggerBindingBase     -- owns JsonReader for receiving events
+|   |   +-- TriggerBinding&lt;T&gt;
+|   |   +-- TriggerBinding&lt;T1,T2&gt;
+|   |   +-- TriggerBinding&lt;T1,T2,T3&gt;
+|   |   +-- TriggerBinding&lt;T1,T2,T3,T4&gt;
+|   |   +-- RawTriggerBinding     -- raw Action&lt;IJsonReader&gt;
+|   +-- TriggerBinding            -- no-arg (directly on BindingBase)
+|   +-- RawCallBindingBase&lt;TResult&gt;
+|       +-- CallBinding&lt;TResult&gt;
+|       +-- CallBinding&lt;T1,TResult&gt;  ... up to 5 args
+</div>
+
+<!-- ============================================================ -->
+<h2>The TypeScript Side</h2>
+
+<h3>Module Registration</h3>
+
+<p>Every mod with UI exports a <code>ModRegistrar</code> function from <code>index.tsx</code>. The game calls this function and passes a <code>moduleRegistry</code> that lets you inject React components into the game UI.</p>
+
+<pre><code class="language-typescript">import { ModRegistrar } from "cs2/modding";
+import MyToolbarButton from "mods/Components/MyToolbarButton";
+import MyPanel from "mods/MyPanel";
+
+const register: ModRegistrar = (moduleRegistry) =&gt; {
+    // Place button in the top-left toolbar area
+    moduleRegistry.append("GameTopLeft", MyToolbarButton);
+    // Inject panel at the gameplay view root
+    moduleRegistry.append("Game", MyPanel);
+};
+
+export default register;</code></pre>
+
+<h3>Injection Slots</h3>
+
+<table>
+  <tr><th>Slot Name</th><th>Location</th><th>Method</th><th>Use Case</th></tr>
+  <tr><td><code>"GameTopLeft"</code></td><td>Top-left toolbar</td><td><code>append</code></td><td>Toolbar buttons alongside vanilla tools</td></tr>
+  <tr><td><code>"Game"</code></td><td>Game view root</td><td><code>append</code></td><td>Full panels/overlays during gameplay</td></tr>
+  <tr><td><code>"Editor"</code></td><td>Editor view root</td><td><code>append</code></td><td>Panels during map/asset editor</td></tr>
+  <tr><td>Vanilla component paths</td><td>e.g. <code>"game-ui/.../right-menu.tsx"</code></td><td><code>extend</code></td><td>Wrap/replace vanilla components</td></tr>
+</table>
+
+<h3>Binding API</h3>
+
+<table>
+  <tr><th>Package</th><th>Key Exports</th></tr>
+  <tr><td><code>cs2/api</code></td><td><code>bindValue(group, name, default)</code>, <code>useValue(binding$)</code>, <code>trigger(group, name, ...args)</code></td></tr>
+  <tr><td><code>cs2/ui</code></td><td><code>Button</code>, <code>Tooltip</code>, <code>Panel</code>, etc. (game-style React components)</td></tr>
+  <tr><td><code>cs2/modding</code></td><td><code>ModRegistrar</code> type</td></tr>
+  <tr><td><code>cs2/bindings</code></td><td>Vanilla game state observables</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Data Flow</h2>
+
+<h3>C# to JS: Value Push</h3>
+
+<div class="diagram">
+C# calls ValueBinding&lt;T&gt;.Update(newValue)
+  |-- EqualityComparer&lt;T&gt; checks if value changed
+  |-- If changed: serialize via IJsonWriter
+      |-- Event: "{group}.{name}.update"
+      |-- cohtml native bridge delivers to JS
+          |-- binding$ observable fires
+          |-- useValue() hook re-renders React component
+</div>
+
+<h3>C# to JS: Getter Poll</h3>
+
+<div class="diagram">
+UISystemBase.OnUpdate() [every frame]
+  |-- Iterates m_UpdateBindings
+  |-- GetterValueBinding&lt;T&gt;.Update()
+      |-- Calls getter function
+      |-- Compares to previous value
+      |-- If changed: same event path as ValueBinding
+</div>
+
+<h3>JS to C#: Trigger</h3>
+
+<div class="diagram">
+TypeScript calls trigger(group, name, arg1, arg2, ...)
+  |-- cohtml fires event "{group}.{name}"
+  |-- RawTriggerBindingBase.BaseCallback()
+      |-- Deserializes args via IReader&lt;T&gt;.Read()
+      |-- Calls your callback with typed arguments
+</div>
+
+<h3>Observer Pattern</h3>
+
+<p>Value bindings track how many JS components are subscribed. When <code>useValue()</code> subscribes, the observer count increments. When a React component unmounts, it decrements. If no observers exist, the binding skips serialization entirely -- no wasted work.</p>
+
+<!-- ============================================================ -->
+<h2>Serialization</h2>
+
+<p>The binding framework handles serialization automatically for common types. For custom types, you have two options.</p>
+
+<h3>Built-in Types</h3>
+
+<p>Primitives (<code>bool</code>, <code>int</code>, <code>float</code>, <code>double</code>, <code>string</code>, etc.), Unity math types, arrays, <code>IList&lt;T&gt;</code>, and <code>IDictionary&lt;K,V&gt;</code> are all handled automatically. Enums serialize as integers.</p>
+
+<h3>Option A: Implement IJsonWritable</h3>
+
+<pre><code class="language-csharp">public struct ModPanelData : IJsonWritable
+{
+    public string Title;
+    public int Progress;
+
+    public void Write(IJsonWriter writer)
+    {
+        writer.TypeBegin("ModPanelData");
+        writer.PropertyName("title");
+        writer.Write(Title);
+        writer.PropertyName("progress");
+        writer.Write(Progress);
+        writer.TypeEnd();
+    }
+}</code></pre>
+
+<p>The binding framework detects <code>IJsonWritable</code> automatically via <code>ValueWriters.Create&lt;T&gt;()</code>. No additional registration needed.</p>
+
+<h3>Option B: Register a Custom Writer</h3>
+
+<pre><code class="language-csharp">ValueWriters.Register&lt;MyType&gt;((IJsonWriter writer, MyType value) =&gt; {
+    writer.Write(value.ToString());
+});</code></pre>
+
+<h3>Resolution Order</h3>
+
+<p><code>ValueWriters.Create&lt;T&gt;()</code> resolves in this order: registered writers, then <code>IJsonWritable</code>, then arrays, then <code>IList&lt;T&gt;</code>, then <code>IDictionary&lt;K,V&gt;</code>. If none match, it throws <code>ArgumentException</code>.</p>
+
+<!-- ============================================================ -->
+<h2>Full Example: Toolbar Button</h2>
+
+<p>This walks through every file needed to add a toolbar button that toggles a panel.</p>
+
+<h3>Step 1: C# UI System</h3>
+
+<pre><code class="language-csharp">using Colossal.UI.Binding;
+using Game.UI;
+
+public partial class MyModUISystem : UISystemBase
+{
+    private ValueBinding&lt;bool&gt; _isPanelOpen;
+    private ValueBinding&lt;string&gt; _statusText;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Push state to JS
+        _isPanelOpen = new ValueBinding&lt;bool&gt;("MyMod", "IsPanelOpen", false);
+        _statusText = new ValueBinding&lt;string&gt;("MyMod", "StatusText", "Ready");
+        AddBinding(_isPanelOpen);
+        AddBinding(_statusText);
+
+        // Receive events from JS
+        AddBinding(new TriggerBinding("MyMod", "TogglePanel", OnTogglePanel));
+        AddBinding(new TriggerBinding&lt;string&gt;("MyMod", "SetStatus", OnSetStatus));
+    }
+
+    private void OnTogglePanel()
+    {
+        _isPanelOpen.Update(!_isPanelOpen.value);
+        _statusText.Update(_isPanelOpen.value ? "Panel is open" : "Panel is closed");
+    }
+
+    private void OnSetStatus(string newStatus)
+    {
+        _statusText.Update(newStatus);
+    }
+}</code></pre>
+
+<h3>Step 2: Register in Mod.OnLoad</h3>
+
+<pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
+{
+    // UIUpdate phase ensures bindings poll after simulation but before render.
+    updateSystem.UpdateAt&lt;MyModUISystem&gt;(SystemUpdatePhase.UIUpdate);
+}</code></pre>
+
+<h3>Step 3: TypeScript Bindings</h3>
+
+<pre><code class="language-typescript">// bindings.ts
+import { bindValue, trigger } from "cs2/api";
+import mod from "mod.json";
+
+export const isPanelOpen$ = bindValue&lt;boolean&gt;(mod.id, "IsPanelOpen", false);
+export const statusText$ = bindValue&lt;string&gt;(mod.id, "StatusText", "Ready");
+export const togglePanel = trigger.bind(null, mod.id, "TogglePanel");
+export const setStatus = (s: string) =&gt; trigger(mod.id, "SetStatus", s);</code></pre>
+
+<h3>Step 4: Toolbar Button Component</h3>
+
+<pre><code class="language-typescript">// MyToolbarButton.tsx
+import { Button, Tooltip } from "cs2/ui";
+import { useValue } from "cs2/api";
+import { isPanelOpen$, togglePanel } from "mods/bindings";
+
+export default () =&gt; {
+    const isOpen = useValue(isPanelOpen$);
+    return (
+        &lt;Tooltip tooltip="My Mod"&gt;
+            &lt;Button
+                variant="floating"
+                className={isOpen ? styles.selected : styles.toggle}
+                onSelect={togglePanel}
+            &gt;
+                &lt;img style={{ maskImage: `url(${icon})` }} /&gt;
+            &lt;/Button&gt;
+        &lt;/Tooltip&gt;
+    );
+};</code></pre>
+
+<h3>Step 5: Panel Component</h3>
+
+<pre><code class="language-typescript">// MyPanel.tsx
+import { useValue } from "cs2/api";
+import { Button, Panel } from "cs2/ui";
+import { isPanelOpen$, statusText$, togglePanel, setStatus } from "mods/bindings";
+
+export const MyPanel = () =&gt; {
+    const isOpen = useValue(isPanelOpen$);
+    const status = useValue(statusText$);
+
+    if (!isOpen) return null;
+
+    return (
+        &lt;Panel&gt;
+            &lt;h2&gt;My Mod Panel&lt;/h2&gt;
+            &lt;p&gt;Status: {status}&lt;/p&gt;
+            &lt;Button onSelect={() =&gt; setStatus("Clicked!")}&gt;Update&lt;/Button&gt;
+            &lt;Button onSelect={togglePanel}&gt;Close&lt;/Button&gt;
+        &lt;/Panel&gt;
+    );
+};</code></pre>
+
+<h3>Step 6: Module Entry Point</h3>
+
+<pre><code class="language-typescript">// index.tsx
+import { ModRegistrar } from "cs2/modding";
+import MyToolbarButton from "mods/Components/MyToolbarButton";
+import { MyPanel } from "mods/MyPanel";
+
+const register: ModRegistrar = (moduleRegistry) =&gt; {
+    moduleRegistry.append("GameTopLeft", MyToolbarButton);
+    moduleRegistry.append("Game", MyPanel);
+};
+
+export default register;</code></pre>
+
+<!-- ============================================================ -->
+<h2>Getter Polling Example</h2>
+
+<p>Use <code>GetterValueBinding&lt;T&gt;</code> when the value changes externally (e.g., from other ECS systems). The binding polls your getter every frame and only pushes to JS when the result changes.</p>
+
+<pre><code class="language-csharp">public partial class StatsUISystem : UISystemBase
+{
+    private int _entityCount;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // IMPORTANT: use AddUpdateBinding (not AddBinding)
+        AddUpdateBinding(new GetterValueBinding&lt;int&gt;(
+            "MyMod", "EntityCount", () =&gt; _entityCount));
+    }
+
+    protected override void OnUpdate()
+    {
+        _entityCount = ComputeEntityCount();
+        base.OnUpdate(); // polls all getters after you update state
+    }
+}</code></pre>
+
+<!-- ============================================================ -->
+<h2>Restricting Game Modes</h2>
+
+<p>Override <code>gameMode</code> to limit when your system runs. The system auto-disables during mode transitions.</p>
+
+<pre><code class="language-csharp">public partial class GameplayOnlyUISystem : UISystemBase
+{
+    // Only active during gameplay -- disabled in editor, main menu, etc.
+    public override GameMode gameMode =&gt; GameMode.Game;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        AddUpdateBinding(new GetterValueBinding&lt;float&gt;(
+            "MyMod", "GameTime", () =&gt; UnityEngine.Time.time));
+    }
+}</code></pre>
+
+<!-- ============================================================ -->
+<h2>Build Setup</h2>
+
+<h3>Directory Structure</h3>
+
+<div class="diagram">
+ModName/
++-- UI/
+    +-- mod.json              -- Module declaration (id, author, version)
+    +-- package.json          -- npm dependencies
+    +-- tsconfig.json         -- TypeScript config
+    +-- webpack.config.js     -- Webpack bundler config
+    +-- src/
+    |   +-- index.tsx         -- ModRegistrar entry point
+    |   +-- mods/
+    |       +-- bindings.ts   -- All bindValue/trigger declarations
+    |       +-- Components/   -- React components
+    +-- build/                -- Webpack output (not committed)
+</div>
+
+<h3>mod.json</h3>
+
+<p>The <code>id</code> field is used as the binding group name and module identifier. It must match the group string you use in C# bindings.</p>
+
+<pre><code class="language-json">{
+    "id": "MyModName",
+    "author": "AuthorName",
+    "version": "1.0.0",
+    "dependencies": []
+}</code></pre>
+
+<h3>Build Commands</h3>
+
+<table>
+  <tr><th>Command</th><th>What It Does</th></tr>
+  <tr><td><code>npx create-csii-ui-mod</code></td><td>Scaffolds the initial UI project</td></tr>
+  <tr><td><code>npm run build</code></td><td>Bundles with webpack</td></tr>
+  <tr><td><code>npm run dev</code></td><td>Watches for changes and rebuilds</td></tr>
+</table>
+
+<h3>Key CSS Variables (Game Theme)</h3>
+
+<table>
+  <tr><th>Variable</th><th>Description</th></tr>
+  <tr><td><code>--accentColorNormal</code></td><td>Primary accent color</td></tr>
+  <tr><td><code>--accentColorNormal-hover</code></td><td>Hover state</td></tr>
+  <tr><td><code>--accentColorNormal-pressed</code></td><td>Pressed/active state</td></tr>
+  <tr><td><code>--panelColorNormal</code></td><td>Panel background</td></tr>
+  <tr><td><code>--textColorNormal</code></td><td>Default text color</td></tr>
+</table>
+
+<!-- ============================================================ -->
+<h2>Open Questions</h2>
+
+<ul>
+  <li>What props does a <code>moduleRegistry.extend()</code> wrapper component receive?</li>
+  <li>Are <code>CallBinding</code> results serialized automatically by cohtml, or do they need <code>IJsonWritable</code>?</li>
+  <li>What is the full list of <code>moduleRegistry</code> injection slots beyond the documented ones?</li>
+  <li>Does <code>cs2/api</code> expose a <code>call()</code> function for <code>CallBinding</code>?</li>
+  <li>How does the game resolve the mod UI build output path at load time?</li>
+  <li>Is <code>ValueBinding.Update()</code> thread-safe when called from background systems?</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>Sources</h2>
+
+<ul>
+  <li>Decompiled from: <code>Colossal.UI.Binding.dll</code>, <code>Game.dll</code> (Cities: Skylines II)</li>
+  <li>Reference mod: <a href="https://github.com/JadHajjar/RoadBuilder-CSII">RoadBuilder-CSII</a> by JadHajjar</li>
+</ul>
+
+<footer>
+  <p>CS2 Modding Research -- generated from decompiled game assemblies and community mod analysis.</p>
+</footer>
+
+</div>
+</body>
+</html>

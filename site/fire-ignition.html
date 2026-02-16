@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fire Ignition - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <nav>
+    <a href="index.html">Home</a>
+    <span class="sep">/</span>
+    <span>Fire Ignition</span>
+  </nav>
+
+  <div class="container">
+    <h1>Fire Ignition</h1>
+
+    <!-- Scope -->
+    <div class="scope">
+      <p><strong>What:</strong> How fires start on buildings and trees in CS2 -- the ignition trigger, hazard probability math, and the system pipeline from spark to blaze.</p>
+      <p><strong>Why:</strong> To build mods that programmatically ignite entities, tweak fire probability, or prevent fires entirely.</p>
+      <p><strong>Boundaries:</strong> Does not cover fire rescue dispatch, fire station pathfinding, or fire visual effects. Fire spread is documented where it overlaps with ignition.</p>
+      <p><strong>Status:</strong> Complete</p>
+    </div>
+
+    <!-- How It Works -->
+    <h2>How It Works</h2>
+
+    <p>
+      The key insight: building fires and forest fires are <strong>not separate systems</strong>. They share a single unified pipeline with three systems, each with a distinct job:
+    </p>
+
+    <ol>
+      <li><strong>FireHazardSystem</strong> -- decides whether a spontaneous fire should start (runs every ~68 seconds)</li>
+      <li><strong>IgniteSystem</strong> -- processes ignition requests and attaches the <code>OnFire</code> component to targets (runs every frame)</li>
+      <li><strong>FireSimulationSystem</strong> -- escalates intensity, applies damage, triggers spread (runs every ~1 second)</li>
+    </ol>
+
+    <p>
+      The only difference between building and tree fires is the hazard calculation path inside <code>FireHazardData.GetFireHazard()</code>. Buildings factor in level, zone type, and fire station coverage. Trees factor in temperature, rainfall, and local effects. After that, the same <code>Ignite</code> event feeds into the same pipeline.
+    </p>
+
+    <p>
+      All three systems live in <code>Game.dll</code>. The relevant namespaces:
+    </p>
+
+    <table>
+      <tr><th>Namespace</th><th>Contents</th></tr>
+      <tr><td><code>Game.Events</code></td><td><code>Ignite</code>, <code>OnFire</code>, <code>Fire</code> (tag), <code>TargetElement</code>, <code>IgniteSystem</code></td></tr>
+      <tr><td><code>Game.Simulation</code></td><td><code>FireSimulationSystem</code>, <code>FireHazardSystem</code>, <code>EventHelpers</code> (contains <code>FireHazardData</code>)</td></tr>
+      <tr><td><code>Game.Prefabs</code></td><td><code>Fire</code> (ComponentBase), <code>FireData</code>, <code>FireConfigurationData</code></td></tr>
+    </table>
+
+    <!-- Data Flow -->
+    <h2>Data Flow</h2>
+
+    <p>This is the full path from spontaneous ignition through to destruction. Fire spread creates new <code>Ignite</code> events that feed back into the same loop.</p>
+
+<div class="diagram">
+FireHazardSystem (every 4096 frames / ~68s)
+    |
+    |  Picks 1-in-64 chunks at random
+    |  For each building or tree in chunk:
+    |
+    |    Building path                    Tree path
+    |    ----------------                 ----------------
+    |    base hazard (prefab)             base hazard (prefab)
+    |    * level penalty                  * climate factor
+    |    * zone multiplier                  (temp curve * rain curve)
+    |    * fire station coverage          * local effect modifier
+    |    * district modifier              * damage factor ^4
+    |    * damage factor ^4
+    |
+    |  TryStartFire:
+    |    probability = hazard * startProbability
+    |    roll: random(10000) &lt; probability
+    |
+    v
+Fire Event Entity created
+    |  Has: PrefabRef + Fire tag + TargetElement buffer
+    |  Also creates: Ignite entity (Event tag + Ignite data)
+    |
+    v
+IgniteSystem (every frame)
+    |  Deduplicates by target (keeps highest intensity)
+    |  Adds OnFire component to target entity
+    |  Adds target to event's TargetElement buffer
+    |
+    v
+OnFire on target entity
+    |  intensity starts at 1.0 (default)
+    |
+    v
+FireSimulationSystem (every 64 frames / ~1s)
+    |
+    +-- Damage: intensity += escalationRate * 1.067
+    |   structural damage += min(0.5, intensity * dt / integrity)
+    |   When damage >= 1.0 --> Destroy event
+    |   When intensity == 0 --> remove OnFire
+    |
+    +-- Rescue: delay = random(3s-30s) * modifiers
+    |   When frame reached --> FireRescueRequest
+    |
+    +-- Spread: roll based on intensity * sqrt(spreadProb)
+        Search nearby entities within spreadRange
+        Success --> new Ignite event (loops back up)
+</div>
+
+    <!-- Key Components -->
+    <h2>Key Components</h2>
+
+    <h3>Ignite <span class="tag">Game.Events</span></h3>
+    <p>
+      A temporary event component. Created as a standalone entity with the <code>Event</code> tag, processed by <code>IgniteSystem</code> within one frame, then destroyed. This is the primary way to start a fire -- both for spontaneous ignition and for mod-triggered fires.
+    </p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Event</code></td><td>Entity</td><td>The fire event entity this ignition belongs to</td></tr>
+      <tr><td><code>m_Target</code></td><td>Entity</td><td>The entity to ignite (building or tree)</td></tr>
+      <tr><td><code>m_Intensity</code></td><td>float</td><td>Starting fire intensity</td></tr>
+      <tr><td><code>m_RequestFrame</code></td><td>uint</td><td>Simulation frame when rescue should be requested (0 = auto-calculate)</td></tr>
+    </table>
+
+    <h3>OnFire <span class="tag">Game.Events</span></h3>
+    <p>
+      Placed on burning entities by <code>IgniteSystem</code>. Persists across save/load. Intensity escalates over time via <code>FireSimulationSystem</code> until the entity is destroyed or the fire is extinguished.
+    </p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Event</code></td><td>Entity</td><td>The fire event entity</td></tr>
+      <tr><td><code>m_RescueRequest</code></td><td>Entity</td><td>Reference to active FireRescueRequest (null until created)</td></tr>
+      <tr><td><code>m_Intensity</code></td><td>float</td><td>Current intensity (0 = extinguished, up to 100)</td></tr>
+      <tr><td><code>m_RequestFrame</code></td><td>uint</td><td>Frame when fire rescue should be requested</td></tr>
+    </table>
+
+    <h3>Fire <span class="tag">Game.Events</span></h3>
+    <p>
+      Empty marker component. Tags fire event entities (the event itself, not the burning target). Added to the event entity archetype by <code>Game.Prefabs.Fire.GetArchetypeComponents()</code>.
+    </p>
+
+    <h3>TargetElement <span class="tag">Game.Events</span></h3>
+    <p>
+      Buffer element (<code>IBufferElementData</code>) on fire event entities. Lists all entities currently burning as part of this fire event. Contains a single field: <code>m_Entity</code>.
+    </p>
+
+    <h3>FireData <span class="tag">Game.Prefabs</span></h3>
+    <p>
+      Per-prefab configuration for fire events. There are separate prefabs for building fires and tree fires, distinguished by <code>m_RandomTargetType</code>.
+    </p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>m_RandomTargetType</code></td><td>EventTargetType</td><td>--</td><td>Which entity type: <code>Building</code> or <code>WildTree</code></td></tr>
+      <tr><td><code>m_StartProbability</code></td><td>float</td><td>0.01</td><td>Probability multiplier for spontaneous ignition</td></tr>
+      <tr><td><code>m_StartIntensity</code></td><td>float</td><td>1.0</td><td>Initial fire intensity</td></tr>
+      <tr><td><code>m_EscalationRate</code></td><td>float</td><td>1/60</td><td>Rate of intensity increase per tick</td></tr>
+      <tr><td><code>m_SpreadProbability</code></td><td>float</td><td>1.0</td><td>Probability multiplier for spreading</td></tr>
+      <tr><td><code>m_SpreadRange</code></td><td>float</td><td>20.0</td><td>Max spread distance (meters)</td></tr>
+    </table>
+
+    <!-- Configuration -->
+    <h2>Configuration</h2>
+
+    <h3>FireConfigurationData (Global Singleton)</h3>
+    <p>
+      Set once by <code>FireConfigurationPrefab</code> during <code>LateInitialize</code>. Controls structural integrity, rescue timing, and forest fire climate curves.
+    </p>
+
+    <h4>Structural Integrity</h4>
+    <table>
+      <tr><th>Target</th><th>HP</th></tr>
+      <tr><td>Non-building objects (trees, props)</td><td>3,000</td></tr>
+      <tr><td>Buildings without level data</td><td>15,000</td></tr>
+      <tr><td>Level 1 buildings</td><td>12,000</td></tr>
+      <tr><td>Level 2 buildings</td><td>13,000</td></tr>
+      <tr><td>Level 3 buildings</td><td>14,000</td></tr>
+      <tr><td>Level 4 buildings</td><td>15,000</td></tr>
+      <tr><td>Level 5 buildings</td><td>16,000</td></tr>
+    </table>
+
+    <h4>Rescue Timing</h4>
+    <table>
+      <tr><th>Parameter</th><th>Value</th></tr>
+      <tr><td>Response time range</td><td>3 -- 30 seconds</td></tr>
+      <tr><td>Telecom coverage modifier</td><td>-15% (faster)</td></tr>
+      <tr><td>Nighttime modifier</td><td>+10% (slower)</td></tr>
+      <tr><td>Death rate per fire accident</td><td>0.01</td></tr>
+    </table>
+
+    <h4>Forest Fire Climate</h4>
+    <p>
+      Two <code>AnimationCurve</code> fields on the prefab control forest fire likelihood:
+      <code>m_TemperatureForestFireHazard</code> and <code>m_NoRainForestFireHazard</code>.
+      Their product becomes the climate factor. Hot + dry = high factor; cold + wet = near zero.
+      The exact curve shapes are defined in asset data, not in code.
+    </p>
+
+    <h4>Hardcoded Constants</h4>
+    <table>
+      <tr><th>Constant</th><th>Value</th><th>Location</th></tr>
+      <tr><td>dt (tick duration)</td><td>1.0667 (64/60)</td><td>FireSimulationSystem</td></tr>
+      <tr><td>Max intensity</td><td>100</td><td>FireSimulationSystem</td></tr>
+      <tr><td>Max damage per tick</td><td>0.5</td><td>FireSimulationSystem</td></tr>
+      <tr><td>Destroyed decay rate</td><td>2x escalation</td><td>FireSimulationSystem</td></tr>
+      <tr><td>Level hazard reduction</td><td>3% per level</td><td>FireHazardData</td></tr>
+      <tr><td>Min service coverage factor</td><td>0.01</td><td>FireHazardData</td></tr>
+      <tr><td>Default fire hazard (no prefab)</td><td>100</td><td>FireHazardData</td></tr>
+      <tr><td>Chunk skip rate</td><td>1-in-64</td><td>FireHazardSystem</td></tr>
+      <tr><td>Hazard update interval</td><td>4096 frames</td><td>FireHazardSystem</td></tr>
+      <tr><td>Ignition roll divisor</td><td>10,000</td><td>FireHazardSystem.TryStartFire</td></tr>
+      <tr><td>Efficiency while burning</td><td>0</td><td>FireSimulationSystem</td></tr>
+    </table>
+
+    <!-- Hazard Calculation -->
+    <h2>Hazard Calculation</h2>
+
+    <p>Understanding the math is essential if you want to modify fire probability. Here is what <code>GetFireHazard()</code> does for each path:</p>
+
+    <h3>Building Hazard</h3>
+<pre><code class="language-csharp">float hazard = prefabFireHazard;                          // DestructibleObjectData.m_FireHazard (or 100)
+hazard *= 1f - (buildingLevel - 1) * 0.03f;               // 3% reduction per level above 1
+hazard *= zoneFireMultiplier;                              // ZonePropertiesData.m_FireHazardMultiplier
+hazard *= math.max(0.01f, 1f - serviceCoverage * 0.01f);  // fire station coverage (never below 1%)
+hazard *= (1f + districtModifier);                         // district BuildingFireHazard modifier
+
+float damageFactor = math.max(0f, 1f - totalDamage);
+hazard *= damageFactor * damageFactor * damageFactor * damageFactor;  // ^4 dropoff</code></pre>
+
+    <h3>Tree Hazard</h3>
+    <p>Only applies to wild trees (no <code>Owner</code> component) when <code>naturalDisasters</code> is enabled.</p>
+<pre><code class="language-csharp">float hazard = prefabFireHazard;                           // DestructibleObjectData.m_FireHazard (or 100)
+hazard *= forestFireHazardFactor;                           // temperature curve * no-rain curve
+hazard *= (1f + localEffectModifier);                      // ForestFireHazard local effect
+
+float damageFactor = math.max(0f, 1f - totalDamage);
+hazard *= damageFactor * damageFactor * damageFactor * damageFactor;  // ^4 dropoff</code></pre>
+
+    <h3>Final Ignition Roll</h3>
+    <p>After <code>GetFireHazard()</code> returns, <code>TryStartFire()</code> makes the final decision:</p>
+<pre><code class="language-csharp">float probability = fireHazard * fireData.m_StartProbability;  // hazard * 0.01 by default
+bool ignites = random.NextFloat(10000) &lt; probability;          // roll out of 10,000</code></pre>
+    <p>
+      With default values (hazard=100, startProbability=0.01), probability is 1.0 -- a 0.01% chance per check.
+      Combined with the 1-in-64 chunk skip and 4096-frame interval, actual spontaneous fires are rare.
+    </p>
+
+    <!-- Examples -->
+    <h2>Examples</h2>
+
+    <h3>Ignite a Building</h3>
+    <p>
+      Create an <code>Ignite</code> event entity. <code>IgniteSystem</code> processes it next frame and adds <code>OnFire</code> to the target. You need a fire event entity first (see helper method below).
+    </p>
+<pre><code class="language-csharp">public void IgniteBuilding(Entity targetBuilding)
+{
+    // Step 1: Create fire event entity from the Building fire prefab
+    Entity fireEvent = CreateFireEvent(EventTargetType.Building);
+    if (fireEvent == Entity.Null) return;
+
+    // Step 2: Create the Ignite event entity
+    Entity igniteEntity = EntityManager.CreateEntity(
+        ComponentType.ReadWrite&lt;Event&gt;(),
+        ComponentType.ReadWrite&lt;Ignite&gt;()
+    );
+
+    // Step 3: Set ignition parameters
+    EntityManager.SetComponentData(igniteEntity, new Ignite
+    {
+        m_Event = fireEvent,
+        m_Target = targetBuilding,
+        m_Intensity = 1f,          // default start intensity
+        m_RequestFrame = 0         // 0 = auto-calculate rescue timing
+    });
+    // IgniteSystem handles the rest next frame
+}</code></pre>
+
+    <h3>Ignite a Tree</h3>
+    <p>
+      Identical mechanism. The only difference is using <code>EventTargetType.WildTree</code> for the fire event prefab. Programmatic ignition bypasses the <code>naturalDisasters</code> setting check.
+    </p>
+<pre><code class="language-csharp">public void IgniteTree(Entity targetTree)
+{
+    Entity fireEvent = CreateFireEvent(EventTargetType.WildTree);
+    if (fireEvent == Entity.Null) return;
+
+    Entity igniteEntity = EntityManager.CreateEntity(
+        ComponentType.ReadWrite&lt;Event&gt;(),
+        ComponentType.ReadWrite&lt;Ignite&gt;()
+    );
+
+    EntityManager.SetComponentData(igniteEntity, new Ignite
+    {
+        m_Event = fireEvent,
+        m_Target = targetTree,
+        m_Intensity = 1f,
+        m_RequestFrame = 0
+    });
+    // Trees have 3,000 HP vs 12,000-16,000 for buildings -- they burn fast
+}</code></pre>
+
+    <h3>Create a Fire Event Entity (Helper)</h3>
+    <p>
+      Both examples above need a fire event entity. This helper finds the correct fire prefab by target type and creates the event entity from its archetype.
+    </p>
+<pre><code class="language-csharp">private EntityQuery m_FirePrefabQuery;
+
+protected override void OnCreate()
+{
+    base.OnCreate();
+    m_FirePrefabQuery = GetEntityQuery(
+        ComponentType.ReadOnly&lt;EventData&gt;(),
+        ComponentType.ReadOnly&lt;FireData&gt;()
+    );
+}
+
+private Entity CreateFireEvent(EventTargetType targetType)
+{
+    var chunks = m_FirePrefabQuery.ToArchetypeChunkArray(Allocator.Temp);
+    var fireDataHandle = GetComponentTypeHandle&lt;FireData&gt;(true);
+    var eventDataHandle = GetComponentTypeHandle&lt;EventData&gt;(true);
+    var entityHandle = GetEntityTypeHandle();
+
+    foreach (var chunk in chunks)
+    {
+        var fireDatas = chunk.GetNativeArray(ref fireDataHandle);
+        var eventDatas = chunk.GetNativeArray(ref eventDataHandle);
+        var entities = chunk.GetNativeArray(entityHandle);
+
+        for (int i = 0; i &lt; fireDatas.Length; i++)
+        {
+            if (fireDatas[i].m_RandomTargetType == targetType)
+            {
+                Entity eventEntity = EntityManager.CreateEntity(eventDatas[i].m_Archetype);
+                EntityManager.SetComponentData(eventEntity, new PrefabRef(entities[i]));
+                chunks.Dispose();
+                return eventEntity;
+            }
+        }
+    }
+
+    chunks.Dispose();
+    return Entity.Null;
+}</code></pre>
+
+    <h3>Check if an Entity is On Fire</h3>
+<pre><code class="language-csharp">// Check a specific entity
+if (EntityManager.HasComponent&lt;OnFire&gt;(someEntity))
+{
+    OnFire onFire = EntityManager.GetComponentData&lt;OnFire&gt;(someEntity);
+    float intensity = onFire.m_Intensity;          // 0-100
+    bool rescueRequested = onFire.m_RescueRequest != Entity.Null;
+}
+
+// Query all burning entities
+var query = GetEntityQuery(
+    ComponentType.ReadOnly&lt;OnFire&gt;(),
+    ComponentType.Exclude&lt;Deleted&gt;(),
+    ComponentType.Exclude&lt;Temp&gt;()
+);
+var entities = query.ToEntityArray(Allocator.Temp);
+// ... iterate and inspect</code></pre>
+
+    <!-- Patch Points -->
+    <h2>Patch Points</h2>
+
+    <h3>ECS Approach (No Harmony -- Preferred)</h3>
+    <p>A custom <code>GameSystemBase</code> can handle most use cases without Harmony:</p>
+    <ul>
+      <li>Create <code>Ignite</code> entities to start fires programmatically</li>
+      <li>Query and modify/remove <code>OnFire</code> components</li>
+      <li>Run before <code>IgniteSystem</code> to filter or block <code>Ignite</code> events</li>
+      <li>Modify the <code>FireConfigurationData</code> singleton at runtime</li>
+    </ul>
+    <p>This is safer than Harmony and compatible with Burst-compiled jobs.</p>
+
+    <h3>Harmony Patches (When ECS Isn't Enough)</h3>
+
+    <table>
+      <tr><th>Target</th><th>Patch Type</th><th>What It Enables</th><th>Risk</th></tr>
+      <tr>
+        <td><code>FireHazardSystem.OnUpdate()</code></td>
+        <td>Prefix / Postfix</td>
+        <td>Block all spontaneous fires (Prefix returning false) or modify hazard data before the job runs</td>
+        <td>Low -- only affects spontaneous fire generation</td>
+      </tr>
+      <tr>
+        <td><code>IgniteSystem.OnUpdate()</code></td>
+        <td>Prefix / Postfix</td>
+        <td>Intercept all ignition attempts (spontaneous, spread, and programmatic). Can selectively filter by entity type.</td>
+        <td>Medium -- central to all ignition; blocking prevents all fires</td>
+      </tr>
+      <tr>
+        <td><code>FireSimulationSystem.OnUpdate()</code></td>
+        <td>Prefix / Postfix</td>
+        <td>Modify fire behavior post-ignition: escalation rate, spread, rescue timing</td>
+        <td>Medium -- affects all active fires simultaneously</td>
+      </tr>
+      <tr>
+        <td><code>FireHazardData.GetFireHazard()</code> (Building overload)</td>
+        <td>Postfix</td>
+        <td>Per-building hazard modification by type, zone, or district</td>
+        <td>Low -- but this is a struct method; test carefully with Harmony</td>
+      </tr>
+      <tr>
+        <td><code>FireHazardData.GetFireHazard()</code> (Tree overload)</td>
+        <td>Postfix</td>
+        <td>Per-tree hazard modification. Suppress or amplify forest fires by area.</td>
+        <td>Low -- same struct method caveat</td>
+      </tr>
+    </table>
+
+    <p>
+      Note: The <code>GetFireHazard</code> overloads are called from both <code>FireHazardSystem</code> (spontaneous) and <code>FireSimulationSystem</code> (spread), so patches affect both paths.
+    </p>
+
+    <!-- Open Questions -->
+    <h2>Open Questions</h2>
+    <ul>
+      <li>What are the exact shapes of the <code>m_TemperatureForestFireHazard</code> and <code>m_NoRainForestFireHazard</code> AnimationCurves? Defined in prefab asset data, not in code.</li>
+      <li>What <code>EventTargetType</code> values exist besides <code>Building</code> and <code>WildTree</code>?</li>
+      <li>How does <code>LocalModifierType.ForestFireHazard</code> get applied spatially? The <code>LocalEffectSystem</code> internals were not fully traced.</li>
+      <li>What is the exact archetype created by <code>EventData.m_Archetype</code> for fire events?</li>
+      <li>How does the game handle fire on vehicles? <code>AccidentVehicleSystem</code> creates <code>Ignite</code> events for crashes, but the fire event entity source was not traced.</li>
+    </ul>
+
+    <footer>
+      <p>Decompiled from Game.dll (Cities: Skylines II) using ilspycmd. Last updated 2026-02-15.</p>
+    </footer>
+  </div>
+</body>
+</html>

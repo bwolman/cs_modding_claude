@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tool Raycast &amp; Entity Selection - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav><a href="index.html">Home</a><span class="sep">/</span><span>Tool Raycast</span></nav>
+
+<div class="container">
+
+<h1>Tool Raycast &amp; Entity Selection</h1>
+
+<div class="scope">
+  <p><strong>What this covers:</strong> How CS2 casts a ray from the camera through the mouse cursor to detect entities in the world, and how the tool system uses those results to highlight and select them.</p>
+  <p><strong>Why it matters:</strong> Any mod that lets the player click on entities -- vehicles, buildings, citizens -- needs to understand this pipeline. You need to know how to configure what types of entities the ray can hit, and how the selection result flows through the tool system.</p>
+  <p><strong>Out of scope:</strong> The tool <em>apply</em> pipeline (placing/modifying entities), zone raycast details, and rendering/shader highlighting internals.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2>How It Works</h2>
+
+<p>Every frame, CS2 shoots a ray from the camera through the mouse cursor into the 3D world. The ray tests against entities (buildings, vehicles, roads, terrain) and returns the closest hit. The active tool decides <em>what</em> the ray can hit by setting filter masks before the cast.</p>
+
+<p>There are three systems involved, and they run in sequence:</p>
+
+<ol>
+  <li><strong>ToolRaycastSystem</strong> -- asks the active tool what it wants to hit, builds the ray from the mouse position, and submits it.</li>
+  <li><strong>RaycastSystem</strong> -- the engine. Queries a spatial quad tree for candidates, runs intersection tests in parallel, and returns the closest hit.</li>
+  <li><strong>The active tool</strong> (e.g. <code>DefaultToolSystem</code>) -- reads the hit result, creates highlight previews, and handles clicks to set the selection.</li>
+</ol>
+
+<h3>The Configuration Point</h3>
+
+<p>Each tool overrides <code>InitializeRaycast()</code>. This method is called every frame <em>before</em> the ray is cast. The base class resets all masks to empty defaults, and the tool then sets exactly which entity categories, collision layers, and flags it cares about.</p>
+
+<p>This is the single most important method for modders. If you want to change what the player can hover over or click on, this is where you do it -- either by patching an existing tool's override, or by writing your own tool.</p>
+
+<h3>Hovering and Selection</h3>
+
+<p>When the default pointer tool detects a new entity under the cursor, it does not highlight the entity directly. Instead, it creates a <code>CreationDefinition</code> entity with the <code>Select</code> flag. Downstream generate systems pick this up and create <code>Temp</code> entities with <code>TempFlags.Select</code>, which the rendering system reads to show the hover highlight.</p>
+
+<p>When the player clicks, <code>DefaultToolSystem.Apply()</code> scans those <code>Temp</code> entities, resolves the original entity (following icon and owner references if needed), and sets <code>ToolSystem.selected</code>. The UI reads this property to show the info panel.</p>
+
+<!-- ============================================================ -->
+<h2>Data Flow</h2>
+
+<div class="diagram"><pre>Mouse Position
+    |
+    v
+ToolRaycastSystem.OnUpdate()
+    |  1. Calls activeTool.InitializeRaycast()
+    |     --> tool sets typeMask, collisionMask, flags
+    |  2. Converts mouse position to world-space ray (Line3.Segment)
+    |  3. Submits RaycastInput to RaycastSystem
+    |
+    v
+RaycastSystem.OnUpdate()
+    |  FindEntitiesFromTreeJob  -- broad-phase quad tree lookup
+    |  Per-entity intersection  -- precise hit tests
+    |  RaycastTerrainJob        -- terrain heightmap test
+    |  RaycastResultJob         -- keeps closest hit
+    |
+    v
+ToolRaycastSystem.GetRaycastResult()
+    |  Returns closest RaycastHit
+    |
+    v
+DefaultToolSystem.OnUpdate()
+    |  Entity changed? --> CreationDefinition + Select flag
+    |                      --> Temp entity + TempFlags.Select
+    |                      --> Rendering highlights entity
+    |
+    v
+User clicks --> DefaultToolSystem.Apply()
+    |  Scans Temp entities for TempFlags.Select
+    |  Resolves Icon --> Target --> Owner chain
+    |  Sets ToolSystem.selected
+    |
+    v
+ToolSystem.selected = entity
+    |  UI reads this to show info panel
+    |
+    v
+SelectedUpdateSystem.OnUpdate()
+    Validates selection still exists each frame
+    Follows entity references if original is deleted</pre></div>
+
+<!-- ============================================================ -->
+<h2>Key Components</h2>
+
+<h3>RaycastInput</h3>
+<p>The configuration struct you pass to <code>RaycastSystem.AddInput()</code> to define what the ray should hit.</p>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>m_Line</code></td><td>Line3.Segment</td><td>Ray from camera origin to far clip plane</td></tr>
+    <tr><td><code>m_Offset</code></td><td>float3</td><td>Offset applied to entity bounds during intersection</td></tr>
+    <tr><td><code>m_Owner</code></td><td>Entity</td><td>Owner identifier for retrieving results</td></tr>
+    <tr><td><code>m_TypeMask</code></td><td>TypeMask</td><td>Which entity categories to test (see enum table below)</td></tr>
+    <tr><td><code>m_Flags</code></td><td>RaycastFlags</td><td>Behavior flags (UI disable, sub-elements, etc.)</td></tr>
+    <tr><td><code>m_CollisionMask</code></td><td>CollisionMask</td><td>Ground/underground filtering</td></tr>
+    <tr><td><code>m_NetLayerMask</code></td><td>Layer</td><td>Network layer filter (Road, Track, etc.)</td></tr>
+    <tr><td><code>m_AreaTypeMask</code></td><td>AreaTypeMask</td><td>Area type filter (Districts, Lots)</td></tr>
+    <tr><td><code>m_UtilityTypeMask</code></td><td>UtilityTypes</td><td>Utility type filter (power, water)</td></tr>
+  </tbody>
+</table>
+
+<h3>RaycastHit</h3>
+<p>The result of a single ray-entity intersection.</p>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>m_HitEntity</code></td><td>Entity</td><td>The entity that was hit</td></tr>
+    <tr><td><code>m_Position</code></td><td>float3</td><td>Snapped/logical position (may differ from raw hit)</td></tr>
+    <tr><td><code>m_HitPosition</code></td><td>float3</td><td>Exact world-space hit point</td></tr>
+    <tr><td><code>m_HitDirection</code></td><td>float3</td><td>Surface normal at hit point</td></tr>
+    <tr><td><code>m_NormalizedDistance</code></td><td>float</td><td>0-1 distance along ray (used for closest-hit sorting)</td></tr>
+    <tr><td><code>m_CurvePosition</code></td><td>float</td><td>Position along curve (for net edges)</td></tr>
+  </tbody>
+</table>
+
+<h3>RaycastResult</h3>
+<p>Accumulated best-hit result. Implements <code>IAccumulable</code> -- multiple jobs write candidates and the one with the smallest <code>m_NormalizedDistance</code> wins. Ties are broken by entity index.</p>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>m_Hit</code></td><td>RaycastHit</td><td>The winning hit</td></tr>
+    <tr><td><code>m_Owner</code></td><td>Entity</td><td>Owner entity (terrain entity for terrain hits, the hit entity's owner for objects)</td></tr>
+  </tbody>
+</table>
+
+<h3>ControlPoint</h3>
+<p>Tool-level wrapper around <code>RaycastHit</code>. Created via constructor from a hit. Adds snap and orientation data used by placement tools.</p>
+
+<table>
+  <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>m_Position</code></td><td>float3</td><td>Logical position (from RaycastHit)</td></tr>
+    <tr><td><code>m_HitPosition</code></td><td>float3</td><td>Exact hit position</td></tr>
+    <tr><td><code>m_HitDirection</code></td><td>float3</td><td>Surface normal</td></tr>
+    <tr><td><code>m_OriginalEntity</code></td><td>Entity</td><td>The entity the ray hit</td></tr>
+    <tr><td><code>m_Rotation</code></td><td>quaternion</td><td>Orientation (identity by default)</td></tr>
+    <tr><td><code>m_CurvePosition</code></td><td>float</td><td>Position along curve for net edges</td></tr>
+    <tr><td><code>m_Elevation</code></td><td>float</td><td>Elevation offset</td></tr>
+  </tbody>
+</table>
+
+<h3>Marker Components</h3>
+
+<p><code>Highlighted</code> -- empty marker component added to entities the tool system wants to visually highlight. The rendering system reads this.</p>
+
+<p><code>Temp</code> -- marker on temporary preview entities created by tools. Key fields: <code>m_Original</code> (the real entity), <code>m_Flags</code> (<code>TempFlags</code>: Create, Delete, Select, Dragging).</p>
+
+<p><code>CreationDefinition</code> -- command component placed on definition entities to request creation or selection. Key fields: <code>m_Original</code> (for select/move), <code>m_Flags</code> (<code>CreationFlags</code>: Select, Delete, Dragging).</p>
+
+<!-- ============================================================ -->
+<h2>Filter Enums</h2>
+
+<h3>TypeMask -- What categories to raycast against</h3>
+<table>
+  <thead><tr><th>Value</th><th>Hex</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>Terrain</td><td>0x1</td><td>Ground surface</td></tr>
+    <tr><td>StaticObjects</td><td>0x2</td><td>Buildings, props, trees</td></tr>
+    <tr><td>MovingObjects</td><td>0x4</td><td>Vehicles, citizens, animals</td></tr>
+    <tr><td>Net</td><td>0x8</td><td>Roads, tracks, power lines</td></tr>
+    <tr><td>Zones</td><td>0x10</td><td>Zoning cells</td></tr>
+    <tr><td>Areas</td><td>0x20</td><td>Districts, lots, surfaces</td></tr>
+    <tr><td>Labels</td><td>0x100</td><td>Text labels</td></tr>
+    <tr><td>Water</td><td>0x200</td><td>Water surface</td></tr>
+    <tr><td>Icons</td><td>0x400</td><td>Notification icons</td></tr>
+    <tr><td>Lanes</td><td>0x1000</td><td>Individual lanes</td></tr>
+  </tbody>
+</table>
+
+<h3>CollisionMask -- Vertical layer filtering</h3>
+<table>
+  <thead><tr><th>Value</th><th>Hex</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>OnGround</td><td>0x1</td><td>Ground level</td></tr>
+    <tr><td>Overground</td><td>0x2</td><td>Above ground (elevated)</td></tr>
+    <tr><td>Underground</td><td>0x4</td><td>Below ground (tunnels, pipes)</td></tr>
+    <tr><td>ExclusiveGround</td><td>0x8</td><td>Exclusive ground</td></tr>
+  </tbody>
+</table>
+
+<h3>RaycastFlags -- Behavior modifiers</h3>
+<table>
+  <thead><tr><th>Value</th><th>Hex</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td>UIDisable</td><td>0x2</td><td>Disabled when mouse is over UI</td></tr>
+    <tr><td>ToolDisable</td><td>0x4</td><td>Disabled during full update</td></tr>
+    <tr><td>SubElements</td><td>0x20</td><td>Include sub-elements</td></tr>
+    <tr><td>Markers</td><td>0x80</td><td>Include markers</td></tr>
+    <tr><td>OutsideConnections</td><td>0x400</td><td>Include outside connections</td></tr>
+    <tr><td>Decals</td><td>0x4000</td><td>Include decals</td></tr>
+    <tr><td>SubBuildings</td><td>0x10000</td><td>Include sub-buildings</td></tr>
+    <tr><td>BuildingLots</td><td>0x40000</td><td>Include building lots</td></tr>
+  </tbody>
+</table>
+
+<!-- ============================================================ -->
+<h2>Key Systems</h2>
+
+<h3>RaycastSystem</h3>
+<p>The core raycast engine in <code>Game.Common</code>. Receives requests from multiple consumers, executes them in parallel using Burst jobs, and returns closest-hit results. Uses a <code>NativeQuadTree</code> for broad-phase entity lookup.</p>
+<ul>
+  <li><code>AddInput(context, input)</code> -- register a raycast request</li>
+  <li><code>GetResult(context)</code> -- retrieve results (returns <code>NativeArray&lt;RaycastResult&gt;</code>)</li>
+</ul>
+
+<h3>ToolRaycastSystem</h3>
+<p>Bridge between tools and <code>RaycastSystem</code>. Each frame it calls the active tool's <code>InitializeRaycast()</code>, builds a <code>RaycastInput</code> from the mouse position, submits it, and exposes results via <code>GetRaycastResult()</code>.</p>
+<p>Automatically adds <code>UIDisable</code> when the mouse is over UI and <code>ToolDisable</code> during full updates.</p>
+
+<h3>ToolSystem</h3>
+<p>Central orchestrator. Manages which tool is active and coordinates update phases (PreTool, ToolUpdate, PostTool). Key properties:</p>
+<ul>
+  <li><code>activeTool</code> -- the currently active <code>ToolBaseSystem</code></li>
+  <li><code>selected</code> -- the currently selected entity</li>
+</ul>
+
+<h3>DefaultToolSystem</h3>
+<p>The normal pointer tool, active when no placement tool is selected. States: Default, MouseDownPrepare, MouseDown, Dragging.</p>
+<p>Its <code>InitializeRaycast()</code> sets: <code>TypeMask.StaticObjects | MovingObjects | Labels | Icons</code> with <code>OutsideConnections | Decals | BuildingLots</code> flags. Underground mode switches to <code>CollisionMask.Underground</code>.</p>
+
+<h3>SelectedUpdateSystem</h3>
+<p>Cleanup system that validates <code>ToolSystem.selected</code> each frame. If the selected entity is deleted, it follows reference chains (Icon to Owner, Resident to Citizen, Pet to HouseholdPet) or clears the selection.</p>
+
+<!-- ============================================================ -->
+<h2>Harmony Patch Points</h2>
+
+<h3>DefaultToolSystem.InitializeRaycast() -- Postfix</h3>
+<p>Modify the raycast configuration after the default tool sets it up. Add or remove <code>TypeMask</code> flags, change <code>CollisionMask</code>, or add <code>RaycastFlags</code>. Low risk, non-destructive.</p>
+
+<h3>ToolBaseSystem.GetRaycastResult() -- Postfix</h3>
+<p>Intercept or filter raycast results. Reject certain entities, redirect to different entities, or capture results for mod logic. Low risk if read-only; medium if modifying the output.</p>
+
+<h3>ToolSystem.selected setter -- Postfix</h3>
+<p>React when the player selects any entity. Fire mod events, show custom UI, or trigger actions. Low risk.</p>
+
+<h3>Custom ToolBaseSystem subclass (no patch needed)</h3>
+<p>Create a fully custom tool with its own raycast configuration and selection behavior. Activated via <code>ToolSystem.activeTool = myTool</code>. Isolated from vanilla tools.</p>
+
+<!-- ============================================================ -->
+<h2>Mod Approaches</h2>
+
+<h4>Approach A: React to vanilla selection (read-only)</h4>
+<p>Poll <code>ToolSystem.selected</code> each frame. No patches, no custom components. Simplest option.</p>
+
+<h4>Approach B: Modify what is selectable</h4>
+<p>Postfix on <code>DefaultToolSystem.InitializeRaycast()</code> to add or remove <code>TypeMask</code> flags.</p>
+
+<h4>Approach C: Programmatic raycast</h4>
+<p>Call <code>RaycastSystem.AddInput()</code> directly with a custom <code>RaycastInput</code>. Results arrive the next frame via <code>GetResult()</code>.</p>
+
+<h4>Approach D: Full custom tool</h4>
+<p>Subclass <code>ToolBaseSystem</code>, override <code>InitializeRaycast()</code> and <code>OnUpdate()</code>, activate with <code>ToolSystem.activeTool = myTool</code>.</p>
+
+<!-- ============================================================ -->
+<h2>Examples</h2>
+
+<h3>Polling ToolSystem.selected (no patches)</h3>
+<p>The simplest approach. Create a system that checks the selected entity each frame.</p>
+
+<pre><code class="language-csharp">public class SelectionPollingSystem : GameSystemBase
+{
+    private ToolSystem _toolSystem;
+    private Entity _lastSelected;
+
+    [Preserve]
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+    }
+
+    [Preserve]
+    protected override void OnUpdate()
+    {
+        Entity current = _toolSystem.selected;
+        if (current != _lastSelected)
+        {
+            _lastSelected = current;
+            if (current != Entity.Null)
+            {
+                // Check type: EntityManager.HasComponent&lt;Building&gt;(current)
+                Mod.Log.Info($"Selected: {current.Index}:{current.Version}");
+            }
+        }
+    }
+}</code></pre>
+
+<h3>Patching DefaultToolSystem to change what is hoverable</h3>
+<p>Add network raycasting to the default pointer so roads and tracks highlight on hover.</p>
+
+<pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Tools.DefaultToolSystem), "InitializeRaycast")]
+public static class DefaultToolRaycastPatch
+{
+    public static void Postfix(DefaultToolSystem __instance)
+    {
+        var trs = Traverse.Create(__instance)
+            .Field("m_ToolRaycastSystem")
+            .GetValue&lt;ToolRaycastSystem&gt;();
+
+        // Add road/track raycasting to the default pointer tool
+        trs.typeMask |= TypeMask.Net;
+        trs.netLayerMask = Game.Net.Layer.Road | Game.Net.Layer.TrainTrack;
+
+        // Also allow selecting underground entities
+        trs.collisionMask |= CollisionMask.Underground;
+    }
+}</code></pre>
+
+<h3>Custom tool with its own raycast config</h3>
+<p>A tool that only hits buildings and vehicles. Override <code>InitializeRaycast()</code> to set your masks.</p>
+
+<pre><code class="language-csharp">public class MyEntityInspectorTool : ToolBaseSystem
+{
+    private Entity _lastHitEntity;
+
+    public override string toolID =&gt; "My Entity Inspector";
+    public override PrefabBase GetPrefab() =&gt; null;
+    public override bool TrySetPrefab(PrefabBase prefab) =&gt; false;
+
+    public override void InitializeRaycast()
+    {
+        base.InitializeRaycast(); // resets all masks
+
+        m_ToolRaycastSystem.typeMask =
+            TypeMask.StaticObjects | TypeMask.MovingObjects;
+        m_ToolRaycastSystem.collisionMask =
+            CollisionMask.OnGround | CollisionMask.Overground;
+        m_ToolRaycastSystem.raycastFlags |= RaycastFlags.OutsideConnections;
+    }
+
+    [Preserve]
+    protected override JobHandle OnUpdate(JobHandle inputDeps)
+    {
+        if (GetRaycastResult(out Entity entity, out RaycastHit hit))
+        {
+            if (entity != _lastHitEntity)
+            {
+                _lastHitEntity = entity;
+                Mod.Log.Info($"Hovering {entity.Index} at " +
+                    $"({hit.m_HitPosition.x:F1}, {hit.m_HitPosition.y:F1}, " +
+                    $"{hit.m_HitPosition.z:F1})");
+            }
+        }
+        else { _lastHitEntity = Entity.Null; }
+
+        return inputDeps;
+    }
+}</code></pre>
+
+<h3>Activating a custom tool</h3>
+
+<pre><code class="language-csharp">// Activate (e.g., from a keybind handler)
+var toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+toolSystem.activeTool = World.GetOrCreateSystemManaged&lt;MyEntityInspectorTool&gt;();
+
+// Deactivate (return to default pointer)
+toolSystem.activeTool = World.GetOrCreateSystemManaged&lt;DefaultToolSystem&gt;();</code></pre>
+
+<h3>Programmatic raycast (independent of the tool system)</h3>
+<p>Submit a raycast directly to <code>RaycastSystem</code>. Results are available the frame after submission.</p>
+
+<pre><code class="language-csharp">public class MyDirectRaycastSystem : GameSystemBase
+{
+    private RaycastSystem _raycastSystem;
+    private CameraUpdateSystem _cameraUpdateSystem;
+    private bool _pendingResult;
+
+    [Preserve]
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _raycastSystem = World.GetOrCreateSystemManaged&lt;RaycastSystem&gt;();
+        _cameraUpdateSystem = World.GetOrCreateSystemManaged&lt;CameraUpdateSystem&gt;();
+    }
+
+    [Preserve]
+    protected override void OnUpdate()
+    {
+        if (_pendingResult)
+        {
+            var results = _raycastSystem.GetResult(this);
+            if (results.Length &gt; 0 &amp;&amp; results[0].m_Owner != Entity.Null)
+            {
+                RaycastResult result = results[0];
+                Mod.Log.Info($"Hit {result.m_Hit.m_HitEntity.Index} " +
+                    $"at distance {result.m_Hit.m_NormalizedDistance:F3}");
+            }
+            _pendingResult = false;
+        }
+
+        if (ShouldCastRay() &amp;&amp; _cameraUpdateSystem.TryGetViewer(out var viewer))
+        {
+            RaycastInput input = new RaycastInput
+            {
+                m_Line = ToolRaycastSystem.CalculateRaycastLine(viewer.camera),
+                m_TypeMask = TypeMask.StaticObjects | TypeMask.MovingObjects,
+                m_CollisionMask = CollisionMask.OnGround | CollisionMask.Overground,
+            };
+            _raycastSystem.AddInput(this, input);
+            _pendingResult = true;
+        }
+    }
+}</code></pre>
+
+<h3>Reacting to selection via Harmony patch</h3>
+<p>If you need event-driven notification rather than polling, patch the <code>selected</code> setter.</p>
+
+<pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Tools.ToolSystem), "selected", MethodType.Setter)]
+public static class SelectionChangedPatch
+{
+    public static void Postfix(Entity value)
+    {
+        if (value != Entity.Null)
+            Mod.Log.Info($"Selected: {value.Index}:{value.Version}");
+        else
+            Mod.Log.Info("Selection cleared");
+    }
+}</code></pre>
+
+<!-- ============================================================ -->
+<h2>Open Questions</h2>
+
+<ul>
+  <li>Exact rendering path for <code>Highlighted</code> component vs <code>Temp</code> + <code>TempFlags.Select</code> -- likely shader-level, out of scope for this research.</li>
+  <li>How the spatial quad tree gets populated (which system inserts entities) -- likely <code>ObjectUpdateSystem</code> or similar, not traced.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>Source Assemblies</h2>
+
+<table>
+  <thead><tr><th>Assembly</th><th>Namespace</th><th>Key Types</th></tr></thead>
+  <tbody>
+    <tr><td>Game.dll</td><td>Game.Common</td><td>RaycastSystem, RaycastInput, RaycastHit, RaycastResult, TypeMask, CollisionMask</td></tr>
+    <tr><td>Game.dll</td><td>Game.Tools</td><td>ToolSystem, ToolBaseSystem, ToolRaycastSystem, DefaultToolSystem, ControlPoint, Highlighted, Temp</td></tr>
+    <tr><td>Game.dll</td><td>Game.Rendering</td><td>CameraUpdateSystem</td></tr>
+  </tbody>
+</table>
+
+<footer>
+  <p>Decompiled from Game.dll (Cities: Skylines II). Research completed 2026-02-15.</p>
+</footer>
+
+</div>
+</body>
+</html>

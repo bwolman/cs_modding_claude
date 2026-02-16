@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Input Action Lifecycle - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav><a href="index.html">Home</a><span class="sep">/</span><span>Input Action Lifecycle</span></nav>
+
+<div class="container">
+
+  <h1>ProxyAction Lifecycle &amp; Input Blocking</h1>
+
+  <div class="scope">
+    <p><strong>Question:</strong> When and how does the game silently disable mod-registered <code>ProxyAction</code> hotkeys?</p>
+    <p><strong>Answer:</strong> Mod keyboard shortcuts work globally during normal gameplay, but are silently blocked in 6 specific contexts. Additionally, <code>shouldBeEnabled = true</code> must be set explicitly or the action never fires at all.</p>
+    <p><strong>Out of scope:</strong> UI keybinding widgets, gamepad composite handling, and the rebinding UI flow.</p>
+  </div>
+
+  <!-- ============================================ -->
+  <h2>How It Works</h2>
+
+  <p>When you register a hotkey through <code>ModSettings</code>, the game creates a <code>ProxyAction</code> in a mod-owned action map. That action goes through several layers of checks every frame before it can actually fire. Understanding these layers is the key to understanding why your hotkey sometimes silently stops working.</p>
+
+  <h3>The Two Enforcement Paths</h3>
+
+  <p>The game uses two independent mechanisms to control whether an action fires. Both run every frame, and both can block your action.</p>
+
+  <h4>Path 1: Conflict Resolution (enable/disable)</h4>
+
+  <p><code>InputConflictResolution</code> classifies every action into three priority buckets and resolves conflicts between them each frame:</p>
+
+  <ol>
+    <li><strong>System actions</strong> (highest) -- Camera, Tool, Editor maps</li>
+    <li><strong>UI actions</strong> (middle) -- menu navigation, dialog controls</li>
+    <li><strong>Mod actions</strong> (lowest) -- all actions from mod settings</li>
+  </ol>
+
+  <p>If your mod action shares a key binding with an enabled higher-priority action, the mod action gets <code>m_HasConflict = true</code> and is disabled via <code>ApplyState()</code>. No error, no warning -- <code>WasPressedThisFrame()</code> just returns <code>false</code>.</p>
+
+  <pre><code class="language-csharp">// The final enabled state combines pre-resolved state with conflict detection:
+public bool enabled => m_Action.preResolvedEnable && !m_HasConflict;</code></pre>
+
+  <h4>Path 2: Mask Processor (zero out values)</h4>
+
+  <p>A <code>MaskFloatProcessor</code> is attached to every composite binding. It operates at the Unity Input System level as a secondary safety net -- even if an action stays "enabled," masked device types produce zero values:</p>
+
+  <pre><code class="language-csharp">public override TValue Process(TValue value, InputControl control)
+{
+    if ((m_Action.mask & m_Mask) != InputManager.DeviceType.None)
+        return value;       // allowed
+    return default(TValue); // silently zeroed out
+}</code></pre>
+
+  <!-- ============================================ -->
+  <h3>The Global Mask</h3>
+
+  <p><code>InputManager.mask</code> is recalculated every frame and pushed to <strong>all</strong> action maps, including mod maps. The mask value depends on the current control scheme and game state:</p>
+
+  <pre><code class="language-csharp">// InputManager.GetMaskForControlScheme():
+ControlScheme.KeyboardAndMouse =>
+    (!overlayActive) ? (hasInputFieldFocus ? 2 : 3) : 0,
+//                      Mouse only (2)   Kb+Mouse (3)   Nothing (0)
+
+// The mask is pushed to ALL maps, including mod maps:
+foreach (var (_, proxyActionMap) in m_Maps)
+    proxyActionMap.mask = value;</code></pre>
+
+  <p>When <code>mask = 0</code>, every action in every map is disabled. When <code>mask = 2</code> (mouse only), keyboard composites are masked to zero.</p>
+
+  <!-- ============================================ -->
+  <h3>The shouldBeEnabled Requirement</h3>
+
+  <p>This is the most common pitfall. <strong><code>RegisterKeyBindings()</code> does NOT enable the action.</strong> It only calls <code>AddActions()</code>. Without an activator, the action never fires:</p>
+
+  <pre><code class="language-csharp">// In ProxyAction.UpdateState(), if m_Activators is empty,
+// deviceType stays None and the action is never enabled:
+InputManager.DeviceType deviceType = InputManager.DeviceType.None;
+foreach (InputActivator activator in m_Activators)
+{
+    if (activator.enabled)
+        deviceType |= activator.mask & m_PreResolvedMask;
+}
+// Empty m_Activators --> deviceType = None --> action never fires</code></pre>
+
+  <p>You must explicitly set <code>shouldBeEnabled = true</code> in your system's <code>OnCreate()</code>. This creates the default activator that makes the action responsive:</p>
+
+  <pre><code class="language-csharp">_action = InputManager.instance.FindAction(Mod.Settings.id, "MyAction");
+_action.shouldBeEnabled = true;  // REQUIRED</code></pre>
+
+  <!-- ============================================ -->
+  <h2>Data Flow</h2>
+
+  <p>Here is how input flows from a key press to your mod's <code>WasPressedThisFrame()</code> call:</p>
+
+<div class="diagram">
+  Key Press (Unity Input System)
+       |
+       v
+  MaskFloatProcessor              -- Path 2: is this device type allowed?
+       |                              mask & m_Mask == None? --> return 0
+       v
+  ProxyActionMap.UpdateState()    -- are any barriers blocking this map?
+       |                              m_Barriers.All(b => !b.blocked)?
+       v
+  ProxyAction.UpdateState()       -- does this action have an activator?
+       |                              shouldBeEnabled set? m_Activators empty?
+       v
+  InputConflictResolution         -- Path 1: does a higher-priority action
+       |                              share this key binding?
+       v
+  ApplyState()                    -- final Enable() or Disable() on the
+       |                              underlying Unity InputAction
+       v
+  WasPressedThisFrame()           -- your mod reads the result
+</div>
+
+  <!-- ============================================ -->
+  <h2>What Blocks Mod Actions</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Context</th>
+        <th>Mechanism</th>
+        <th>Blocks Mods?</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Text field focused (UI input)</td>
+        <td>Global mask set to Mouse only (2)</td>
+        <td><strong>Yes</strong> -- keyboard bindings silently disabled</td>
+      </tr>
+      <tr>
+        <td>Loading screen</td>
+        <td><code>CreateOverlayBarrier</code> blocks all maps</td>
+        <td><strong>Yes</strong></td>
+      </tr>
+      <tr>
+        <td>Splash / Engagement screens</td>
+        <td>Same overlay barrier mechanism</td>
+        <td><strong>Yes</strong></td>
+      </tr>
+      <tr>
+        <td>Platform overlay (Steam, etc.)</td>
+        <td>Global mask set to 0</td>
+        <td><strong>Yes</strong> -- all actions disabled</td>
+      </tr>
+      <tr>
+        <td>Key rebinding dialog</td>
+        <td><code>blockedControlTypes = Keyboard</code></td>
+        <td><strong>Yes</strong></td>
+      </tr>
+      <tr>
+        <td>Conflict with system action</td>
+        <td><code>InputConflictResolution</code> sets <code>m_HasConflict</code></td>
+        <td><strong>Yes</strong> -- silently</td>
+      </tr>
+      <tr>
+        <td><code>shouldBeEnabled</code> never set</td>
+        <td>No activator -- action never enabled</td>
+        <td><strong>Yes</strong> -- action never fires</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>What Does NOT Block Mod Actions</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Context</th>
+        <th>Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Tool context changes (active tool, default tool)</td>
+        <td><code>ToolSystem.m_ToolActionBarrier</code> only blocks the "Tool" map, not mod maps</td>
+      </tr>
+      <tr>
+        <td>Camera mode changes</td>
+        <td>Camera barriers only affect the "Camera" map</td>
+      </tr>
+      <tr>
+        <td>Photo mode</td>
+        <td>Only photo mode map actions change</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>This is the key finding: mod maps are completely separate from the "Tool" map. <code>ToolSystem</code>'s barrier does not affect mod actions:</p>
+
+  <pre><code class="language-csharp">// ToolSystem -- only blocks the "Tool" map, not mod maps:
+m_ToolActionBarrier = InputManager.instance.CreateMapBarrier("Tool", "ToolSystem");</code></pre>
+
+  <!-- ============================================ -->
+  <h2>Key Components</h2>
+
+  <h3>Relevant Assemblies</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Assembly</th>
+        <th>Namespace</th>
+        <th>Key Classes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td><code>Game.Input</code></td>
+        <td><code>InputManager</code>, <code>ProxyAction</code>, <code>ProxyActionMap</code>, <code>InputConflictResolution</code>, <code>InputBarrier</code>, <code>InputActivator</code>, <code>MaskFloatProcessor</code></td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td><code>Game.Tools</code></td>
+        <td><code>ToolSystem</code> (creates barrier on "Tool" map)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td><code>Game.Settings</code></td>
+        <td><code>ModSetting</code> (calls <code>RegisterKeyBindings()</code>)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>InputBarrier Lifecycle</h3>
+
+  <p>Barriers implement <code>IDisposable</code>. <code>CreateOverlayBarrier</code> returns a barrier that is <code>blocked = true</code> from construction. For short-lived blocking, use a <code>using</code> statement. For long-lived barriers, keep a reference, toggle <code>blocked</code>, and call <code>Dispose()</code> in <code>OnDestroy()</code>.</p>
+
+  <pre><code class="language-csharp">// Scoped blocking:
+using (InputManager.instance.CreateOverlayBarrier("MyScreen"))
+{
+    // all non-system maps blocked for this scope
+}
+
+// Long-lived barrier (e.g., in a GameSystemBase):
+_barrier = InputManager.instance.CreateOverlayBarrier("MyDialog");
+// ... later:
+_barrier?.Dispose();</code></pre>
+
+  <!-- ============================================ -->
+  <h2>Examples</h2>
+
+  <h3>Basic Mod Hotkey System</h3>
+
+  <p>The minimal pattern for a globally-active mod hotkey. The critical line is <code>shouldBeEnabled = true</code>.</p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Input;
+
+public partial class TogglePanelSystem : GameSystemBase
+{
+    private ProxyAction _toggleAction;
+    private bool _panelVisible;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Look up the action registered by ModSettings.RegisterKeyBindings().
+        _toggleAction = InputManager.instance.FindAction(
+            Mod.Settings.id, "TogglePanel");
+
+        // REQUIRED: RegisterKeyBindings() does NOT enable the action.
+        _toggleAction.shouldBeEnabled = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        // Silently returns false when blocked (text field, loading, overlay, etc.)
+        if (_toggleAction.WasPressedThisFrame())
+        {
+            _panelVisible = !_panelVisible;
+            Mod.Log.Info($"Panel toggled: {_panelVisible}");
+        }
+    }
+
+    protected override void OnDestroy()
+    {
+        _toggleAction.shouldBeEnabled = false;
+        base.OnDestroy();
+    }
+}</code></pre>
+
+  <h3>Multiple Keybindings</h3>
+
+  <p>Each <code>ProxyAction</code> must be independently looked up and enabled. Mod actions share the same priority bucket, so they do not conflict with each other -- only with system and UI actions.</p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Input;
+
+public partial class StatsOverlaySystem : GameSystemBase
+{
+    private ProxyAction _toggleOverlay;
+    private ProxyAction _cycleMode;
+    private ProxyAction _resetCounters;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        string settingsId = Mod.Settings.id;
+
+        _toggleOverlay = InputManager.instance.FindAction(settingsId, "ToggleOverlay");
+        _cycleMode     = InputManager.instance.FindAction(settingsId, "CycleMode");
+        _resetCounters = InputManager.instance.FindAction(settingsId, "ResetCounters");
+
+        _toggleOverlay.shouldBeEnabled = true;
+        _cycleMode.shouldBeEnabled     = true;
+        _resetCounters.shouldBeEnabled = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_toggleOverlay.WasPressedThisFrame()) ToggleOverlayVisibility();
+        if (_cycleMode.WasPressedThisFrame())     CycleDisplayMode();
+        if (_resetCounters.WasPressedThisFrame()) ResetAllCounters();
+    }
+
+    protected override void OnDestroy()
+    {
+        _toggleOverlay.shouldBeEnabled = false;
+        _cycleMode.shouldBeEnabled     = false;
+        _resetCounters.shouldBeEnabled = false;
+        base.OnDestroy();
+    }
+
+    private void ToggleOverlayVisibility() { /* ... */ }
+    private void CycleDisplayMode() { /* ... */ }
+    private void ResetAllCounters() { /* ... */ }
+}</code></pre>
+
+  <h3>Debugging: Why Is My Hotkey Not Firing?</h3>
+
+  <p>The game never tells you why an action is blocked. This diagnostic system logs each layer of the pipeline to help you trace the problem:</p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Input;
+
+public partial class InputDebugSystem : GameSystemBase
+{
+    private ProxyAction _action;
+    private int _logCooldown;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _action = InputManager.instance.FindAction(Mod.Settings.id, "DebugAction");
+        _action.shouldBeEnabled = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        if (++_logCooldown < 60) return;  // log once per second
+        _logCooldown = 0;
+
+        bool textFieldFocused = InputManager.instance.hasInputFieldFocus;
+        bool preResolved = _action.preResolvedEnable;
+        bool enabled = _action.enabled;
+
+        Mod.Log.Info(
+            $"[InputDebug] textFieldFocus={textFieldFocused} " +
+            $"preResolvedEnable={preResolved} " +
+            $"enabled={enabled}");
+
+        // textFieldFocus=true     --> keyboard globally masked
+        // preResolved=false       --> barrier blocking map, or no activator
+        // preResolved=true, enabled=false --> conflict resolution blocked it
+        // All true, no press      --> check the binding itself
+    }
+}</code></pre>
+
+  <h3>Scoped Input Blocking with InputBarrier</h3>
+
+  <p>If your mod shows a full-screen dialog and needs to block all other input temporarily:</p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Input;
+
+public partial class FullScreenDialogSystem : GameSystemBase
+{
+    private InputBarrier _dialogBarrier;
+
+    public void OpenDialog()
+    {
+        // Blocks ALL maps except "Engagement" and "Splash screen"
+        _dialogBarrier = InputManager.instance.CreateOverlayBarrier("MyModDialog");
+    }
+
+    public void CloseDialog()
+    {
+        // Disposing removes the barrier and re-enables maps
+        _dialogBarrier?.Dispose();
+        _dialogBarrier = null;
+    }
+
+    protected override void OnDestroy()
+    {
+        _dialogBarrier?.Dispose();  // always clean up
+        base.OnDestroy();
+    }
+
+    protected override void OnCreate() { base.OnCreate(); }
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <!-- ============================================ -->
+  <h2>Practical Advice</h2>
+
+  <ul>
+    <li>Always call <code>shouldBeEnabled = true</code> in <code>OnCreate()</code> -- without it, nothing works.</li>
+    <li>Use modifier key combinations (Ctrl+Shift+X) to minimize conflicts with system actions.</li>
+    <li>Avoid keys used by Camera controls (WASD, middle mouse) and Tool actions (left/right click).</li>
+    <li>Conflicts only matter when the higher-priority action is <strong>enabled</strong> -- if a tool-map action is currently blocked by its own barrier, it will not conflict with your mod action.</li>
+    <li>Accept that hotkeys will be blocked during loading screens, splash screens, platform overlays, and text field focus. These are correct behaviors.</li>
+    <li>Your hotkeys <strong>are not</strong> blocked by tool context changes, camera mode, or photo mode.</li>
+  </ul>
+
+  <!-- ============================================ -->
+  <h2>Open Questions</h2>
+
+  <p>All initial research questions have been resolved:</p>
+
+  <ul>
+    <li>Does the game disable mod ProxyActions? -- Yes, silently, in 6 contexts.</li>
+    <li>Is <code>shouldBeEnabled = true</code> required? -- Yes, without it the action never fires.</li>
+    <li>Does <code>RegisterKeyBindings()</code> auto-enable? -- No, it only calls <code>AddActions()</code>.</li>
+    <li>Are mod maps affected by ToolSystem barriers? -- No, only the "Tool" map is affected.</li>
+    <li>What is the InputBarrier lifecycle? -- <code>IDisposable</code>; blocked from construction; use <code>using</code> for scoped blocking.</li>
+  </ul>
+
+  <!-- ============================================ -->
+  <footer>
+    <p>Source: Decompiled from Game.dll -- <code>Game.Input.*</code>, <code>Game.Tools.ToolSystem</code>, <code>Game.Settings.ModSetting</code></p>
+    <p>Last updated: 2026-02-15</p>
+  </footer>
+
+</div>
+
+</body>
+</html>

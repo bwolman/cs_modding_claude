@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TrafficAccident Event Entity Archetype - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav><a href="index.html">Home</a><span class="sep">/</span><span>Event Entity Archetype</span></nav>
+
+<div class="container">
+
+  <h1>TrafficAccident Event Entity Archetype</h1>
+
+  <div class="scope">
+    <p><strong>Goal:</strong> Document the exact entity archetype a mod needs to create a TrafficAccident event entity that all downstream systems will process correctly.</p>
+    <p><strong>Why it matters:</strong> Missing even one component causes silent failures. Downstream systems guard with <code>HasBuffer</code> and <code>HasComponent</code> checks and simply skip entities that don't match.</p>
+    <p><strong>Out of scope:</strong> Collision detection, vehicle physics, UI notifications, save/load serialization.</p>
+  </div>
+
+  <!-- ============================================ -->
+  <h2>How It Works</h2>
+
+  <h3>The Two "Event" Types</h3>
+
+  <p>The single biggest source of confusion in CS2's event system: there are <strong>two different structs both named <code>Event</code></strong>, in different namespaces, with completely different lifetimes.</p>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Purpose</th><th>Lifetime</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Game.Common.Event</code></td>
+        <td>Short-lived command/notification entity (Impact, Ignite, AddAccidentSite)</td>
+        <td>1-2 frames</td>
+      </tr>
+      <tr>
+        <td><code>Game.Events.Event</code></td>
+        <td>Persistent event entity (the TrafficAccident that lives for the accident's duration)</td>
+        <td>Until accident resolves</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>If you use <code>Game.Common.Event</code> on a persistent accident entity, downstream systems that query for <code>Game.Events.Event</code> will never find it.</p>
+
+  <h3>How the Game Builds the Archetype</h3>
+
+  <p>TrafficAccident event entities are not created by the downstream processing systems. The game builds an <code>EntityArchetype</code> at prefab load time via <code>EventPrefab.RefreshArchetype()</code>, which walks all <code>ComponentBase</code> children and calls <code>GetArchetypeComponents()</code> on each.</p>
+
+  <p>For a TrafficAccident prefab, the call chain adds components in this order:</p>
+
+  <table>
+    <thead>
+      <tr><th>Class</th><th>Adds</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>PrefabBase.GetArchetypeComponents()</code></td><td><code>PrefabRef</code></td></tr>
+      <tr><td><code>EventPrefab.GetArchetypeComponents()</code></td><td><code>Game.Events.Event</code></td></tr>
+      <tr><td><code>Game.Prefabs.TrafficAccident.GetArchetypeComponents()</code></td><td><code>Game.Events.TrafficAccident</code> + <code>TargetElement</code> (buffer)</td></tr>
+      <tr><td><code>RefreshArchetype()</code> (unconditional)</td><td><code>Created</code> + <code>Updated</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>The final archetype is stored in <code>EventData.m_Archetype</code> on the prefab entity. To research other event types, decompile their <code>ComponentBase</code> and look at the same <code>GetArchetypeComponents()</code> override -- the pattern is always the same.</p>
+
+  <h3>The Accident Pipeline</h3>
+
+  <p>Once an event entity exists, a chain of systems processes it. Each stage communicates via temporary command entities tagged with <code>Game.Common.Event</code>.</p>
+
+<div class="diagram">
+  ObjectCollisionSystem
+       |
+       | creates Impact command (Game.Common.Event + Impact)
+       v
+  ImpactSystem
+       |  reads Impact.m_Event -> checks HasBuffer&lt;TargetElement&gt;
+       |  adds target to event's TargetElement buffer
+       |  tags target vehicle with InvolvedInAccident
+       v
+  AccidentVehicleSystem
+       |  reads TargetElement buffer, looks up FireData via PrefabRef
+       |  creates AddAccidentSite command
+       |  may create Ignite command (fire probability)
+       v
+  AddAccidentSiteSystem                  AccidentSiteSystem
+       |                                      |
+       |  creates site on road edge            |  counts participants via TargetElement
+       |  appends site to TargetElement         |  checks chain-reaction thresholds
+       |                                      |  dispatches police if needed
+       v                                      v
+  [accident site entity]               [police request entity]
+</div>
+
+  <p>Every one of these systems checks <code>HasBuffer&lt;TargetElement&gt;</code> on the event entity before doing anything. If the buffer is missing, the entire pipeline silently fails.</p>
+
+  <!-- ============================================ -->
+  <h2>The Complete Archetype</h2>
+
+  <p>Six components, all required at creation time:</p>
+
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Required</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>PrefabRef</code></td>
+        <td>Yes</td>
+        <td>All downstream systems look up prefab data (TrafficAccidentData, FireData, CrimeData)</td>
+      </tr>
+      <tr>
+        <td><code>Game.Events.Event</code></td>
+        <td>Yes</td>
+        <td>Persistent event marker -- the semantic contract for event entities</td>
+      </tr>
+      <tr>
+        <td><code>Game.Events.TrafficAccident</code></td>
+        <td>Yes</td>
+        <td>Type marker for queries filtering by accident type</td>
+      </tr>
+      <tr>
+        <td><code>TargetElement</code> (buffer)</td>
+        <td>Critical</td>
+        <td>All 4 downstream systems guard with <code>HasBuffer</code>. Without it, the entire pipeline silently fails</td>
+      </tr>
+      <tr>
+        <td><code>Created</code></td>
+        <td>Yes</td>
+        <td>ECS lifecycle -- change-detection queries may skip the entity without it</td>
+      </tr>
+      <tr>
+        <td><code>Updated</code></td>
+        <td>Yes</td>
+        <td>ECS lifecycle -- same as Created</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <pre><code class="language-csharp">EntityArchetype trafficAccidentArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite&lt;Game.Common.PrefabRef&gt;(),         // links to prefab data
+    ComponentType.ReadWrite&lt;Game.Events.Event&gt;(),             // persistent event marker
+    ComponentType.ReadWrite&lt;Game.Events.TrafficAccident&gt;(),   // type marker
+    ComponentType.ReadWrite&lt;TargetElement&gt;(),                  // buffer: downstream systems check HasBuffer
+    ComponentType.ReadWrite&lt;Game.Common.Created&gt;(),           // ECS lifecycle
+    ComponentType.ReadWrite&lt;Game.Common.Updated&gt;()            // ECS lifecycle
+);</code></pre>
+
+  <!-- ============================================ -->
+  <h2>Key Components in Detail</h2>
+
+  <h3>TargetElement Buffer: Timing Is Critical</h3>
+
+  <p><code>TargetElement</code> must be part of the archetype, not added after creation. Adding it via <code>AddBuffer</code> on a command buffer creates a race condition: downstream systems check <code>HasBuffer</code> in the same frame, before the command buffer plays back.</p>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Guard Check</th><th>Consequence if Missing</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ImpactSystem</code></td>
+        <td><code>HasBuffer(event)</code></td>
+        <td>Target gets <code>InvolvedInAccident</code> but is never tracked -- breaks all downstream</td>
+      </tr>
+      <tr>
+        <td><code>AccidentVehicleSystem</code></td>
+        <td><code>HasBuffer(event)</code></td>
+        <td>No <code>AddAccidentSite</code> command, no notifications, no injuries</td>
+      </tr>
+      <tr>
+        <td><code>AccidentSiteSystem</code></td>
+        <td><code>HasBuffer(event)</code></td>
+        <td>Cannot count participants, no police dispatch, no chain reactions</td>
+      </tr>
+      <tr>
+        <td><code>AddAccidentSiteSystem</code></td>
+        <td><code>HasBuffer(event)</code></td>
+        <td>Site added to road but event never knows about it</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>PrefabRef Requirements</h3>
+
+  <p><code>PrefabRef</code> must point to a real TrafficAccident prefab entity. That prefab entity carries the data that downstream systems look up:</p>
+
+  <table>
+    <thead>
+      <tr><th>Component on Prefab</th><th>Used By</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>TrafficAccidentData</code></td><td><code>AccidentSiteSystem</code></td><td>Chain-reaction behavior, severity thresholds</td></tr>
+      <tr><td><code>FireData</code></td><td><code>AccidentVehicleSystem</code></td><td>Fire probability on involved vehicles</td></tr>
+      <tr><td><code>CrimeData</code></td><td><code>AccidentSiteSystem</code></td><td>Crime timer for the accident site</td></tr>
+      <tr><td><code>EventData</code></td><td>Event spawning system</td><td><code>m_Archetype</code>, <code>m_ConcurrentLimit</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>If <code>PrefabRef</code> is missing or points to a non-existent prefab, systems silently skip fire and chain-reaction logic but don't crash.</p>
+
+  <!-- ============================================ -->
+  <h2>What Each System Reads</h2>
+
+  <h3>ImpactSystem</h3>
+  <table>
+    <thead><tr><th>Access</th><th>Component</th><th>Entity</th></tr></thead>
+    <tbody>
+      <tr><td><code>HasBuffer</code> + <code>TryAddUniqueValue</code></td><td><code>TargetElement</code></td><td>Event entity</td></tr>
+    </tbody>
+  </table>
+
+  <h3>AccidentVehicleSystem</h3>
+  <table>
+    <thead><tr><th>Access</th><th>Component</th><th>Entity</th></tr></thead>
+    <tbody>
+      <tr><td><code>HasBuffer</code> + read</td><td><code>TargetElement</code></td><td>Event entity</td></tr>
+      <tr><td><code>HasComponent</code> + read</td><td><code>PrefabRef</code></td><td>Event entity</td></tr>
+      <tr><td>Lookup via PrefabRef</td><td><code>FireData</code></td><td>Prefab entity</td></tr>
+    </tbody>
+  </table>
+
+  <h3>AccidentSiteSystem</h3>
+  <table>
+    <thead><tr><th>Access</th><th>Component</th><th>Entity</th></tr></thead>
+    <tbody>
+      <tr><td><code>HasBuffer</code> + read</td><td><code>TargetElement</code></td><td>Event entity</td></tr>
+      <tr><td><code>HasComponent</code> + read</td><td><code>PrefabRef</code></td><td>Event entity</td></tr>
+      <tr><td>Lookup via PrefabRef</td><td><code>TrafficAccidentData</code></td><td>Prefab entity</td></tr>
+      <tr><td>Lookup via PrefabRef</td><td><code>CrimeData</code></td><td>Prefab entity</td></tr>
+    </tbody>
+  </table>
+
+  <h3>AddAccidentSiteSystem</h3>
+  <table>
+    <thead><tr><th>Access</th><th>Component</th><th>Entity</th></tr></thead>
+    <tbody>
+      <tr><td><code>HasBuffer</code> + <code>TryAddUniqueValue</code></td><td><code>TargetElement</code></td><td>Event entity</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================ -->
+  <h2>Examples</h2>
+
+  <h3>Correct vs. Incorrect Event Namespace</h3>
+
+  <pre><code class="language-csharp">// WRONG: Game.Common.Event is for short-lived commands, not persistent events.
+// Downstream systems query for Game.Events.Event -- this entity won't match.
+EntityArchetype wrongArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),            // wrong namespace
+    ComponentType.ReadWrite&lt;Game.Events.TrafficAccident&gt;(),
+    ComponentType.ReadWrite&lt;TargetElement&gt;()
+);
+
+// CORRECT: Use Game.Events.Event for persistent event entities.
+EntityArchetype correctArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite&lt;Game.Events.Event&gt;(),            // persistent marker
+    ComponentType.ReadWrite&lt;Game.Events.TrafficAccident&gt;(),
+    ComponentType.ReadWrite&lt;TargetElement&gt;(),
+    ComponentType.ReadWrite&lt;PrefabRef&gt;(),
+    ComponentType.ReadWrite&lt;Created&gt;(),
+    ComponentType.ReadWrite&lt;Updated&gt;()
+);</code></pre>
+
+  <h3>Spawning a Full TrafficAccident Event from a Mod</h3>
+
+  <pre><code class="language-csharp">public partial class MyAccidentSpawnerSystem : GameSystemBase
+{
+    private EntityArchetype _trafficAccidentArchetype;
+    private EntityArchetype _impactArchetype;
+    private EntityQuery _prefabQuery;
+    private EndFrameBarrier _endFrameBarrier;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _endFrameBarrier = World.GetOrCreateSystemManaged&lt;EndFrameBarrier&gt;();
+
+        // All 6 components must be in the archetype at creation time.
+        _trafficAccidentArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite&lt;PrefabRef&gt;(),
+            ComponentType.ReadWrite&lt;Game.Events.Event&gt;(),
+            ComponentType.ReadWrite&lt;Game.Events.TrafficAccident&gt;(),
+            ComponentType.ReadWrite&lt;TargetElement&gt;(),
+            ComponentType.ReadWrite&lt;Created&gt;(),
+            ComponentType.ReadWrite&lt;Updated&gt;()
+        );
+
+        // Temporary Impact command -- consumed by ImpactSystem in 1-2 frames.
+        _impactArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+            ComponentType.ReadWrite&lt;Impact&gt;()
+        );
+
+        // Query to find the TrafficAccident prefab entity at runtime.
+        _prefabQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;TrafficAccidentData&gt;(),
+            ComponentType.ReadOnly&lt;EventData&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_prefabQuery.IsEmptyIgnoreFilter)
+            return;
+
+        Entity prefabEntity = _prefabQuery.GetSingletonEntity();
+        var commandBuffer = _endFrameBarrier.CreateCommandBuffer();
+
+        // Step 1: Create the persistent event entity.
+        // TargetElement buffer is automatically created (empty) because
+        // it's part of the archetype -- no need to AddBuffer separately.
+        Entity eventEntity = commandBuffer.CreateEntity(_trafficAccidentArchetype);
+        commandBuffer.SetComponent(eventEntity, new PrefabRef { m_Prefab = prefabEntity });
+
+        // Step 2: Create an Impact command referencing the event.
+        // ImpactSystem will add InvolvedInAccident to the target vehicle
+        // and append it to the event's TargetElement buffer.
+        Entity impactEntity = commandBuffer.CreateEntity(_impactArchetype);
+        commandBuffer.SetComponent(impactEntity, new Impact
+        {
+            m_Event = eventEntity,
+            m_Target = targetVehicle,
+            m_VelocityDelta = 5f,
+            m_AngularVelocityDelta = 1f,
+            m_Severity = 5f
+        });
+    }
+}</code></pre>
+
+  <h3>Why TargetElement Must Be in the Archetype</h3>
+
+  <pre><code class="language-csharp">// WRONG: Adding TargetElement after creation causes a race condition.
+// ImpactSystem checks HasBuffer in the same frame, BEFORE the AddBuffer
+// command plays back. The check fails and the target is never tracked.
+Entity eventEntity = commandBuffer.CreateEntity(incompleteArchetype);
+commandBuffer.AddBuffer&lt;TargetElement&gt;(eventEntity);  // too late
+
+// CORRECT: Include TargetElement in the archetype so it exists from frame 0.
+EntityArchetype completeArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite&lt;PrefabRef&gt;(),
+    ComponentType.ReadWrite&lt;Game.Events.Event&gt;(),
+    ComponentType.ReadWrite&lt;Game.Events.TrafficAccident&gt;(),
+    ComponentType.ReadWrite&lt;TargetElement&gt;(),    // exists immediately
+    ComponentType.ReadWrite&lt;Created&gt;(),
+    ComponentType.ReadWrite&lt;Updated&gt;()
+);</code></pre>
+
+  <h3>Temporary Command Entities</h3>
+
+  <p>The accident pipeline chains its stages through short-lived command entities. Each uses <code>Game.Common.Event</code> (not <code>Game.Events.Event</code>) and carries a payload struct consumed by a dedicated system.</p>
+
+  <pre><code class="language-csharp">// Impact -- consumed by ImpactSystem
+EntityArchetype impactArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+    ComponentType.ReadWrite&lt;Impact&gt;()
+);
+
+// AddAccidentSite -- consumed by AddAccidentSiteSystem
+EntityArchetype addSiteArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+    ComponentType.ReadWrite&lt;AddAccidentSite&gt;()
+);
+
+// Ignite -- consumed by fire system
+EntityArchetype igniteArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+    ComponentType.ReadWrite&lt;Ignite&gt;()
+);
+
+// Police dispatch -- note: no Game.Common.Event, uses ServiceRequest instead
+EntityArchetype policeArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite&lt;ServiceRequest&gt;(),
+    ComponentType.ReadWrite&lt;PoliceEmergencyRequest&gt;(),
+    ComponentType.ReadWrite&lt;RequestGroup&gt;()
+);</code></pre>
+
+  <!-- ============================================ -->
+  <h2>Recommendations for Mods</h2>
+
+  <h3>Option A: Hook Into an Existing Accident (Recommended)</h3>
+
+  <p>Create an <code>Impact</code> command entity with <code>Game.Common.Event</code> + <code>Impact</code>, and set <code>m_Event</code> to point to an existing accident event entity that the game already spawned. This avoids the complexity of building the full archetype yourself.</p>
+
+  <h3>Option B: Create a Full Accident Event Entity</h3>
+
+  <p>Use the 6-component archetype shown above. Make sure <code>PrefabRef</code> points to a real TrafficAccident prefab entity that has <code>TrafficAccidentData</code> and <code>EventData</code>, otherwise chain-reaction and fire probability lookups will return defaults.</p>
+
+  <h3>What Goes Wrong If You Miss a Component</h3>
+
+  <table>
+    <thead>
+      <tr><th>Missing Component</th><th>Consequence</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>TargetElement</code> buffer</td><td><strong>Fatal.</strong> All downstream systems skip the entity. No vehicle tracking, no accident sites, no police, no chain reactions.</td></tr>
+      <tr><td><code>PrefabRef</code></td><td>Systems silently skip fire and chain reactions but don't crash.</td></tr>
+      <tr><td><code>Game.Events.TrafficAccident</code></td><td>Entity won't match queries filtering for TrafficAccident type.</td></tr>
+      <tr><td><code>Game.Events.Event</code></td><td>Future systems filtering on the Event component won't find it.</td></tr>
+      <tr><td><code>Created</code> / <code>Updated</code></td><td>Change-detection queries may skip the entity.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================ -->
+  <h2>Relevant Assemblies</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>Contents</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Game.dll</td><td><code>Game.Events</code></td><td><code>Event</code> (persistent marker), <code>TrafficAccident</code> (type marker), <code>TargetElement</code> (buffer)</td></tr>
+      <tr><td>Game.dll</td><td><code>Game.Common</code></td><td><code>Event</code> (short-lived marker), <code>PrefabRef</code>, <code>Created</code>, <code>Updated</code></td></tr>
+      <tr><td>Game.dll</td><td><code>Game.Prefabs</code></td><td><code>EventPrefab</code>, <code>TrafficAccident</code> (ComponentBase), <code>EventData</code></td></tr>
+      <tr><td>Game.dll</td><td><code>Game.Simulation</code></td><td><code>ImpactSystem</code>, <code>AccidentVehicleSystem</code>, <code>AccidentSiteSystem</code>, <code>AddAccidentSiteSystem</code>, <code>AccidentCreatureSystem</code></td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================ -->
+  <h2>Open Questions</h2>
+
+  <p>All initial questions have been resolved:</p>
+
+  <ul>
+    <li>Complete archetype for a TrafficAccident event entity -- 6 components (documented above)</li>
+    <li><code>TargetElement</code> buffer must exist at creation -- yes, all downstream systems guard with <code>HasBuffer</code></li>
+    <li><code>Game.Common.Event</code> and <code>Game.Events.Event</code> are different structs in different namespaces</li>
+    <li><code>PrefabRef</code> must point to a real TrafficAccident prefab entity with <code>TrafficAccidentData</code>, <code>FireData</code>, <code>CrimeData</code>, and <code>EventData</code></li>
+  </ul>
+
+  <!-- ============================================ -->
+  <footer>
+    <p>Source: Decompiled from Game.dll -- EventPrefab, TrafficAccident, ImpactSystem, AccidentVehicleSystem, AccidentSiteSystem, AddAccidentSiteSystem, AccidentCreatureSystem, ObjectCollisionSystem. Last updated 2026-02-15.</p>
+  </footer>
+
+</div>
+</body>
+</html>

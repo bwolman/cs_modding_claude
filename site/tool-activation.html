@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tool Activation from Non-Update Contexts</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html">Home</a>
+  <span class="sep">/</span>
+  <span>Tool Activation</span>
+</nav>
+
+<div class="container">
+
+  <h1>Tool Activation from Non-Update Contexts</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> Is it safe to set <code>ToolSystem.activeTool</code> from outside the
+      normal <code>ToolUpdate</code> phase -- for example, from a <code>TriggerBinding</code> callback
+      triggered by a UI button?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Yes. Setting <code>activeTool</code> from a TriggerBinding callback is
+      fully safe. No deferral pattern is needed. This matches how the vanilla game works.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Tool behavior after activation, input binding setup, and tool UI rendering.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    When a mod needs to activate a custom tool, it typically does so from a UI callback --
+    a <code>TriggerBinding</code> that fires when the player clicks a button. The concern is whether
+    this can cause race conditions, since the callback runs outside the ECS tool update phase.
+  </p>
+
+  <p>
+    The short answer: CS2 is single-threaded. TriggerBinding callbacks fire on the Unity main thread.
+    There is no concurrent access, and the setter writes its value immediately. Let's trace through exactly
+    what happens.
+  </p>
+
+  <h3>The activeTool Setter</h3>
+
+  <p>When you assign <code>activeTool</code>, three things happen synchronously:</p>
+
+  <pre><code class="language-csharp">public ToolBaseSystem activeTool
+{
+    set
+    {
+        if (value != m_ActiveTool)
+        {
+            m_ActiveTool = value;           // 1. writes field immediately
+            RequireFullUpdate();            // 2. sets update flag
+            EventToolChanged?.Invoke(value); // 3. fires delegates synchronously
+        }
+    }
+}</code></pre>
+
+  <p>
+    Step 1 is the key insight: the backing field is overwritten right away, on the calling thread.
+    There is no queue, no deferred buffer. The new tool is the active tool the instant you set it.
+  </p>
+
+  <h3>The RequireFullUpdate() Branch</h3>
+
+  <p>
+    Step 2 has a branching path that depends on <em>when</em> the setter is called.
+    <code>RequireFullUpdate()</code> checks whether the ToolSystem is currently mid-update:
+  </p>
+
+  <pre><code class="language-csharp">public void RequireFullUpdate()
+{
+    if (m_IsUpdating)
+        m_FullUpdateRequired = true;    // deferred: flushed at end of OnUpdate
+    else
+        fullUpdateRequired = true;      // immediate: written to public property
+}</code></pre>
+
+  <p>
+    From a TriggerBinding callback, <code>m_IsUpdating</code> is always <code>false</code> (callbacks
+    run outside <code>OnUpdate</code>). So it takes the <code>else</code> branch and writes the flag
+    directly. Either way, the net result is the same: <code>fullUpdateRequired</code> is <code>true</code>
+    before the next frame.
+  </p>
+
+  <h3>How ToolUpdate() Detects the Change</h3>
+
+  <p>
+    Here is the important part: <code>ToolUpdate()</code> does <strong>not</strong> rely on the
+    <code>fullUpdateRequired</code> flag to detect tool switches. It compares the current tool against
+    the last-known tool every frame:
+  </p>
+
+  <pre><code class="language-csharp">private void ToolUpdate()
+{
+    if (activeTool != m_LastTool)
+    {
+        if (m_LastTool != null)
+        {
+            m_LastTool.Enabled = false;   // disable old tool
+            m_LastTool.Update();          // final cleanup update
+        }
+        m_LastTool = activeTool;          // commit the change
+    }
+
+    if (m_LastTool != null)
+        m_LastTool.Enabled = true;        // enable new tool
+
+    m_UpdateSystem.Update(SystemUpdatePhase.ToolUpdate);
+}</code></pre>
+
+  <p>
+    Since the setter already wrote <code>m_ActiveTool</code> synchronously, <code>ToolUpdate()</code>
+    will see the new value on its next invocation -- no matter when the setter was called.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+  UI Button Click
+       |
+       v
+  TriggerBinding callback         (Unity main thread, outside OnUpdate)
+       |
+       +---> m_ActiveTool = newTool        [immediate write]
+       +---> fullUpdateRequired = true     [m_IsUpdating is false]
+       +---> EventToolChanged.Invoke()     [UI subscribers update]
+       |
+       ~  (frame boundary)  ~
+       |
+       v
+  ToolSystem.OnUpdate()
+       |
+       v
+  ToolUpdate()
+       |
+       +---> activeTool != m_LastTool?   --YES-->  disable old tool
+       |                                           m_LastTool = newTool
+       v
+  m_LastTool.Enabled = true
+       |
+       v
+  SystemUpdatePhase.ToolUpdate           (new tool's OnUpdate runs)
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Assembly</th>
+        <th>Namespace</th>
+        <th>What's There</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Tools</td>
+        <td>ToolSystem, ToolBaseSystem</td>
+      </tr>
+      <tr>
+        <td>Colossal.UI.Binding.dll</td>
+        <td>Colossal.UI.Binding</td>
+        <td>TriggerBinding, RawTriggerBindingBase</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Risk Assessment</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Concern</th>
+        <th>Risk</th>
+        <th>Why</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Thread safety of <code>m_ActiveTool</code> write</td>
+        <td>None</td>
+        <td>CS2 is single-threaded. Callbacks fire on the Unity main thread.</td>
+      </tr>
+      <tr>
+        <td><code>RequireFullUpdate()</code> with <code>m_IsUpdating = false</code></td>
+        <td>None</td>
+        <td>Takes the <code>else</code> branch, writes directly. Same net result.</td>
+      </tr>
+      <tr>
+        <td><code>ToolUpdate()</code> missing the change</td>
+        <td>None</td>
+        <td>Checks <code>activeTool != m_LastTool</code> every frame.</td>
+      </tr>
+      <tr>
+        <td><code>EventToolChanged</code> subscribers outside ToolUpdate</td>
+        <td>Low</td>
+        <td>Subscribers are typically UI systems doing panel updates.</td>
+      </tr>
+      <tr>
+        <td>ECS structural changes from subscribers</td>
+        <td>Conditional</td>
+        <td>Safe unless a subscriber performs structural changes while a job is scheduled.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Vanilla Precedent</h2>
+
+  <p>
+    The game itself calls <code>activeTool</code> from outside <code>ToolUpdate</code> all the time.
+    For example, <code>ActivatePrefabTool()</code> is called from UI events and input callbacks:
+  </p>
+
+  <pre><code class="language-csharp">public bool ActivatePrefabTool(PrefabBase prefab)
+{
+    ...
+    activeTool = tool;   // same setter, called from outside ToolUpdate
+    return true;
+}</code></pre>
+
+  <p>
+    This confirms that Colossal Order considers setting <code>activeTool</code> from outside
+    <code>ToolUpdate</code> to be the normal usage pattern.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Activate a Custom Tool from a UI Button</h3>
+
+  <p>The most common pattern. A TriggerBinding switches the active tool when the player clicks a button.</p>
+
+  <pre><code class="language-csharp">public partial class MyToolUISystem : UISystemBase
+{
+    private const string kGroup = "myMod";
+
+    private ToolSystem _toolSystem;
+    private MyCustomToolSystem _myTool;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        _toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+        _myTool = World.GetOrCreateSystemManaged&lt;MyCustomToolSystem&gt;();
+
+        AddBinding(new TriggerBinding(kGroup, "ActivateMyTool", () =&gt;
+        {
+            _toolSystem.activeTool = _myTool;
+        }));
+    }
+}</code></pre>
+
+  <h3>Toggle Between Custom and Default Tool</h3>
+
+  <p>Switch to your tool if inactive, or back to the default tool if already active.</p>
+
+  <pre><code class="language-csharp">public partial class ToggleToolUISystem : UISystemBase
+{
+    private const string kGroup = "myMod";
+
+    private ToolSystem _toolSystem;
+    private MyCustomToolSystem _myTool;
+    private DefaultToolSystem _defaultTool;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        _toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+        _myTool = World.GetOrCreateSystemManaged&lt;MyCustomToolSystem&gt;();
+        _defaultTool = World.GetOrCreateSystemManaged&lt;DefaultToolSystem&gt;();
+
+        AddBinding(new TriggerBinding(kGroup, "ToggleMyTool", () =&gt;
+        {
+            if (_toolSystem.activeTool == _myTool)
+                _toolSystem.activeTool = _defaultTool;
+            else
+                _toolSystem.activeTool = _myTool;
+        }));
+    }
+}</code></pre>
+
+  <h3>Listen for Tool Changes via EventToolChanged</h3>
+
+  <p>
+    Subscribe to <code>EventToolChanged</code> to update your UI whenever any tool becomes active,
+    including changes made by other mods or the base game.
+  </p>
+
+  <pre><code class="language-csharp">public partial class ToolStateUISystem : UISystemBase
+{
+    private const string kGroup = "myMod";
+
+    private ToolSystem _toolSystem;
+    private MyCustomToolSystem _myTool;
+    private ValueBinding&lt;bool&gt; _isMyToolActiveBinding;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        _toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+        _myTool = World.GetOrCreateSystemManaged&lt;MyCustomToolSystem&gt;();
+
+        _isMyToolActiveBinding = new ValueBinding&lt;bool&gt;(kGroup, "IsMyToolActive", false);
+        AddBinding(_isMyToolActiveBinding);
+
+        _toolSystem.EventToolChanged += OnToolChanged;
+    }
+
+    private void OnToolChanged(ToolBaseSystem newTool)
+    {
+        _isMyToolActiveBinding.Update(newTool == _myTool);
+    }
+
+    protected override void OnDestroy()
+    {
+        _toolSystem.EventToolChanged -= OnToolChanged;
+        base.OnDestroy();
+    }
+}</code></pre>
+
+  <h3>Activate a Tool via Prefab (Vanilla Pattern)</h3>
+
+  <p>
+    Use <code>ActivatePrefabTool()</code> when you want the game to find the right tool for a given
+    prefab. This iterates over all registered <code>ToolBaseSystem</code> instances and sets
+    <code>activeTool</code> to the first one that accepts the prefab.
+  </p>
+
+  <pre><code class="language-csharp">public void ActivateToolForPrefab(ToolSystem toolSystem, PrefabBase prefab)
+{
+    bool activated = toolSystem.ActivatePrefabTool(prefab);
+
+    if (!activated)
+    {
+        Mod.Log.Info($"No tool accepted prefab '{prefab.name}', fell back to default tool.");
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <p>All questions from this research have been resolved:</p>
+
+  <ul>
+    <li><strong>Is activeTool safe to set from TriggerBinding callbacks?</strong> -- Yes, fully safe.</li>
+    <li><strong>Does RequireFullUpdate() behave differently outside OnUpdate?</strong> -- Different branch, same outcome.</li>
+    <li><strong>Does ToolUpdate() rely on a flag to detect tool changes?</strong> -- No, it checks <code>activeTool != m_LastTool</code> directly.</li>
+    <li><strong>Are EventToolChanged subscribers phase-dependent?</strong> -- No, they are UI-focused.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll (Game.Tools.ToolSystem), Colossal.UI.Binding.dll (TriggerBinding, RawTriggerBindingBase)</li>
+    <li>Related research: ToolRaycast (ToolSystem architecture), ModUIButtons (TriggerBinding usage)</li>
+  </ul>
+
+</div>
+
+</body>
+</html>

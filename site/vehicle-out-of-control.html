@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vehicle OutOfControl &amp; Accidents</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html">Home</a>
+  <span class="sep">/</span>
+  <span>Vehicle OutOfControl &amp; Accidents</span>
+</nav>
+
+<div class="container">
+
+  <h1>Vehicle OutOfControl &amp; Accidents</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>What:</strong> How CS2 handles vehicles going out of control, collisions,
+      and accident aftermath -- fire, injuries, police dispatch, chain reactions, and cleanup.
+    </p>
+    <p>
+      <strong>Why:</strong> To build mods that trigger, modify, or respond to vehicle accident
+      events -- controlling severity, physics, chain reactions, and emergency response.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> General vehicle pathfinding, traffic AI decision-making,
+      non-accident vehicle damage (weather, aging). Crime systems are covered only where they
+      intersect with <code>AccidentSite</code>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The accident system is a pipeline. A collision or scripted event creates a one-frame
+    <code>Impact</code> entity. That entity flows through a chain of ECS systems, each
+    responsible for one phase of the accident lifecycle: physics simulation, collision
+    detection, stopping, fire, injuries, police, chain reactions, and cleanup.
+  </p>
+
+  <h3>Step 1: Something Creates an Impact</h3>
+
+  <p>
+    An accident begins when an <code>Impact</code> event entity appears. This can happen two ways:
+  </p>
+  <ul>
+    <li><code>ObjectCollisionSystem</code> detects a physical collision between moving objects</li>
+    <li><code>AccidentSiteSystem</code> stages a chain-reaction by picking a passing car near an existing accident</li>
+  </ul>
+  <p>
+    The <code>Impact</code> component carries a target entity, velocity deltas (linear and angular),
+    and a severity value. It lives for exactly one frame.
+  </p>
+
+  <h3>Step 2: ImpactSystem Applies the Hit</h3>
+
+  <p>
+    <code>ImpactSystem</code> runs every simulation frame and processes all <code>Impact</code> entities.
+    For each one, it:
+  </p>
+  <ul>
+    <li>Adds the velocity delta to the target's <code>Moving</code> component -- the actual push</li>
+    <li>Adds the <code>OutOfControl</code> marker to vehicles, handing them from pathfinding to physics</li>
+    <li>Activates parked or stopped cars first if needed (removes <code>ParkedCar</code>/<code>Stopped</code>, adds navigation components)</li>
+    <li>Tags the entity with <code>InvolvedInAccident</code>, recording severity and the current simulation frame</li>
+    <li>Adds <code>Stumbling</code> to hit creatures (pedestrians)</li>
+    <li>Detaches trailers from their controllers</li>
+  </ul>
+
+  <h3>Step 3: Physics Takes Over</h3>
+
+  <p>
+    Once a vehicle has the <code>OutOfControl</code> marker, <code>VehicleOutOfControlSystem</code>
+    simulates it with real physics instead of pathfinding. Each frame it processes 1/16th of all
+    out-of-control entities, running 4 sub-steps per frame:
+  </p>
+  <ol>
+    <li>Calculates moment of inertia from vehicle geometry</li>
+    <li>Samples ground height at 8 corner points (4 bottom + 4 top) from terrain and road network</li>
+    <li>Applies gravity (10 m/s^2), friction (using <code>CarData.m_Braking</code> as grip), and angular drag (0.95^dt)</li>
+    <li>Computes ground collision response to prevent clipping through terrain or roads</li>
+    <li>Updates rotation from angular velocity, then advances position by velocity * dt</li>
+  </ol>
+
+  <h3>Step 4: Collisions Cascade</h3>
+
+  <p>
+    <code>ObjectCollisionSystem</code> runs every frame, testing swept oriented bounding boxes (OBBs)
+    between out-of-control vehicles and nearby objects using <code>TransformFrame</code> interpolation.
+    When it detects a hit, it creates a new <code>Impact</code> event entity -- which feeds back
+    to Step 2. This is how one car knocks into another, producing pile-ups.
+  </p>
+
+  <h3>Step 5: The Vehicle Stops</h3>
+
+  <p>
+    <code>AccidentVehicleSystem</code> checks every 64 frames whether involved vehicles have slowed
+    below a dynamic velocity threshold: <code>thresh = 0.01 + (frame_delta^2 * 3e-9)^2</code>.
+    The threshold grows over time, ensuring vehicles eventually stop even if friction alone is not enough.
+    When the vehicle stops:
+  </p>
+  <ul>
+    <li>Replaces <code>Moving</code> with <code>Stopped</code></li>
+    <li>Searches for the nearest road edge within 30m and creates an <code>AddAccidentSite</code> command</li>
+    <li>Rolls for fire ignition: <code>damage.x * fireData.m_StartProbability</code></li>
+    <li>Creates injury <code>Impact</code> events for each passenger (severity cascades down by 0.8-0.9x per passenger)</li>
+    <li>Shows the accident notification icon</li>
+  </ul>
+
+  <h3>Step 6: Pedestrians and Passengers</h3>
+
+  <p>
+    <code>AccidentCreatureSystem</code> handles creatures hit during the accident, checking every
+    64 frames. There are three paths depending on creature state:
+  </p>
+  <ul>
+    <li><strong>Stumbling in a vehicle:</strong> 100% injury chance for bicycles, 50% for cars. Finds or creates an accident site.</li>
+    <li><strong>Stumbling on foot:</strong> Waits for velocity to drop below 0.01, then rolls for injury (50% chance). Of those injured: 20% fatal, 80% non-fatal. Fatal injuries collapse the creature and stop movement.</li>
+    <li><strong>Waiting for rescue:</strong> Checks if site is secured or hearse/ambulance is targeting them, then clears the accident.</li>
+  </ul>
+  <p>
+    Severity decreases for subsequent passengers: <code>severity *= random(0.8, 0.9)</code>.
+  </p>
+
+  <h3>Step 7: The Accident Site</h3>
+
+  <p>
+    <code>AddAccidentSiteSystem</code> processes <code>AddAccidentSite</code> commands every frame,
+    creating or merging <code>AccidentSite</code> components on road edges (deduplicating by target
+    entity and ORing flags together). Then <code>AccidentSiteSystem</code> manages the scene every
+    64 frames:
+  </p>
+  <ul>
+    <li>Dispatches police via <code>PoliceEmergencyRequest</code> when the <code>RequirePolice</code> flag is set</li>
+    <li>
+      <strong>Chain reactions:</strong> For the first 3600 frames (~60 seconds), the
+      <code>StageAccident</code> flag is active. The system uses reservoir sampling to pick a
+      random passing car on the road's sublanes, then hits it with severity 5.0, lateral push 5.0 m/s,
+      and 2.0 rad/s spin. That new victim feeds back into <code>ImpactSystem</code>.
+    </li>
+    <li>Tracks the <code>Secured</code> state from police arrival</li>
+    <li>Removes the <code>AccidentSite</code> when all entities are cleared and either secured or 14400 frames have elapsed (with a 1024-frame buffer after <code>SecuredFrame</code> for crime scenes)</li>
+  </ul>
+
+  <h3>Step 8: Cleanup</h3>
+
+  <p>
+    Back in <code>AccidentVehicleSystem</code>, stopped vehicles wait for the site to be secured
+    (police arrived or 14400 frames elapsed). Then:
+  </p>
+  <ul>
+    <li>Undamaged vehicles restart and clear their accident state</li>
+    <li>Destroyed vehicles are deleted after <code>Destroyed.m_Cleared &gt;= 1.0</code> or 14400 frames</li>
+    <li>Bicycles have a shorter cleanup window: 300 frames (~5 seconds)</li>
+  </ul>
+  <p>
+    Separately, <code>DamagedVehicleSystem</code> runs every 512 frames and creates
+    <code>MaintenanceRequest</code> entities (priority 100) for stopped, damaged cars.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <h3>Assemblies and Namespaces</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Assembly</th>
+        <th>Namespace</th>
+        <th>What's There</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Vehicles</td>
+        <td><code>OutOfControl</code> marker</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Events</td>
+        <td><code>Impact</code>, <code>InvolvedInAccident</code>, <code>AccidentSite</code>, <code>TrafficAccident</code>, <code>AddAccidentSite</code>, <code>AccidentSiteFlags</code>, <code>ImpactSystem</code>, <code>AddAccidentSiteSystem</code></td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td><code>VehicleOutOfControlSystem</code>, <code>AccidentVehicleSystem</code>, <code>AccidentSiteSystem</code>, <code>AccidentCreatureSystem</code>, <code>ObjectCollisionSystem</code>, <code>DamagedVehicleSystem</code></td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Objects</td>
+        <td><code>Moving</code>, <code>Damaged</code></td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Common</td>
+        <td><code>Destroyed</code></td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td><code>TrafficAccidentData</code>, <code>TrafficAccidentType</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>ECS Components</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>Key Fields</th>
+        <th>Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>OutOfControl</code></td>
+        <td>(none -- marker)</td>
+        <td>Tags a vehicle as physics-driven instead of pathfinding-driven</td>
+      </tr>
+      <tr>
+        <td><code>Impact</code></td>
+        <td><code>m_Target</code>, <code>m_VelocityDelta</code> (float3), <code>m_AngularVelocityDelta</code> (float3), <code>m_Severity</code> (float), <code>m_CheckStoppedEvent</code> (bool)</td>
+        <td>One-frame event entity that inflicts a collision on a target</td>
+      </tr>
+      <tr>
+        <td><code>InvolvedInAccident</code></td>
+        <td><code>m_Event</code> (Entity), <code>m_Severity</code> (float), <code>m_InvolvedFrame</code> (uint)</td>
+        <td>Tags an entity as part of an accident; tracks timing for velocity thresholds and cleanup</td>
+      </tr>
+      <tr>
+        <td><code>AccidentSite</code></td>
+        <td><code>m_Event</code> (Entity), <code>m_PoliceRequest</code> (Entity), <code>m_Flags</code> (AccidentSiteFlags), <code>m_CreationFrame</code> (uint), <code>m_SecuredFrame</code> (uint)</td>
+        <td>Marks a road edge as an accident location; controls police dispatch and chain reactions</td>
+      </tr>
+      <tr>
+        <td><code>Moving</code></td>
+        <td><code>m_Velocity</code> (float3, m/s), <code>m_AngularVelocity</code> (float3, rad/s)</td>
+        <td>Tracks current velocity in world space; includes NaN safety on deserialization</td>
+      </tr>
+      <tr>
+        <td><code>Damaged</code></td>
+        <td><code>m_Damage</code> (float3: x=fire, y=structural, z=weather)</td>
+        <td>Three-channel damage; fire channel (x) drives fire ignition probability</td>
+      </tr>
+      <tr>
+        <td><code>Destroyed</code></td>
+        <td><code>m_Event</code> (Entity), <code>m_Cleared</code> (float, 0.0-1.0)</td>
+        <td>Marks object as destroyed; eligible for deletion when <code>m_Cleared &gt;= 1.0</code></td>
+      </tr>
+      <tr>
+        <td><code>TrafficAccident</code></td>
+        <td>(none -- marker)</td>
+        <td>Tags an event entity as a traffic accident type</td>
+      </tr>
+      <tr>
+        <td><code>AddAccidentSite</code></td>
+        <td><code>m_Event</code> (Entity), <code>m_Target</code> (Entity), <code>m_Flags</code> (AccidentSiteFlags)</td>
+        <td>Command entity processed by <code>AddAccidentSiteSystem</code> to create/merge accident sites</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Systems</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>System</th>
+        <th>Update Rate</th>
+        <th>Role</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ImpactSystem</code></td>
+        <td>Every frame</td>
+        <td>Processes Impact events: applies forces, adds OutOfControl/InvolvedInAccident/Stumbling, detaches trailers</td>
+      </tr>
+      <tr>
+        <td><code>VehicleOutOfControlSystem</code></td>
+        <td>Every frame (1/16th)</td>
+        <td>Physics simulation: gravity, friction, ground collision with 4 sub-steps</td>
+      </tr>
+      <tr>
+        <td><code>ObjectCollisionSystem</code></td>
+        <td>Every frame</td>
+        <td>Swept OBB collision detection between out-of-control vehicles and nearby objects; creates new Impact events</td>
+      </tr>
+      <tr>
+        <td><code>AccidentVehicleSystem</code></td>
+        <td>Every 64 frames</td>
+        <td>Stops vehicles below threshold, creates accident sites, fire/injury rolls, cleanup/restart</td>
+      </tr>
+      <tr>
+        <td><code>AccidentCreatureSystem</code></td>
+        <td>Every 64 frames</td>
+        <td>Handles hit pedestrians/cyclists: injury/death rolls, collapse, rescue waiting</td>
+      </tr>
+      <tr>
+        <td><code>AddAccidentSiteSystem</code></td>
+        <td>Every frame</td>
+        <td>Processes AddAccidentSite commands, deduplicates and merges sites on the same road edge</td>
+      </tr>
+      <tr>
+        <td><code>AccidentSiteSystem</code></td>
+        <td>Every 64 frames</td>
+        <td>Police dispatch, chain-reaction staging, site cleanup</td>
+      </tr>
+      <tr>
+        <td><code>DamagedVehicleSystem</code></td>
+        <td>Every 512 frames</td>
+        <td>Creates maintenance requests for stopped damaged cars</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Key Enums</h3>
+
+  <pre><code class="language-csharp">[Flags]
+public enum AccidentSiteFlags : uint
+{
+    StageAccident   = 1,    // Can trigger chain-reaction accidents on passing cars
+    Secured         = 2,    // Police have arrived and secured the site
+    CrimeScene      = 4,    // Site is also a crime scene
+    TrafficAccident = 8,    // Site originated from a traffic accident
+    CrimeFinished   = 16,   // Crime activity has ended
+    CrimeDetected   = 32,   // Crime has been detected/reported
+    CrimeMonitored  = 64,   // Crime is being monitored (surveillance)
+    RequirePolice   = 128,  // Police dispatch is needed
+    MovingVehicles  = 256   // At least one involved vehicle is still moving
+}
+
+public enum TrafficAccidentType
+{
+    LoseControl  // Only defined type
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+  TRIGGER
+  ObjectCollisionSystem detects collision
+  OR AccidentSiteSystem stages chain-reaction (TryFindSubject)
+       |
+       v
+  Impact event entity created
+    m_Target, m_VelocityDelta, m_AngularVelocityDelta, m_Severity
+       |
+       v
+  ImpactSystem (every frame)
+       |-- Apply velocity delta to target's Moving component
+       |-- Add OutOfControl to vehicles (activate parked/stopped first)
+       |-- Add InvolvedInAccident (severity + frame number)
+       |-- Add Stumbling to creatures
+       |-- Detach trailers from controllers
+       |
+       +---------> VehicleOutOfControlSystem (every frame, 1/16th)
+       |             |-- 4 sub-steps: gravity, friction, damping
+       |             |-- Ground collision: terrain + road network
+       |             |-- Update Transform + TransformFrame
+       |             v
+       +---------> ObjectCollisionSystem (every frame)
+       |             |-- Swept OBB intersection tests
+       |             |-- Collision found?
+       |             |     YES --> Create new Impact event --+
+       |             |                                       |
+       |             +--- loops back to ImpactSystem --------+
+       |
+       v
+  AccidentVehicleSystem (every 64 frames)
+       |-- MOVING VEHICLES: velocity below threshold?
+       |     YES:
+       |       +-- Remove Moving, add Stopped
+       |       +-- Find nearest road edge within 30m
+       |       +-- Create AddAccidentSite command
+       |       +-- Roll fire: damage.x * m_StartProbability
+       |       +-- Injure passengers (severity cascades 0.8-0.9x)
+       |       +-- Show notification icon
+       |-- STOPPED VEHICLES: secured or timed out (14400 frames)?
+       |     +-- Undamaged: restart vehicle, clear accident
+       |     +-- Destroyed + m_Cleared &gt;= 1.0: delete vehicle
+       |     +-- Bicycle: delete after 300 frames
+       |
+       v
+  AccidentCreatureSystem (every 64 frames)
+       |-- Stumbling + velocity &lt; 0.01: roll injury
+       |     50% pedestrian / 100% cyclist
+       |     20% fatal (collapse, await hearse)
+       |     80% non-fatal (clear stumbling)
+       |-- Create AddAccidentSite for creature location
+       |-- Secured or hearse/ambulance arrived? Clear accident
+       |
+       v
+  AddAccidentSiteSystem (every frame)
+       |-- Create or merge AccidentSite on road edge
+       |-- Deduplicate by target entity, OR flags together
+       |-- Add site to event's TargetElement buffer
+       |
+       v
+  AccidentSiteSystem (every 64 frames)
+       |-- Dispatch police (RequirePolice flag)
+       |-- StageAccident active (&lt; 3600 frames)?            ----+
+       |     Find passing car via reservoir sampling             |
+       |     Create Impact: sev 5.0, 5 m/s lateral, 2 rad/s    |
+       |     New victim feeds back to ImpactSystem  -------------+
+       |-- Track Secured state from police arrival
+       |-- Cleanup: remove AccidentSite when all cleared
+       |
+       v
+  DamagedVehicleSystem (every 512 frames)
+       |-- Stopped + Damaged + Car
+       |     Create MaintenanceRequest (priority 100)
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Trigger an Accident via Impact Event</h3>
+
+  <p>
+    The safest approach. Create an <code>Impact</code> event entity and let the game's pipeline
+    handle everything -- <code>OutOfControl</code>, <code>InvolvedInAccident</code>, trailer
+    detachment, and event tracking all happen automatically.
+  </p>
+
+  <pre><code class="language-csharp">using Game.Events;
+using Game.Simulation;
+using Unity.Entities;
+using Unity.Mathematics;
+
+/// &lt;summary&gt;
+/// Custom system that creates Impact event entities to trigger vehicle accidents.
+/// ImpactSystem will process these on the next simulation frame.
+/// &lt;/summary&gt;
+public partial class AccidentTriggerSystem : GameSystemBase
+{
+    private EntityArchetype _impactArchetype;
+    private EntityArchetype _accidentEventArchetype;
+    private SimulationSystem _simulationSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _simulationSystem = World.GetOrCreateSystemManaged&lt;SimulationSystem&gt;();
+
+        // Impact entities need the Impact component plus the Event tag
+        _impactArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite&lt;Impact&gt;(),
+            ComponentType.ReadWrite&lt;Game.Common.Event&gt;()
+        );
+
+        // The parent accident event needs a TrafficAccident marker.
+        // The full archetype for persistent events may need additional
+        // components (TargetElement, PrefabRef, Created, Updated)
+        // depending on which downstream systems consume it.
+        _accidentEventArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite&lt;TrafficAccident&gt;(),
+            ComponentType.ReadWrite&lt;Game.Common.Event&gt;()
+        );
+    }
+
+    /// &lt;summary&gt;
+    /// Creates an Impact event that will cause the target vehicle
+    /// to go out of control on the next simulation frame.
+    /// &lt;/summary&gt;
+    /// &lt;param name="targetVehicle"&gt;The vehicle entity to impact.&lt;/param&gt;
+    /// &lt;param name="lateralForce"&gt;Sideways push in m/s (game default: 5.0).&lt;/param&gt;
+    /// &lt;param name="angularSpin"&gt;Y-axis spin in rad/s (game default: 2.0).&lt;/param&gt;
+    /// &lt;param name="severity"&gt;Damage severity (game default: 5.0).&lt;/param&gt;
+    public void TriggerAccident(Entity targetVehicle, float lateralForce,
+                                float angularSpin, float severity)
+    {
+        Entity accidentEvent = EntityManager.CreateEntity(_accidentEventArchetype);
+
+        Entity impactEntity = EntityManager.CreateEntity(_impactArchetype);
+        EntityManager.SetComponentData(impactEntity, new Impact
+        {
+            m_Event = accidentEvent,
+            m_Target = targetVehicle,
+            m_VelocityDelta = new float3(lateralForce, 0f, 0f),
+            m_AngularVelocityDelta = new float3(0f, angularSpin, 0f),
+            m_Severity = severity,
+            m_CheckStoppedEvent = false
+        });
+
+        // ImpactSystem processes this next frame:
+        //   1. Applies velocity delta to the vehicle's Moving component
+        //   2. Adds OutOfControl marker
+        //   3. Adds InvolvedInAccident with severity and current frame
+        //   4. Detaches any trailer
+    }
+
+    protected override void OnUpdate()
+    {
+        // Trigger logic goes here (e.g., random selection, player input)
+    }
+}</code></pre>
+
+  <h3>Monitor Vehicles in Accidents</h3>
+
+  <p>
+    Query for <code>OutOfControl</code> and <code>InvolvedInAccident</code> to track
+    active accidents -- useful for statistics, UI overlays, or custom responses.
+  </p>
+
+  <pre><code class="language-csharp">using Game.Events;
+using Game.Objects;
+using Game.Simulation;
+using Game.Vehicles;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Monitors vehicles involved in accidents and inspects their state.
+/// &lt;/summary&gt;
+public partial class AccidentMonitorSystem : GameSystemBase
+{
+    private EntityQuery _outOfControlQuery;
+    private EntityQuery _involvedQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Vehicles currently sliding with physics
+        _outOfControlQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;OutOfControl&gt;(),
+            ComponentType.ReadOnly&lt;Vehicle&gt;(),
+            ComponentType.ReadOnly&lt;Moving&gt;()
+        );
+
+        // All vehicles tagged as part of an accident (including stopped)
+        _involvedQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;InvolvedInAccident&gt;(),
+            ComponentType.ReadOnly&lt;Vehicle&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        int outOfControlCount = _outOfControlQuery.CalculateEntityCount();
+        int involvedCount = _involvedQuery.CalculateEntityCount();
+
+        var entities = _involvedQuery.ToEntityArray(
+            Unity.Collections.Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            Entity vehicle = entities[i];
+            var accident = EntityManager
+                .GetComponentData&lt;InvolvedInAccident&gt;(vehicle);
+
+            float severity = accident.m_Severity;
+            bool isSliding = EntityManager
+                .HasComponent&lt;OutOfControl&gt;(vehicle);
+            bool hasStopped = EntityManager
+                .HasComponent&lt;Game.Objects.Stopped&gt;(vehicle);
+            bool isOnFire = EntityManager
+                .HasComponent&lt;Game.Events.OnFire&gt;(vehicle);
+            bool isDestroyed = EntityManager
+                .HasComponent&lt;Game.Common.Destroyed&gt;(vehicle);
+
+            if (EntityManager.HasComponent&lt;Damaged&gt;(vehicle))
+            {
+                Damaged damaged = EntityManager
+                    .GetComponentData&lt;Damaged&gt;(vehicle);
+                float fireDamage = damaged.m_Damage.x;
+                float structuralDamage = damaged.m_Damage.y;
+                float weatherDamage = damaged.m_Damage.z;
+            }
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Prevent Specific Vehicles from Going Out of Control</h3>
+
+  <p>
+    Add a custom <code>AccidentImmune</code> marker to protected vehicles, then run a
+    filter system <em>before</em> <code>ImpactSystem</code> to destroy <code>Impact</code>
+    events targeting them.
+  </p>
+
+  <pre><code class="language-csharp">using Game.Events;
+using Game.Simulation;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Marker component. Add this to any vehicle entity that should be immune.
+/// &lt;/summary&gt;
+public struct AccidentImmune : IComponentData { }
+
+/// &lt;summary&gt;
+/// Runs before ImpactSystem and removes Impact events targeting immune vehicles.
+/// &lt;/summary&gt;
+[UpdateBefore(typeof(ImpactSystem))]
+public partial class AccidentFilterSystem : GameSystemBase
+{
+    private EntityQuery _impactQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _impactQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Impact&gt;(),
+            ComponentType.ReadOnly&lt;Game.Common.Event&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _impactQuery.ToEntityArray(
+            Unity.Collections.Allocator.Temp);
+        var impacts = _impactQuery.ToComponentDataArray&lt;Impact&gt;(
+            Unity.Collections.Allocator.Temp);
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            if (EntityManager.HasComponent&lt;AccidentImmune&gt;(
+                    impacts[i].m_Target))
+            {
+                EntityManager.DestroyEntity(entities[i]);
+            }
+        }
+
+        entities.Dispose();
+        impacts.Dispose();
+    }
+}</code></pre>
+
+  <h3>Query Accident Sites</h3>
+
+  <p>
+    Read <code>AccidentSite</code> components on road edges to find active accident locations,
+    check police status, and determine whether chain reactions are still possible.
+  </p>
+
+  <pre><code class="language-csharp">using Game.Events;
+using Game.Simulation;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Queries all active accident sites and inspects flags and timing.
+/// &lt;/summary&gt;
+public partial class AccidentSiteMonitorSystem : GameSystemBase
+{
+    private EntityQuery _siteQuery;
+    private SimulationSystem _simulationSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _simulationSystem = World.GetOrCreateSystemManaged&lt;SimulationSystem&gt;();
+        _siteQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;AccidentSite&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        uint currentFrame = _simulationSystem.frameIndex;
+
+        var entities = _siteQuery.ToEntityArray(
+            Unity.Collections.Allocator.Temp);
+        var sites = _siteQuery.ToComponentDataArray&lt;AccidentSite&gt;(
+            Unity.Collections.Allocator.Temp);
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            AccidentSite site = sites[i];
+
+            // Chain reactions active for first 3600 frames (~60 sec)
+            bool canChainReact =
+                (site.m_Flags &amp; AccidentSiteFlags.StageAccident) != 0;
+            bool isSecured =
+                (site.m_Flags &amp; AccidentSiteFlags.Secured) != 0;
+            bool needsPolice =
+                (site.m_Flags &amp; AccidentSiteFlags.RequirePolice) != 0;
+            bool hasMovingVehicles =
+                (site.m_Flags &amp; AccidentSiteFlags.MovingVehicles) != 0;
+
+            uint ageInFrames = currentFrame - site.m_CreationFrame;
+
+            // Auto-cleanup after 14400 frames (~4 min at 60fps)
+            bool isTimedOut = ageInFrames &gt;= 14400;
+        }
+
+        entities.Dispose();
+        sites.Dispose();
+    }
+}</code></pre>
+
+  <h3>Directly Add OutOfControl (Bypass Impact Pipeline)</h3>
+
+  <p>
+    Bypasses the <code>Impact</code> event pipeline entirely. Simpler but misses side effects
+    like trailer detachment, parked/stopped car activation, and proper event target tracking.
+    Prefer creating <code>Impact</code> events for production use.
+  </p>
+
+  <pre><code class="language-csharp">using Game.Events;
+using Game.Objects;
+using Game.Simulation;
+using Game.Vehicles;
+using Unity.Entities;
+using Unity.Mathematics;
+
+/// &lt;summary&gt;
+/// Directly adds OutOfControl and related components to a vehicle.
+/// WARNING: Skips ImpactSystem -- trailers won't detach, parked/stopped
+/// cars won't be activated, and event target tracking may be incomplete.
+/// &lt;/summary&gt;
+public partial class DirectOutOfControlSystem : GameSystemBase
+{
+    private SimulationSystem _simulationSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _simulationSystem = World.GetOrCreateSystemManaged&lt;SimulationSystem&gt;();
+    }
+
+    public void MakeVehicleOutOfControl(Entity vehicle,
+                                         float3 pushVelocity,
+                                         float severity)
+    {
+        uint currentFrame = _simulationSystem.frameIndex;
+
+        // Add OutOfControl marker -- VehicleOutOfControlSystem will
+        // start simulating physics for this vehicle
+        if (!EntityManager.HasComponent&lt;OutOfControl&gt;(vehicle))
+            EntityManager.AddComponent&lt;OutOfControl&gt;(vehicle);
+
+        // Apply velocity change to existing Moving component
+        if (EntityManager.HasComponent&lt;Moving&gt;(vehicle))
+        {
+            Moving moving = EntityManager
+                .GetComponentData&lt;Moving&gt;(vehicle);
+            moving.m_Velocity += pushVelocity;
+            moving.m_AngularVelocity += new float3(0f, 2f, 0f);
+            EntityManager.SetComponentData(vehicle, moving);
+        }
+
+        // Create a minimal parent accident event
+        Entity accidentEvent = EntityManager.CreateEntity(
+            ComponentType.ReadWrite&lt;TrafficAccident&gt;(),
+            ComponentType.ReadWrite&lt;Game.Common.Event&gt;()
+        );
+
+        // Tag the vehicle as involved
+        EntityManager.AddComponent&lt;InvolvedInAccident&gt;(vehicle);
+        EntityManager.SetComponentData(vehicle,
+            new InvolvedInAccident(
+                accidentEvent, severity, currentFrame));
+
+        // AccidentVehicleSystem handles the rest:
+        //   Stop, create AccidentSite, fire roll, injuries, cleanup
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Prefab-Driven Values</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Value</th>
+        <th>Source</th>
+        <th>Location</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Accident site type</td>
+        <td><code>TrafficAccidentData.m_RandomSiteType</code></td>
+        <td>Game.Prefabs.TrafficAccidentData</td>
+      </tr>
+      <tr>
+        <td>Subject filter</td>
+        <td><code>TrafficAccidentData.m_SubjectType</code></td>
+        <td>Game.Prefabs.TrafficAccidentData</td>
+      </tr>
+      <tr>
+        <td>Accident behavior</td>
+        <td><code>TrafficAccidentData.m_AccidentType</code></td>
+        <td>Game.Prefabs.TrafficAccidentData (only <code>LoseControl</code>)</td>
+      </tr>
+      <tr>
+        <td>Occurrence probability</td>
+        <td><code>TrafficAccidentData.m_OccurenceProbability</code></td>
+        <td>Game.Prefabs.TrafficAccidentData</td>
+      </tr>
+      <tr>
+        <td>Fire start probability</td>
+        <td><code>FireData.m_StartProbability</code></td>
+        <td>Game.Prefabs.FireData</td>
+      </tr>
+      <tr>
+        <td>Fire start intensity</td>
+        <td><code>FireData.m_StartIntensity</code></td>
+        <td>Game.Prefabs.FireData</td>
+      </tr>
+      <tr>
+        <td>Notification prefab</td>
+        <td><code>PoliceConfigurationData.m_TrafficAccidentNotificationPrefab</code></td>
+        <td>Singleton query</td>
+      </tr>
+      <tr>
+        <td>Crime scene notification</td>
+        <td><code>PoliceConfigurationData.m_CrimeSceneNotificationPrefab</code></td>
+        <td>Singleton query</td>
+      </tr>
+      <tr>
+        <td>Vehicle grip/braking</td>
+        <td><code>CarData.m_Braking</code></td>
+        <td>Game.Prefabs.CarData</td>
+      </tr>
+      <tr>
+        <td>Vehicle geometry</td>
+        <td><code>ObjectGeometryData.m_Bounds</code>, <code>m_Size</code></td>
+        <td>Game.Prefabs.ObjectGeometryData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Hardcoded Constants</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Constant</th>
+        <th>Value</th>
+        <th>System</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Gravity</td>
+        <td>10 m/s^2</td>
+        <td>VehicleOutOfControlSystem</td>
+      </tr>
+      <tr>
+        <td>Velocity damping</td>
+        <td>0.95^dt per step</td>
+        <td>VehicleOutOfControlSystem</td>
+      </tr>
+      <tr>
+        <td>Physics sub-steps</td>
+        <td>4 per frame</td>
+        <td>VehicleOutOfControlSystem</td>
+      </tr>
+      <tr>
+        <td>Ground tolerance</td>
+        <td>4.0 m above corner</td>
+        <td>VehicleOutOfControlSystem (NetIterator)</td>
+      </tr>
+      <tr>
+        <td>Accident site search radius</td>
+        <td>30 m</td>
+        <td>AccidentVehicleSystem, AccidentCreatureSystem</td>
+      </tr>
+      <tr>
+        <td>Cleanup timeout</td>
+        <td>14400 frames (~4 min at 60fps)</td>
+        <td>AccidentVehicleSystem, AccidentCreatureSystem, AccidentSiteSystem</td>
+      </tr>
+      <tr>
+        <td>Bicycle cleanup timeout</td>
+        <td>300 frames (~5 sec)</td>
+        <td>AccidentVehicleSystem</td>
+      </tr>
+      <tr>
+        <td>StageAccident duration</td>
+        <td>3600 frames (~60 sec)</td>
+        <td>AccidentSiteSystem</td>
+      </tr>
+      <tr>
+        <td>Secured buffer (crime)</td>
+        <td>1024 frames (~17 sec)</td>
+        <td>AccidentSiteSystem</td>
+      </tr>
+      <tr>
+        <td>Staged impact severity</td>
+        <td>5.0</td>
+        <td>AccidentSiteSystem</td>
+      </tr>
+      <tr>
+        <td>Staged impact angular</td>
+        <td>2.0 rad/s (Y axis)</td>
+        <td>AccidentSiteSystem</td>
+      </tr>
+      <tr>
+        <td>Staged impact lateral</td>
+        <td>5.0 m/s</td>
+        <td>AccidentSiteSystem</td>
+      </tr>
+      <tr>
+        <td>Pedestrian injury chance</td>
+        <td>50%</td>
+        <td>AccidentCreatureSystem</td>
+      </tr>
+      <tr>
+        <td>Cyclist injury chance</td>
+        <td>100%</td>
+        <td>AccidentCreatureSystem</td>
+      </tr>
+      <tr>
+        <td>Fatal injury chance</td>
+        <td>20%</td>
+        <td>AccidentCreatureSystem</td>
+      </tr>
+      <tr>
+        <td>Passenger severity decay</td>
+        <td>0.8-0.9x per passenger</td>
+        <td>AccidentVehicleSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>How does the game initially create <code>TrafficAccident</code> event entities? The <code>AccidentSiteSystem.TryFindSubject()</code> handles staged chain-reactions, but the initial event creation (from <code>m_OccurenceProbability</code>) likely happens in a separate event scheduling system not yet traced.</li>
+    <li>What is the exact archetype needed for a persistent accident event entity? We see <code>TrafficAccident</code> marker + <code>TargetElement</code> buffer, but there may be additional required components.</li>
+    <li>How does <code>ObjectCollisionSystem</code> calculate collision severity from relative velocities? The full <code>ApplyCollisionsJob</code> logic was partially truncated during decompilation.</li>
+    <li>Are there UI bindings that read accident state for the info panel or notification system beyond <code>IconCommandSystem</code>?</li>
+    <li>What is the full relationship between <code>PoliceConfigurationData</code> fields and police response behavior? Only <code>m_TrafficAccidentNotificationPrefab</code> and <code>m_CrimeSceneNotificationPrefab</code> were observed.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll (Cities: Skylines II)</li>
+    <li>Tool: ilspycmd v9.1 (.NET 8.0)</li>
+    <li>Game version: Current Steam release as of 2026-02-15</li>
+  </ul>
+
+</div>
+
+</body>
+</html>

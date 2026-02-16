@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <span>CS2 Modding Research</span>
+</nav>
+
+<div class="container">
+
+  <h1>Cities: Skylines II Modding Research</h1>
+
+  <p>
+    Decompiled game systems documented for mod developers. Each topic traces the relevant
+    ECS components, systems, data flow, and Harmony patch points -- with working C# examples
+    you can drop into a mod project.
+  </p>
+
+  <p>
+    All research is based on decompiled source from <code>Game.dll</code> and related assemblies
+    using <code>ilspycmd</code>. The raw decompiled snippets are available in the
+    <a href="https://github.com/skywolf-net/cs_modding_claude">source repository</a>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Events &amp; Simulation</h2>
+
+  <div class="topic-grid">
+
+    <div class="topic-card">
+      <h3><a href="event-entity-archetype.html">Event Entity Archetype</a></h3>
+      <p>How CS2 creates event entities from prefab archetypes -- the shared pattern behind fires, accidents, crimes, and all other simulation events.</p>
+      <div class="tags">
+        <span class="tag">Game.Prefabs</span>
+        <span class="tag">Game.Events</span>
+        <span class="tag">EventData</span>
+      </div>
+    </div>
+
+    <div class="topic-card">
+      <h3><a href="fire-ignition.html">Fire Ignition</a></h3>
+      <p>How fires start on buildings and trees. Covers the unified Ignite/OnFire pipeline, hazard calculation (building vs forest paths), spread mechanics, and fire configuration.</p>
+      <div class="tags">
+        <span class="tag">Game.Events</span>
+        <span class="tag">Game.Simulation</span>
+        <span class="tag">IgniteSystem</span>
+      </div>
+    </div>
+
+    <div class="topic-card">
+      <h3><a href="vehicle-out-of-control.html">Vehicle OutOfControl &amp; Accidents</a></h3>
+      <p>Vehicle collision physics, the Impact event pipeline, chain-reaction accidents, fire/injury rolls, police dispatch, and cleanup timing.</p>
+      <div class="tags">
+        <span class="tag">Game.Vehicles</span>
+        <span class="tag">Game.Events</span>
+        <span class="tag">ImpactSystem</span>
+      </div>
+    </div>
+
+    <div class="topic-card">
+      <h3><a href="crime-trigger.html">Crime Trigger</a></h3>
+      <p>How crimes are triggered on citizens -- the CrimeCheckSystem probability pipeline, AddCriminal command pattern, and the full criminal lifecycle state machine.</p>
+      <div class="tags">
+        <span class="tag">Game.Events</span>
+        <span class="tag">Game.Citizens</span>
+        <span class="tag">CriminalSystem</span>
+      </div>
+    </div>
+
+    <div class="topic-card">
+      <h3><a href="citizen-sickness.html">Citizen Sickness</a></h3>
+      <p>Making citizens sick programmatically via the AddHealthProblem event command. Covers the health probability curve, building-to-citizen relationships, and disease flags.</p>
+      <div class="tags">
+        <span class="tag">Game.Citizens</span>
+        <span class="tag">Game.Simulation</span>
+        <span class="tag">HealthProblem</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Tools &amp; Input</h2>
+
+  <div class="topic-grid">
+
+    <div class="topic-card">
+      <h3><a href="tool-activation.html">Tool Activation</a></h3>
+      <p>Is it safe to set <code>ToolSystem.activeTool</code> from a TriggerBinding callback? Yes. Traces the setter, RequireFullUpdate, and ToolUpdate detection.</p>
+      <div class="tags">
+        <span class="tag">Game.Tools</span>
+        <span class="tag">ToolSystem</span>
+      </div>
+    </div>
+
+    <div class="topic-card">
+      <h3><a href="tool-raycast.html">Tool Raycast &amp; Entity Selection</a></h3>
+      <p>How CS2 casts rays from the camera to detect entities. Covers InitializeRaycast configuration, RaycastSystem internals, and the hover/selection pipeline.</p>
+      <div class="tags">
+        <span class="tag">Game.Tools</span>
+        <span class="tag">Game.Rendering</span>
+        <span class="tag">RaycastSystem</span>
+      </div>
+    </div>
+
+    <div class="topic-card">
+      <h3><a href="input-action-lifecycle.html">Input Action Lifecycle</a></h3>
+      <p>How <code>ProxyAction</code> input bindings move through enabled/disabled states. Covers the lifecycle from creation through <code>shouldBeEnabled</code> to actual activation.</p>
+      <div class="tags">
+        <span class="tag">Game.Input</span>
+        <span class="tag">ProxyAction</span>
+      </div>
+    </div>
+
+    <div class="topic-card">
+      <h3><a href="mod-hotkey-input.html">Mod Hotkey Input</a></h3>
+      <p>Registering custom hotkeys in CS2 mods. How to create ProxyAction bindings, handle key combos, and integrate with the game's input manager.</p>
+      <div class="tags">
+        <span class="tag">Game.Input</span>
+        <span class="tag">InputManager</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>UI &amp; Settings</h2>
+
+  <div class="topic-grid">
+
+    <div class="topic-card">
+      <h3><a href="mod-ui-buttons.html">Mod UI Buttons</a></h3>
+      <p>Adding custom buttons to the CS2 toolbar. Covers TriggerBinding, ValueBinding, and the UI event system for mod-added controls.</p>
+      <div class="tags">
+        <span class="tag">Colossal.UI.Binding</span>
+        <span class="tag">UISystemBase</span>
+      </div>
+    </div>
+
+    <div class="topic-card">
+      <h3><a href="mod-options-ui.html">Mod Options UI</a></h3>
+      <p>Building settings panels for CS2 mods. Covers the options registration API, supported widget types, and persistence to ModsSettings.</p>
+      <div class="tags">
+        <span class="tag">Game.Modding</span>
+        <span class="tag">ModSetting</span>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ============================================================ -->
+  <footer>
+    <p>Research decompiled from Cities: Skylines II game assemblies using ilspycmd. For educational and modding purposes.</p>
+  </footer>
+
+</div>
+
+</body>
+</html>
