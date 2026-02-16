@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Emergency Vehicle Dispatch - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="top-bar">
+    <a href="index.html" class="site-title">CS2 Modding Research</a>
+    <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+  </div>
+
+  <div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html" class="active">Emergency Dispatch</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+    <main class="content">
+    <h1>Emergency Vehicle Dispatch</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How are emergency vehicles (police cars, fire engines, ambulances,
+      hearses) dispatched? What triggers dispatch, and can a mod control which services respond
+      to which events?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Each service type has a completely independent request/dispatch
+      pipeline. Dispatch is triggered by specific ECS components on target entities (AccidentSite
+      for police, OnFire/RescueTarget for fire, HealthProblem for healthcare). A mod can create
+      request entities directly and add the required validation components to force any service
+      to respond to any event.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Vehicle AI after dispatch, patrol route generation,
+      building-level service coverage calculations.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    CS2 uses a <strong>request entity</strong> pattern for emergency dispatch. When a fire starts,
+    a crime is detected, or a citizen needs medical help, the game creates a small ECS entity
+    containing a service-specific request component. Dedicated dispatch systems then process
+    these request entities, pathfind to find available vehicles, and assign them.
+  </p>
+
+  <p>
+    The key insight: dispatch systems process request <em>entities</em>, not events directly.
+    They validate the request by checking that the target still has the expected component
+    (OnFire, AccidentSite, HealthProblem). This means a mod can create request entities
+    programmatically, as long as the validation component exists on the target.
+  </p>
+
+  <h3>The Three Dispatch Pipelines</h3>
+
+  <p>There is no central dispatch router. Each emergency service has its own pipeline:</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Service</th>
+        <th>Trigger Component</th>
+        <th>Request Creator</th>
+        <th>Request Type</th>
+        <th>Dispatch System</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Police</td>
+        <td>AccidentSite (with RequirePolice flag)</td>
+        <td>AccidentSiteSystem</td>
+        <td>PoliceEmergencyRequest</td>
+        <td>PoliceEmergencyDispatchSystem</td>
+      </tr>
+      <tr>
+        <td>Fire</td>
+        <td>OnFire or RescueTarget</td>
+        <td>FireSimulationSystem</td>
+        <td>FireRescueRequest</td>
+        <td>FireRescueDispatchSystem</td>
+      </tr>
+      <tr>
+        <td>Ambulance</td>
+        <td>HealthProblem (with RequireTransport, not Dead)</td>
+        <td>HealthProblemSystem</td>
+        <td>HealthcareRequest (Ambulance)</td>
+        <td>HealthcareDispatchSystem</td>
+      </tr>
+      <tr>
+        <td>Hearse</td>
+        <td>HealthProblem (with RequireTransport + Dead)</td>
+        <td>HealthProblemSystem</td>
+        <td>HealthcareRequest (Hearse)</td>
+        <td>HealthcareDispatchSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>The Request Entity Lifecycle</h3>
+
+  <p>Every service request follows the same lifecycle, managed by shared infrastructure:</p>
+
+  <ol>
+    <li>
+      <strong>Creation:</strong> A simulation system detects the trigger condition and creates
+      an entity with three components: <code>ServiceRequest</code> (base), the specific request
+      type (e.g., <code>PoliceEmergencyRequest</code>), and <code>RequestGroup</code>.
+    </li>
+    <li>
+      <strong>Frame assignment:</strong> <code>ServiceRequestSystem</code> sees the
+      <code>RequestGroup</code>, randomly assigns the request to an <code>UpdateFrame</code>
+      group, then removes <code>RequestGroup</code>. This distributes processing across ticks.
+    </li>
+    <li>
+      <strong>Pathfinding:</strong> When the dispatch system processes the request on its
+      assigned frame, it validates the target, then enqueues a pathfind from available
+      vehicles/stations to the target location.
+    </li>
+    <li>
+      <strong>Dispatch:</strong> On the next processing tick, if a valid path was found, the
+      system adds a <code>Dispatched</code> component to the request and a
+      <code>ServiceDispatch</code> buffer element to the handler (vehicle or building).
+    </li>
+    <li>
+      <strong>Completion:</strong> The vehicle AI system creates a <code>HandleRequest</code>
+      entity with <code>m_Completed = true</code>. <code>ServiceRequestSystem</code> destroys
+      the request entity.
+    </li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <h3>Request Infrastructure</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>Type</th>
+        <th>Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ServiceRequest</code></td>
+        <td>IComponentData</td>
+        <td>Base component on every request. Tracks fail count, cooldown, and flags (Reversed, SkipCooldown).</td>
+      </tr>
+      <tr>
+        <td><code>ServiceDispatch</code></td>
+        <td>IBufferElementData</td>
+        <td>Buffer on vehicles/buildings. Each element points to a request entity the handler is fulfilling.</td>
+      </tr>
+      <tr>
+        <td><code>Dispatched</code></td>
+        <td>IComponentData</td>
+        <td>Added to a request once a handler is assigned. Points to the handler entity.</td>
+      </tr>
+      <tr>
+        <td><code>HandleRequest</code></td>
+        <td>IComponentData</td>
+        <td>Transient signal: marks a request as completed or reassigns its handler.</td>
+      </tr>
+      <tr>
+        <td><code>RequestGroup</code></td>
+        <td>IComponentData</td>
+        <td>Temporary. Tells ServiceRequestSystem to assign this request to a random UpdateFrame group.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Service-Specific Request Types</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Request Component</th>
+        <th>Key Fields</th>
+        <th>Validation Target</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>PoliceEmergencyRequest</code></td>
+        <td>m_Site (AccidentSite entity), m_Target, m_Priority (float), m_Purpose (PolicePurpose flags)</td>
+        <td>AccidentSite with RequirePolice set and Secured not set</td>
+      </tr>
+      <tr>
+        <td><code>FireRescueRequest</code></td>
+        <td>m_Target, m_Priority (float, fire intensity), m_Type (Fire or Disaster)</td>
+        <td>OnFire or RescueTarget on target entity</td>
+      </tr>
+      <tr>
+        <td><code>HealthcareRequest</code></td>
+        <td>m_Citizen, m_Type (Ambulance or Hearse)</td>
+        <td>HealthProblem with RequireTransport flag on citizen</td>
+      </tr>
+      <tr>
+        <td><code>PolicePatrolRequest</code></td>
+        <td>m_Target, m_Priority, m_DispatchIndex</td>
+        <td>Patrol target (separate from emergency)</td>
+      </tr>
+      <tr>
+        <td><code>EvacuationRequest</code></td>
+        <td>m_Target, m_Priority</td>
+        <td>Building/area to evacuate</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Trigger Components (on target entities)</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>Namespace</th>
+        <th>Key Fields</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>AccidentSite</code></td>
+        <td>Game.Events</td>
+        <td>m_Event, m_PoliceRequest, m_Flags (AccidentSiteFlags), m_CreationFrame, m_SecuredFrame</td>
+      </tr>
+      <tr>
+        <td><code>OnFire</code></td>
+        <td>Game.Events</td>
+        <td>m_Event, m_RescueRequest, m_Intensity, m_RequestFrame</td>
+      </tr>
+      <tr>
+        <td><code>HealthProblem</code></td>
+        <td>Game.Citizens</td>
+        <td>m_Event, m_HealthcareRequest, m_Flags (HealthProblemFlags), m_Timer</td>
+      </tr>
+      <tr>
+        <td><code>RescueTarget</code></td>
+        <td>Game.Buildings</td>
+        <td>m_Request -- alternative validation target for fire rescue</td>
+      </tr>
+      <tr>
+        <td><code>InvolvedInAccident</code></td>
+        <td>Game.Events</td>
+        <td>m_Event, m_Severity, m_InvolvedFrame -- on vehicles involved in accident</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Enums</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Enum</th>
+        <th>Values</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>AccidentSiteFlags</code></td>
+        <td>StageAccident (0x01), Secured (0x02), CrimeScene (0x04), TrafficAccident (0x08), CrimeFinished (0x10), CrimeDetected (0x20), CrimeMonitored (0x40), RequirePolice (0x80), MovingVehicles (0x100)</td>
+      </tr>
+      <tr>
+        <td><code>PolicePurpose</code></td>
+        <td>Patrol (1), Emergency (2), Intelligence (4)</td>
+      </tr>
+      <tr>
+        <td><code>FireRescueRequestType</code></td>
+        <td>Fire (0), Disaster (1)</td>
+      </tr>
+      <tr>
+        <td><code>HealthcareRequestType</code></td>
+        <td>Ambulance (0), Hearse (1)</td>
+      </tr>
+      <tr>
+        <td><code>HealthProblemFlags</code></td>
+        <td>Sick (1), Dead (2), Injured (4), RequireTransport (8), InDanger (0x10), Trapped (0x20), NoHealthcare (0x40)</td>
+      </tr>
+      <tr>
+        <td><code>ServiceRequestFlags</code></td>
+        <td>Reversed (1), SkipCooldown (2)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+  [Event Occurs]
+       |
+       +---> Fire ignites: IgniteSystem adds OnFire to entity
+       |         |
+       |         v
+       |     FireSimulationSystem checks m_RequestFrame
+       |         |
+       |         v
+       |     Creates: ServiceRequest + FireRescueRequest + RequestGroup(4)
+       |
+       +---> Accident: ImpactSystem -> AddAccidentSiteSystem
+       |         |
+       |         v
+       |     AccidentSiteSystem checks InvolvedInAccident severity
+       |         |  recalculates RequirePolice flag each tick
+       |         v
+       |     Creates: ServiceRequest + PoliceEmergencyRequest + RequestGroup(4)
+       |
+       +---> Citizen sick/dead: AddHealthProblem event
+                 |
+                 v
+             HealthProblemSystem checks RequireTransport flag
+                 |
+                 v
+             Creates: ServiceRequest + HealthcareRequest + RequestGroup(16)
+
+  [ServiceRequestSystem]
+       |
+       v
+  UpdateRequestGroupJob: removes RequestGroup, adds UpdateFrame(random)
+       |
+       v
+  [Dispatch System runs every 16 frames]
+       |
+       +--- ValidateTarget: is the trigger component still present?
+       |         |
+       |    NO --+--> destroy request
+       |         |
+       |   YES --+
+       |         v
+       +--- FindVehicleSource: enqueue pathfind request
+       |         |
+       |    ~~ pathfinding completes ~~
+       |         |
+       |         v
+       +--- DispatchVehicle:
+       |         +---> Add Dispatched to request
+       |         +---> Add ServiceDispatch to handler buffer
+       |
+       v
+  [Vehicle AI drives to target, performs service]
+       |
+       v
+  HandleRequest(m_Completed = true)
+       |
+       v
+  ServiceRequestSystem destroys the request entity
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Police Dispatch: The AccidentSite Gate</h2>
+
+  <p>
+    Police emergency dispatch has an extra layer of complexity. The
+    <code>AccidentSiteSystem</code> runs every 64 frames and recalculates the
+    <code>RequirePolice</code> flag from scratch each tick. It sets the flag only when:
+  </p>
+
+  <ul>
+    <li>At least one involved entity has <code>InvolvedInAccident.m_Severity &gt; 0</code> AND a
+        valid non-moving target exists, OR</li>
+    <li>The site is a crime scene with <code>CrimeDetected</code> flag set</li>
+  </ul>
+
+  <p>
+    The <code>PoliceEmergencyDispatchSystem.ValidateSite()</code> method then checks:
+  </p>
+
+  <pre><code class="language-csharp">private bool ValidateSite(Entity entity, Entity site)
+{
+    if (!m_AccidentSiteData.TryGetComponent(site, out var componentData))
+        return false;
+    if ((componentData.m_Flags &amp; (AccidentSiteFlags.Secured | AccidentSiteFlags.RequirePolice))
+        != AccidentSiteFlags.RequirePolice)
+        return false;
+    // ... validate m_PoliceRequest matches
+    return true;
+}</code></pre>
+
+  <p>
+    This means: if <code>RequirePolice</code> is not set, or if <code>Secured</code> is already
+    set, the request gets destroyed. A mod that wants police at every accident must ensure
+    <code>RequirePolice</code> stays set.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Force Police to Every Traffic Accident</h3>
+
+  <p>
+    Create a system that runs after <code>AccidentSiteSystem</code> and ensures all traffic
+    accident sites have the <code>RequirePolice</code> flag set, creating requests as needed.
+  </p>
+
+  <pre><code class="language-csharp">public partial class ForcePoliceToAccidentsSystem : GameSystemBase
+{
+    private EntityQuery m_AccidentQuery;
+    private EntityArchetype m_PoliceRequestArchetype;
+    private ComponentLookup&lt;PoliceEmergencyRequest&gt; m_PoliceRequestLookup;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_AccidentQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;AccidentSite&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;());
+        m_PoliceRequestArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite&lt;ServiceRequest&gt;(),
+            ComponentType.ReadWrite&lt;PoliceEmergencyRequest&gt;(),
+            ComponentType.ReadWrite&lt;RequestGroup&gt;());
+        m_PoliceRequestLookup = GetComponentLookup&lt;PoliceEmergencyRequest&gt;(true);
+        RequireForUpdate(m_AccidentQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        m_PoliceRequestLookup.Update(ref CheckedStateRef);
+        var entities = m_AccidentQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var site = EntityManager.GetComponentData&lt;AccidentSite&gt;(entities[i]);
+
+            // Only target traffic accidents that are not yet secured
+            if ((site.m_Flags &amp; AccidentSiteFlags.TrafficAccident) == 0) continue;
+            if ((site.m_Flags &amp; AccidentSiteFlags.Secured) != 0) continue;
+
+            // Force the RequirePolice flag
+            site.m_Flags |= AccidentSiteFlags.RequirePolice;
+            EntityManager.SetComponentData(entities[i], site);
+
+            // Create police request if none exists
+            if (!m_PoliceRequestLookup.HasComponent(site.m_PoliceRequest))
+            {
+                Entity request = EntityManager.CreateEntity(m_PoliceRequestArchetype);
+                EntityManager.SetComponentData(request,
+                    new PoliceEmergencyRequest(entities[i], entities[i], 1f,
+                        PolicePurpose.Emergency));
+                EntityManager.SetComponentData(request, new RequestGroup(4u));
+            }
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Send Fire Engines to an Accident Scene</h3>
+
+  <p>
+    Fire dispatch requires <code>OnFire</code> or <code>RescueTarget</code> on the target.
+    Add <code>RescueTarget</code> to the accident entity, then create a
+    <code>FireRescueRequest</code>.
+  </p>
+
+  <pre><code class="language-csharp">public partial class FireToAccidentsSystem : GameSystemBase
+{
+    private EntityQuery m_AccidentQuery;
+    private EntityArchetype m_FireRequestArchetype;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_AccidentQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;AccidentSite&gt;(),
+            ComponentType.Exclude&lt;RescueTarget&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+        m_FireRequestArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite&lt;ServiceRequest&gt;(),
+            ComponentType.ReadWrite&lt;FireRescueRequest&gt;(),
+            ComponentType.ReadWrite&lt;RequestGroup&gt;());
+        RequireForUpdate(m_AccidentQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = m_AccidentQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var site = EntityManager.GetComponentData&lt;AccidentSite&gt;(entities[i]);
+            if ((site.m_Flags &amp; AccidentSiteFlags.TrafficAccident) == 0) continue;
+            if ((site.m_Flags &amp; AccidentSiteFlags.Secured) != 0) continue;
+
+            // Add RescueTarget so FireRescueDispatchSystem validates this entity
+            EntityManager.AddComponentData(entities[i],
+                new RescueTarget(Entity.Null));
+
+            // Create fire rescue request
+            Entity request = EntityManager.CreateEntity(m_FireRequestArchetype);
+            EntityManager.SetComponentData(request,
+                new FireRescueRequest(entities[i], 1f,
+                    FireRescueRequestType.Disaster));
+            EntityManager.SetComponentData(request, new RequestGroup(4u));
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Dispatch an Ambulance Programmatically</h3>
+
+  <p>
+    Healthcare dispatch requires <code>HealthProblem</code> with <code>RequireTransport</code>
+    on the citizen. If the citizen already has this (e.g., from a sickness event), just create
+    the request entity.
+  </p>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Create an ambulance request for a citizen that already has HealthProblem
+/// with RequireTransport flag. Call from a system's OnUpdate.
+/// &lt;/summary&gt;
+private void DispatchAmbulanceTo(Entity citizen)
+{
+    if (!EntityManager.HasComponent&lt;HealthProblem&gt;(citizen)) return;
+
+    var problem = EntityManager.GetComponentData&lt;HealthProblem&gt;(citizen);
+    if ((problem.m_Flags &amp; HealthProblemFlags.RequireTransport) == 0) return;
+
+    // Check no request already exists
+    if (EntityManager.HasComponent&lt;HealthcareRequest&gt;(problem.m_HealthcareRequest))
+        return;
+
+    var archetype = EntityManager.CreateArchetype(
+        ComponentType.ReadWrite&lt;ServiceRequest&gt;(),
+        ComponentType.ReadWrite&lt;HealthcareRequest&gt;(),
+        ComponentType.ReadWrite&lt;RequestGroup&gt;());
+
+    Entity request = EntityManager.CreateEntity(archetype);
+
+    HealthcareRequestType type = (problem.m_Flags &amp; HealthProblemFlags.Dead) != 0
+        ? HealthcareRequestType.Hearse
+        : HealthcareRequestType.Ambulance;
+
+    EntityManager.SetComponentData(request,
+        new HealthcareRequest(citizen, type));
+    EntityManager.SetComponentData(request, new RequestGroup(16u));
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Value</th>
+        <th>Source</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Police request group size</td>
+        <td>Hardcoded: 4</td>
+        <td>In AccidentSiteSystem.RequestPoliceIfNeeded()</td>
+      </tr>
+      <tr>
+        <td>Fire request group size</td>
+        <td>Hardcoded: 4</td>
+        <td>In FireSimulationSystem</td>
+      </tr>
+      <tr>
+        <td>Healthcare request group size</td>
+        <td>Hardcoded: 16</td>
+        <td>In HealthProblemSystem</td>
+      </tr>
+      <tr>
+        <td>Crime alarm delay</td>
+        <td>CrimeData.m_AlarmDelay (Bounds1)</td>
+        <td>From event prefab, modified by CityModifierType.CrimeResponseTime</td>
+      </tr>
+      <tr>
+        <td>Accident staging timeout</td>
+        <td>Hardcoded: 3600 frames (~60s)</td>
+        <td>In AccidentSiteSystem</td>
+      </tr>
+      <tr>
+        <td>Dispatch system update interval</td>
+        <td>16 frames for all dispatch systems</td>
+        <td>Set via GetUpdateInterval()</td>
+      </tr>
+      <tr>
+        <td>AccidentSiteSystem update interval</td>
+        <td>64 frames</td>
+        <td>Set via GetUpdateInterval()</td>
+      </tr>
+      <tr>
+        <td>Police purpose for accidents</td>
+        <td>PolicePurpose.Emergency</td>
+        <td>Hardcoded in AccidentSiteSystem</td>
+      </tr>
+      <tr>
+        <td>Police purpose for monitored crimes</td>
+        <td>PolicePurpose.Intelligence</td>
+        <td>Hardcoded in AccidentSiteSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>How does the pathfinder match <code>SetupTargetType.PolicePatrol</code> to stations? Does it filter by PolicePurpose flags or only by distance?</li>
+    <li>When <code>RescueTarget</code> is added manually to a non-burning entity, does the fire engine AI handle it correctly after arrival?</li>
+    <li>How do reversed requests (station/vehicle proactively seeking work) interact with manually-created forward requests?</li>
+    <li>Does <code>PolicePatrolDispatchSystem</code> ever create emergency-type responses, or is patrol strictly separate?</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation (ServiceRequest, ServiceDispatch, Dispatched, HandleRequest, RequestGroup, PoliceEmergencyRequest, FireRescueRequest, HealthcareRequest, ServiceRequestSystem, AccidentSiteSystem, PoliceEmergencyDispatchSystem, FireRescueDispatchSystem, HealthcareDispatchSystem, FireSimulationSystem, HealthProblemSystem)</li>
+    <li>Decompiled from: Game.dll -- Game.Events (AccidentSite, AccidentSiteFlags, OnFire, InvolvedInAccident)</li>
+    <li>Decompiled from: Game.dll -- Game.Citizens (HealthProblem, HealthProblemFlags)</li>
+    <li>Decompiled from: Game.dll -- Game.Prefabs (PolicePurpose), Game.Buildings (RescueTarget)</li>
+  </ul>
+
+    <footer>
+      <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-15.</p>
+      <div class="attribution-footer">
+        <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+      </div>
+    </footer>
+    </main>
+
+  </div>
+</body>
+</html>

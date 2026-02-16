@@ -1,40 +1,101 @@
-/* CS2 Modding Research - GitHub Pages */
+/* CS2 Modding Research - Microsoft Learn inspired */
 
 :root {
-  --bg: #1a1a2e;
-  --bg-card: #16213e;
-  --bg-code: #0f1629;
-  --text: #e0e0e0;
-  --text-muted: #8892a4;
-  --text-heading: #f0f0f0;
-  --accent: #4fc3f7;
-  --accent-dim: #2a7aa8;
-  --border: #2a3a5c;
-  --link: #64b5f6;
-  --link-hover: #90caf9;
-  --tag-bg: #1b2a4a;
+  --bg: #ffffff;
+  --bg-sidebar: #f5f5f5;
+  --bg-code: #f6f8fa;
+  --bg-card: #ffffff;
+  --bg-banner: #0078d4;
+  --text: #24292f;
+  --text-muted: #57606a;
+  --text-heading: #1b1f24;
+  --accent: #0078d4;
+  --accent-hover: #005a9e;
+  --accent-light: #e8f4fd;
+  --border: #d0d7de;
+  --border-light: #e8ecef;
+  --link: #0969da;
+  --link-hover: #0550ae;
+  --tag-bg: #ddf4ff;
+  --tag-text: #0969da;
+  --scope-bg: #f0f7ff;
+  --scope-border: #0078d4;
+  --nav-bg: #24292f;
+  --nav-text: #ffffff;
+  --nav-muted: #8b949e;
+  --sidebar-active: #0078d4;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, "Helvetica Neue", Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
-  line-height: 1.7;
-  font-size: 16px;
+  line-height: 1.6;
+  font-size: 15px;
 }
 
-.container {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 2rem 1.5rem 4rem;
+/* ============================================================
+   Top navigation bar
+   ============================================================ */
+.top-bar {
+  background: var(--nav-bg);
+  color: var(--nav-text);
+  padding: 0 1.5rem;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
-/* Navigation */
-nav {
-  background: var(--bg-card);
+.top-bar .site-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--nav-text);
+  text-decoration: none;
+}
+
+.top-bar .site-title:hover {
+  color: #fff;
+  text-decoration: none;
+}
+
+.top-bar .attribution {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--nav-muted);
+}
+
+/* Breadcrumb bar below top nav */
+.breadcrumb {
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
+  padding: 0.5rem 1.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.breadcrumb a {
+  color: var(--link);
+  text-decoration: none;
+}
+
+.breadcrumb a:hover {
+  text-decoration: underline;
+}
+
+.breadcrumb .sep {
+  margin: 0 0.4rem;
+  color: var(--border);
+}
+
+/* Legacy nav support */
+nav {
+  background: var(--nav-bg);
+  color: var(--nav-text);
   padding: 0.75rem 1.5rem;
   position: sticky;
   top: 0;
@@ -42,66 +103,154 @@ nav {
 }
 
 nav a {
-  color: var(--text-muted);
+  color: var(--nav-muted);
   text-decoration: none;
   font-size: 0.9rem;
 }
 
-nav a:hover { color: var(--link-hover); }
-nav .sep { color: var(--border); margin: 0 0.5rem; }
+nav a:hover { color: #fff; }
+nav .sep { color: #555; margin: 0 0.5rem; }
 
-/* Headings */
+/* ============================================================
+   Page layout with sidebar
+   ============================================================ */
+.page-layout {
+  display: flex;
+  max-width: 1200px;
+  margin: 0 auto;
+  min-height: calc(100vh - 48px);
+}
+
+.sidebar {
+  width: 260px;
+  flex-shrink: 0;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  padding: 1.5rem 0;
+  position: sticky;
+  top: 48px;
+  height: calc(100vh - 48px);
+  overflow-y: auto;
+}
+
+.sidebar h3 {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 0.5rem 1.25rem 0.3rem;
+  margin: 0.8rem 0 0;
+}
+
+.sidebar h3:first-child {
+  margin-top: 0;
+}
+
+.sidebar a {
+  display: block;
+  padding: 0.3rem 1.25rem;
+  font-size: 0.88rem;
+  color: var(--text);
+  text-decoration: none;
+  border-left: 3px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.sidebar a:hover {
+  background: var(--accent-light);
+  text-decoration: none;
+}
+
+.sidebar a.active {
+  color: var(--accent);
+  border-left-color: var(--sidebar-active);
+  font-weight: 600;
+  background: var(--accent-light);
+}
+
+/* ============================================================
+   Main content area
+   ============================================================ */
+.container {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: 2rem 2.5rem 4rem;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  padding: 2rem 3rem 4rem;
+  max-width: 860px;
+}
+
+/* ============================================================
+   Headings
+   ============================================================ */
 h1 {
   color: var(--text-heading);
-  font-size: 2rem;
-  margin: 1.5rem 0 0.5rem;
-  border-bottom: 2px solid var(--accent-dim);
-  padding-bottom: 0.5rem;
+  font-size: 1.75rem;
+  font-weight: 600;
+  margin: 0 0 0.75rem;
+  line-height: 1.3;
 }
 
 h2 {
-  color: var(--accent);
-  font-size: 1.4rem;
-  margin: 2.5rem 0 1rem;
-  border-bottom: 1px solid var(--border);
-  padding-bottom: 0.3rem;
+  color: var(--text-heading);
+  font-size: 1.35rem;
+  font-weight: 600;
+  margin: 2.5rem 0 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border-light);
 }
 
 h3 {
   color: var(--text-heading);
-  font-size: 1.15rem;
-  margin: 1.8rem 0 0.6rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 1.8rem 0 0.5rem;
 }
 
 h4 {
   color: var(--text-muted);
-  font-size: 1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
   margin: 1.2rem 0 0.4rem;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
 }
 
-/* Paragraphs and lists */
-p { margin: 0.6rem 0; }
+/* ============================================================
+   Body text
+   ============================================================ */
+p { margin: 0.5rem 0 0.75rem; }
 
 ul, ol {
-  margin: 0.5rem 0 0.5rem 1.5rem;
+  margin: 0.5rem 0 0.75rem 1.5rem;
 }
 
-li { margin: 0.3rem 0; }
+li { margin: 0.25rem 0; }
 
-/* Links */
+strong { font-weight: 600; }
+
+/* ============================================================
+   Links
+   ============================================================ */
 a { color: var(--link); text-decoration: none; }
 a:hover { color: var(--link-hover); text-decoration: underline; }
 
-/* Code */
+/* ============================================================
+   Inline code and code blocks
+   ============================================================ */
 code {
-  font-family: "SF Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
+  font-family: "Cascadia Code", "SF Mono", "Fira Code", Consolas, "Liberation Mono", Menlo, monospace;
   background: var(--bg-code);
   padding: 0.15rem 0.4rem;
-  border-radius: 3px;
-  font-size: 0.88em;
-  color: var(--accent);
+  border-radius: 4px;
+  font-size: 0.87em;
+  color: #1b1f24;
+  border: 1px solid var(--border-light);
 }
 
 pre {
@@ -119,46 +268,70 @@ pre code {
   padding: 0;
   font-size: 0.85em;
   color: var(--text);
+  border: none;
 }
 
-/* Tables */
+/* ============================================================
+   Tables
+   ============================================================ */
 table {
   width: 100%;
   border-collapse: collapse;
   margin: 1rem 0;
-  font-size: 0.92em;
+  font-size: 0.9em;
+}
+
+thead {
+  background: var(--bg-code);
 }
 
 th {
-  background: var(--bg-code);
-  color: var(--accent);
+  color: var(--text-heading);
   text-align: left;
-  padding: 0.6rem 0.8rem;
+  padding: 0.55rem 0.75rem;
   border: 1px solid var(--border);
   font-weight: 600;
+  font-size: 0.88em;
 }
 
 td {
-  padding: 0.5rem 0.8rem;
+  padding: 0.5rem 0.75rem;
   border: 1px solid var(--border);
   vertical-align: top;
 }
 
-tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+/* Header rows without thead */
+tr:first-child th {
+  background: var(--bg-code);
+}
 
-/* Callout / summary boxes */
+tr:nth-child(even) td { background: #f8f9fa; }
+
+/* ============================================================
+   Scope / callout boxes
+   ============================================================ */
 .scope {
-  background: var(--bg-card);
-  border-left: 3px solid var(--accent);
+  background: var(--scope-bg);
+  border-left: 4px solid var(--scope-border);
   padding: 1rem 1.25rem;
-  margin: 1rem 0;
+  margin: 1.25rem 0;
   border-radius: 0 6px 6px 0;
+}
+
+.scope h2 {
+  font-size: 1rem;
+  margin: 0 0 0.5rem;
+  border: none;
+  padding: 0;
+  color: var(--accent);
 }
 
 .scope p { margin: 0.3rem 0; }
 .scope strong { color: var(--accent); }
 
-/* ASCII diagrams */
+/* ============================================================
+   ASCII diagrams
+   ============================================================ */
 .diagram {
   background: var(--bg-code);
   border: 1px solid var(--border);
@@ -166,81 +339,127 @@ tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
   padding: 1rem 1.25rem;
   overflow-x: auto;
   margin: 1rem 0;
-  font-family: "SF Mono", "Fira Code", Consolas, monospace;
-  font-size: 0.85em;
+  font-family: "Cascadia Code", "SF Mono", "Fira Code", Consolas, monospace;
+  font-size: 0.82em;
   line-height: 1.4;
   white-space: pre;
   color: var(--text-muted);
 }
 
-/* Tags / badges */
+.diagram pre {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* ============================================================
+   Tags / badges
+   ============================================================ */
 .tag {
   display: inline-block;
   background: var(--tag-bg);
-  color: var(--accent);
-  padding: 0.15rem 0.5rem;
-  border-radius: 3px;
-  font-size: 0.82em;
+  color: var(--tag-text);
+  padding: 0.1rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.78em;
   font-family: monospace;
-  margin: 0.1rem 0.2rem;
+  margin: 0.1rem 0.15rem;
+  border: 1px solid #b6e3ff;
 }
 
-/* Index page cards */
+/* ============================================================
+   Index page: topic cards
+   ============================================================ */
 .topic-grid {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1rem;
-  margin: 1.5rem 0;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
 }
 
 .topic-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 1.25rem 1.5rem;
-  transition: border-color 0.2s;
+  border-radius: 6px;
+  padding: 1rem 1.25rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .topic-card:hover {
-  border-color: var(--accent-dim);
+  border-color: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 120, 212, 0.1);
 }
 
 .topic-card h3 {
-  margin: 0 0 0.4rem;
+  margin: 0 0 0.3rem;
+  font-size: 1rem;
 }
 
 .topic-card h3 a {
-  color: var(--text-heading);
+  color: var(--link);
 }
 
 .topic-card h3 a:hover {
-  color: var(--accent);
-  text-decoration: none;
+  color: var(--link-hover);
+  text-decoration: underline;
 }
 
 .topic-card p {
   color: var(--text-muted);
-  font-size: 0.92em;
+  font-size: 0.88em;
   margin: 0;
+  line-height: 1.5;
 }
 
 .topic-card .tags {
   margin-top: 0.5rem;
 }
 
-/* Footer */
+/* ============================================================
+   Footer
+   ============================================================ */
 footer {
   margin-top: 3rem;
   padding-top: 1.5rem;
   border-top: 1px solid var(--border);
   color: var(--text-muted);
-  font-size: 0.85em;
+  font-size: 0.82em;
+  line-height: 1.6;
 }
 
-/* Responsive */
+footer .attribution-footer {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border-light);
+}
+
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 900px) {
+  .page-layout { flex-direction: column; }
+
+  .sidebar {
+    width: 100%;
+    height: auto;
+    position: static;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 0;
+  }
+
+  .content {
+    padding: 1.5rem 1rem 3rem;
+  }
+}
+
 @media (max-width: 600px) {
   .container { padding: 1rem; }
-  h1 { font-size: 1.5rem; }
-  pre { padding: 0.75rem; }
+  .content { padding: 1rem; }
+  h1 { font-size: 1.4rem; }
+  pre { padding: 0.75rem; font-size: 0.82em; }
   table { font-size: 0.82em; }
 }
