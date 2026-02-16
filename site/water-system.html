@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Water Surface Simulation System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav>
+  <a href="index.html">Home</a>
+  <span class="sep">/</span>
+  <span>Water System</span>
+</nav>
+
+<div class="container">
+
+  <h1>Water Surface Simulation System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 simulate surface water (rivers, lakes, ocean, flooding)
+      on the terrain? And specifically: how can a mod intake water at one map location and output
+      that same volume somewhere else -- like a water teleporter or aqueduct?
+    </p>
+    <p>
+      <strong>Verdict:</strong> The water simulation is GPU-based (compute shaders on a 2048x2048
+      RenderTexture). Water sources and sinks are driven by ECS entities with
+      <code>WaterSourceData</code> components. A mod can create its own source entities -- one with
+      negative height (drain) and one with positive height (add) -- to move water between two
+      points. No Harmony patches needed.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> The water/sewage pipe network, groundwater simulation, and
+      building water consumption. These are separate systems; we only cover them where they touch
+      the surface water (pump stations and sewage outlets).
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The water surface simulation runs entirely on the GPU. A 2048x2048 <code>RenderTexture</code>
+    (format <code>R32G32B32A32_SFloat</code>) stores four values per cell:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Channel</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>R (x)</td><td>Depth</td><td>Water depth at this cell in world units</td></tr>
+      <tr><td>G (y)</td><td>Velocity X</td><td>Horizontal flow velocity component</td></tr>
+      <tr><td>B (z)</td><td>Velocity Z</td><td>Vertical flow velocity component</td></tr>
+      <tr><td>A (w)</td><td>Pollution</td><td>Pollution fraction (0 = clean, 1 = polluted)</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The map spans 14,336 world units (<code>kMapSize</code>) with a cell size of 7.0 units
+    (<code>kCellSize</code>), giving exactly 2048 cells per axis. The simulation uses
+    shallow water equations: each frame, compute shaders update velocities from pressure
+    gradients, then update depths from velocity divergence.
+  </p>
+
+  <h3>The CPU-GPU Bridge</h3>
+
+  <p>
+    The simulation lives on the GPU, but gameplay systems need CPU access to water levels.
+    <code>WaterSystem</code> performs async GPU readbacks every ~30 frames, populating a
+    CPU-side <code>WaterSurfaceData&lt;SurfaceWater&gt;</code> array. Other systems read this
+    via <code>WaterSystem.GetSurfaceData(out JobHandle)</code>.
+  </p>
+
+  <h3>Water Sources: How Water Enters and Leaves</h3>
+
+  <p>
+    Any entity with a <code>WaterSourceData</code> component and a <code>Transform</code>
+    component (and not <code>Temp</code> or <code>Deleted</code>) acts as a water source or
+    sink. Each frame, <code>WaterSystem.OnUpdate()</code> runs a CPU job (<code>SourceJob</code>)
+    that collects all such entities into a <code>NativeList&lt;WaterSourceCache&gt;</code>. This
+    list is then consumed by the GPU <code>SourceStep</code>, which dispatches compute kernels
+    to add or remove water at each source position.
+  </p>
+
+  <p>The sign of <code>m_Height</code> determines direction:</p>
+
+  <ul>
+    <li><strong>Positive m_Height</strong>: Adds water (used by rivers, springs, sewage outlets)</li>
+    <li><strong>Negative m_Height</strong>: Removes water (used by pump stations)</li>
+  </ul>
+
+  <p>
+    This is the key insight for modding: you do not need to touch the GPU simulation directly.
+    Create entities with <code>WaterSourceData</code>, set the right height value, and the
+    simulation picks them up automatically.
+  </p>
+
+  <h3>How Pump Stations Drain Water</h3>
+
+  <p>
+    <code>WaterPumpingStationAISystem</code> runs every 128 frames. For each pump building that
+    supports surface water (<code>AllowedWaterTypes.SurfaceWater</code>), it finds the pump's
+    SubObject entities (intake points), reads the water depth via
+    <code>WaterUtils.SampleDepth()</code>, and sets:
+  </p>
+
+  <pre><code class="language-csharp">componentData.m_Height = -0.0001f * capacity * efficiency;
+m_WaterSources[subObject] = componentData;</code></pre>
+
+  <p>
+    The negative height tells the GPU source step to remove water at that position. The rate
+    scales with the pump's capacity and building efficiency.
+  </p>
+
+  <h3>How Sewage Outlets Add Water</h3>
+
+  <p>
+    <code>SewageOutletAISystem</code> also runs every 128 frames. For each outlet's SubObject
+    with <code>WaterSourceData</code>, it computes the discharge volume and sets:
+  </p>
+
+  <pre><code class="language-csharp">componentData.m_Height = math.min(2.5f, multiplier * volume);
+componentData.m_Polluted = (float)unpurified / (float)total;
+componentData.m_Modifier = (volume &gt; 0) ? 1f : 0f;
+m_WaterSources[subObject] = componentData;</code></pre>
+
+  <p>
+    The positive height deposits water. Pollution fraction controls how dirty the discharged
+    water is. Setting <code>m_Modifier = 0</code> effectively disables the source.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>WaterSystem, WaterSimulation, WaterUtils, WaterSourceData, SurfaceWater, WaterSourceCache, WaterPumpingStationAISystem, SewageOutletAISystem, FloodCheckSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>WaterSource, WaterPumpingStation, WaterPumpingStationData, SewageOutletData, AllowedWaterTypes</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>WaterPumpingStation (runtime), SewageOutlet (runtime)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Events</td>
+        <td>WaterLevelChange, Flooded, Flood</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>WaterSourceData (Game.Simulation)</h3>
+
+  <p>The core ECS component for any water source or sink entity.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ConstantDepth</td><td>int</td><td>Source type: 0 = constant-depth source, 2 = sea level marker, 3 = legacy sea (auto-destroyed)</td></tr>
+      <tr><td>m_Radius</td><td>float</td><td>Radius of effect in world units (max 2500)</td></tr>
+      <tr><td>m_Height</td><td>float</td><td>Target height above terrain (positive = add, negative = drain). Max 250.</td></tr>
+      <tr><td>m_Multiplier</td><td>float</td><td>Normalization factor (computed by CalculateSourceMultiplier)</td></tr>
+      <tr><td>m_Polluted</td><td>float</td><td>Pollution fraction: 0.0 = clean, 1.0 = fully polluted</td></tr>
+      <tr><td>m_Id</td><td>int</td><td>Unique source ID from WaterSystem.GetNextSourceId(). -1 for legacy.</td></tr>
+      <tr><td>m_Modifier</td><td>float</td><td>Runtime multiplier for radius. Set to 0 to disable the source.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>SurfaceWater (Game.Simulation)</h3>
+
+  <p>Per-cell water data read back from GPU. A plain struct, not an ECS component.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Depth</td><td>float</td><td>Water depth in world units (clamped &gt;= 0)</td></tr>
+      <tr><td>m_Polluted</td><td>float</td><td>Pollution level at this cell</td></tr>
+      <tr><td>m_Velocity</td><td>float2</td><td>Flow velocity (X, Z components)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Key Constants</h3>
+
+  <table>
+    <thead>
+      <tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>kMapSize</td><td>14336</td><td>World units across the water map</td></tr>
+      <tr><td>kCellSize</td><td>7.0</td><td>World units per simulation cell</td></tr>
+      <tr><td>kDefaultSeaLevel</td><td>511.7</td><td>Default sea level height</td></tr>
+      <tr><td>TextureSize</td><td>2048 x 2048</td><td>GPU texture resolution</td></tr>
+      <tr><td>Damping</td><td>0.995</td><td>Velocity damping per simulation step</td></tr>
+      <tr><td>Evaporation</td><td>0.001</td><td>Water loss per step</td></tr>
+      <tr><td>WaterSourceSpeed</td><td>2.0</td><td>Source effect application rate</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+WaterSourceData entities (ECS)                 [any entity with WaterSourceData + Transform]
+     |
+     v
+WaterSystem.OnUpdate()                         [CPU, runs every frame]
+     |-- SourceJob (IJob)
+     |   Collects all WaterSourceData + Transform
+     |   into NativeList&lt;WaterSourceCache&gt;
+     |
+     v
+WaterSystem.Simulate()                         [called from OnSimulateGPU]
+     |
+     |-- EvaporateStep (GPU compute)           [evaporation, rain, pollution decay]
+     |
+     |-- SourceStep (GPU compute)              [ADD / REMOVE WATER HERE]
+     |   For each WaterSourceCache entry:
+     |     m_Polluted &gt; 0:  "Add" kernel       (deposits water + pollution)
+     |     else:             "AddConstant" kernel (sets target water height)
+     |   Negative m_Height = drain water
+     |   Positive m_Height = add water
+     |
+     |-- VelocityStep (GPU compute)            [shallow water equations]
+     |
+     |-- DepthStep (GPU compute)               [depth from velocity divergence]
+     |
+     |-- CopyToHeightmapStep (GPU compute)     [copy to render texture]
+     |
+     v
+Async GPU Readback (~every 30 frames)
+     |
+     v
+WaterSurfaceData&lt;SurfaceWater&gt;                [CPU-readable flat array]
+     |
+     v
+Consumer systems:
+  - WaterPumpingStationAISystem    (reads depth, sets negative m_Height on intake)
+  - SewageOutletAISystem           (sets positive m_Height on outlet)
+  - FloodCheckSystem               (checks if buildings are submerged)
+  - WaterDamageSystem              (applies flood damage)
+  - Custom mod systems             (YOUR CODE reads/writes WaterSourceData)
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Create a Water Drain (Intake Point)</h3>
+
+  <p>
+    Create an entity that removes water from the surface at a given world position.
+    The game's <code>SourceJob</code> will automatically pick it up.
+  </p>
+
+  <pre><code class="language-csharp">public Entity CreateWaterDrain(EntityManager em, float3 worldPosition, float radius, float drainRate)
+{
+    Entity entity = em.CreateEntity(
+        ComponentType.ReadWrite&lt;Game.Simulation.WaterSourceData&gt;(),
+        ComponentType.ReadWrite&lt;Game.Objects.Transform&gt;()
+    );
+
+    em.SetComponentData(entity, new Game.Objects.Transform
+    {
+        m_Position = worldPosition,
+        m_Rotation = quaternion.identity
+    });
+
+    em.SetComponentData(entity, new Game.Simulation.WaterSourceData
+    {
+        m_ConstantDepth = 0,
+        m_Radius = radius,          // e.g. 50f
+        m_Height = -drainRate,       // negative = drain
+        m_Multiplier = 1f,
+        m_Polluted = 0f,
+        m_Id = -1,
+        m_Modifier = 1f
+    });
+
+    return entity;
+}</code></pre>
+
+  <h3>Create a Water Output (Discharge Point)</h3>
+
+  <pre><code class="language-csharp">public Entity CreateWaterOutput(EntityManager em, float3 worldPosition, float radius, float outputRate, float pollution)
+{
+    Entity entity = em.CreateEntity(
+        ComponentType.ReadWrite&lt;Game.Simulation.WaterSourceData&gt;(),
+        ComponentType.ReadWrite&lt;Game.Objects.Transform&gt;()
+    );
+
+    em.SetComponentData(entity, new Game.Objects.Transform
+    {
+        m_Position = worldPosition,
+        m_Rotation = quaternion.identity
+    });
+
+    em.SetComponentData(entity, new Game.Simulation.WaterSourceData
+    {
+        m_ConstantDepth = 0,
+        m_Radius = radius,
+        m_Height = outputRate,       // positive = add water
+        m_Multiplier = 1f,
+        m_Polluted = pollution,      // 0.0 = clean
+        m_Id = -1,
+        m_Modifier = 1f
+    });
+
+    return entity;
+}</code></pre>
+
+  <h3>Read Water Depth at a Position</h3>
+
+  <pre><code class="language-csharp">public float GetWaterDepthAt(WaterSystem waterSystem, float3 worldPosition)
+{
+    JobHandle deps;
+    WaterSurfaceData&lt;SurfaceWater&gt; surfaceData = waterSystem.GetSurfaceData(out deps);
+    deps.Complete();
+
+    return WaterUtils.SampleDepth(ref surfaceData, worldPosition);
+}</code></pre>
+
+  <h3>Complete Aqueduct System</h3>
+
+  <p>
+    A full <code>GameSystemBase</code> that drains water at an intake point and adds it at an
+    output point, scaling the flow rate based on available depth. This is the "water teleporter"
+    pattern.
+  </p>
+
+  <pre><code class="language-csharp">public partial class AqueductSystem : GameSystemBase
+{
+    private WaterSystem _waterSystem;
+    private Entity _intakeEntity;
+    private Entity _outputEntity;
+    private bool _initialized;
+
+    private float3 _intakePosition;
+    private float3 _outputPosition;
+    private float _radius = 50f;
+    private float _maxFlowRate = 1.0f;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _waterSystem = World.GetOrCreateSystemManaged&lt;WaterSystem&gt;();
+    }
+
+    public void Initialize(float3 intakePos, float3 outputPos, float radius, float maxFlow)
+    {
+        _intakePosition = intakePos;
+        _outputPosition = outputPos;
+        _radius = radius;
+        _maxFlowRate = maxFlow;
+
+        // Create intake source (drain)
+        _intakeEntity = EntityManager.CreateEntity(
+            ComponentType.ReadWrite&lt;WaterSourceData&gt;(),
+            ComponentType.ReadWrite&lt;Game.Objects.Transform&gt;()
+        );
+        EntityManager.SetComponentData(_intakeEntity, new Game.Objects.Transform
+        {
+            m_Position = _intakePosition,
+            m_Rotation = quaternion.identity
+        });
+        EntityManager.SetComponentData(_intakeEntity, new WaterSourceData
+        {
+            m_ConstantDepth = 0,
+            m_Radius = _radius,
+            m_Height = 0f,
+            m_Multiplier = 1f,
+            m_Polluted = 0f,
+            m_Id = _waterSystem.GetNextSourceId(),
+            m_Modifier = 1f
+        });
+
+        // Create output source (add)
+        _outputEntity = EntityManager.CreateEntity(
+            ComponentType.ReadWrite&lt;WaterSourceData&gt;(),
+            ComponentType.ReadWrite&lt;Game.Objects.Transform&gt;()
+        );
+        EntityManager.SetComponentData(_outputEntity, new Game.Objects.Transform
+        {
+            m_Position = _outputPosition,
+            m_Rotation = quaternion.identity
+        });
+        EntityManager.SetComponentData(_outputEntity, new WaterSourceData
+        {
+            m_ConstantDepth = 0,
+            m_Radius = _radius,
+            m_Height = 0f,
+            m_Multiplier = 1f,
+            m_Polluted = 0f,
+            m_Id = _waterSystem.GetNextSourceId(),
+            m_Modifier = 1f
+        });
+
+        _initialized = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        if (!_initialized) return;
+
+        // Read water depth at intake
+        JobHandle deps;
+        var surfaceData = _waterSystem.GetSurfaceData(out deps);
+        deps.Complete();
+        _waterSystem.AddSurfaceReader(Dependency);
+
+        float depthAtIntake = WaterUtils.SampleDepth(ref surfaceData, _intakePosition);
+
+        // Scale flow by available water (full flow at 2m depth, zero if dry)
+        float availability = math.saturate(depthAtIntake / 2f);
+        float flowRate = _maxFlowRate * availability;
+
+        // Update intake: negative height = drain
+        var intakeData = EntityManager.GetComponentData&lt;WaterSourceData&gt;(_intakeEntity);
+        intakeData.m_Height = -flowRate;
+        EntityManager.SetComponentData(_intakeEntity, intakeData);
+
+        // Update output: positive height = add matching volume
+        var outputData = EntityManager.GetComponentData&lt;WaterSourceData&gt;(_outputEntity);
+        outputData.m_Height = flowRate;
+        EntityManager.SetComponentData(_outputEntity, outputData);
+    }
+
+    protected override void OnDestroy()
+    {
+        if (_initialized)
+        {
+            if (EntityManager.Exists(_intakeEntity))
+                EntityManager.DestroyEntity(_intakeEntity);
+            if (EntityManager.Exists(_outputEntity))
+                EntityManager.DestroyEntity(_outputEntity);
+        }
+        base.OnDestroy();
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>WaterSourceData Field Guide</h3>
+
+  <table>
+    <thead>
+      <tr><th>Goal</th><th>m_ConstantDepth</th><th>m_Height</th><th>m_Polluted</th><th>m_Modifier</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Add water (river/spring)</td>
+        <td>0</td>
+        <td>Positive (target height above terrain)</td>
+        <td>0.0</td>
+        <td>1.0</td>
+      </tr>
+      <tr>
+        <td>Drain water (pump intake)</td>
+        <td>0</td>
+        <td>Negative (drain rate)</td>
+        <td>0.0</td>
+        <td>1.0</td>
+      </tr>
+      <tr>
+        <td>Add polluted water (sewage)</td>
+        <td>0</td>
+        <td>Positive (capped at 2.5)</td>
+        <td>0.0 - 1.0</td>
+        <td>1.0</td>
+      </tr>
+      <tr>
+        <td>Disable source temporarily</td>
+        <td>(any)</td>
+        <td>(any)</td>
+        <td>(any)</td>
+        <td>0.0</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Tuning Parameters</h3>
+
+  <p>
+    The <code>WaterSimulation</code> class exposes these parameters that affect all sources:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>WaterSourceSpeed</td><td>2.0</td><td>How fast sources apply their effect per step</td></tr>
+      <tr><td>Evaporation</td><td>0.001</td><td>Water loss per step (affects volume conservation)</td></tr>
+      <tr><td>Damping</td><td>0.995</td><td>Velocity damping (affects how quickly flow settles)</td></tr>
+      <tr><td>MaxVelocity</td><td>12.0</td><td>Maximum flow velocity (prevents instability)</td></tr>
+      <tr><td>Fluidness</td><td>0.15</td><td>Shallow water equation coefficient</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Exact volume calibration:</strong> The relationship between <code>m_Height</code>
+      magnitude and actual volume of water moved per second depends on the GPU shader internals,
+      <code>WaterSourceSpeed</code>, the timestep, and the source radius. In-game testing is
+      required to calibrate specific flow rates.
+    </li>
+    <li>
+      <strong>Source ID requirement:</strong> The new (non-legacy) water system uses
+      <code>m_Id</code> for tracking. Creating sources with <code>m_Id = -1</code> works but it
+      is safer to call <code>WaterSystem.GetNextSourceId()</code>.
+    </li>
+    <li>
+      <strong>Visual artifacts at low depths:</strong> If the intake drains water faster than it
+      flows in, you may see flickering dry/wet cycles. Testing is needed to find the minimum
+      stable depth threshold.
+    </li>
+    <li>
+      <strong>Persistence:</strong> Custom entities created at runtime are not saved unless they
+      participate in serialization. A mod must re-create its source entities on load, or use a
+      prefab-based approach with proper serialization.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.WaterSystem, Game.Simulation.WaterSimulation, Game.Simulation.WaterUtils, Game.Simulation.WaterSourceData, Game.Simulation.SurfaceWater, Game.Simulation.WaterPumpingStationAISystem, Game.Simulation.SewageOutletAISystem, Game.Simulation.FloodCheckSystem</li>
+    <li>Prefab types: Game.Prefabs.WaterSource, Game.Prefabs.WaterPumpingStationData, Game.Prefabs.SewageOutletData, Game.Prefabs.AllowedWaterTypes</li>
+    <li>Runtime components: Game.Buildings.WaterPumpingStation, Game.Buildings.SewageOutlet, Game.Events.Flooded, Game.Events.WaterLevelChange</li>
+  </ul>
+
+</div>
+
+</body>
+</html>

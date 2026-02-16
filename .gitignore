@@ -1,5 +1,8 @@
 # Decompiled game source (not committed per RESEARCH_STANDARDS.md)
 research/decompiled/
 
+# Game DLLs (copied from game install, never committed)
+lib/
+
 # Claude Code local config
 .claude/
