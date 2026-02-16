@@ -646,13 +646,16 @@ public partial class StatsUISystem : UISystemBase
         base.OnCreate();
 
         // GetterValueBinding takes a Func<T> that is called every frame.
-        // IMPORTANT: use AddUpdateBinding (not AddBinding) so the system
-        // includes it in its per-frame poll loop.
-        AddUpdateBinding(new GetterValueBinding<int>(
+        // Both AddBinding and AddUpdateBinding work for GetterValueBinding.
+        // AddUpdateBinding includes it in the per-frame poll loop (OnUpdate),
+        // while AddBinding registers it without automatic polling — the
+        // getter is still invoked when the UI requests the value.
+        // Most mods (including yenyang's) use AddBinding successfully.
+        AddBinding(new GetterValueBinding<int>(
             "MyMod", "EntityCount", () => _entityCount));
 
         // You can also poll computed values or query other systems.
-        AddUpdateBinding(new GetterValueBinding<bool>(
+        AddBinding(new GetterValueBinding<bool>(
             "MyMod", "HasEntities", () => _entityCount > 0));
     }
 
