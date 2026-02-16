@@ -448,7 +448,7 @@ public class Mod : IMod
 }
 ```
 
-**Order matters**: `RegisterInOptionsUI()` -> `LoadSettings()` -> `RegisterKeyBindings()`.
+**Order is flexible**: All three calls (`RegisterInOptionsUI()`, `LoadSettings()`, `RegisterKeyBindings()`) must happen, but the order does not appear to be strict. Working mods use different orderings -- e.g., yenyang's mods call `RegisterKeyBindings()` first, then `RegisterInOptionsUI()`, then `LoadSettings()`. The `ProxyBinding.Watcher` mechanism handles deferred sync when saved rebindings are loaded after actions are registered.
 
 #### Step 3: Reading the Hotkey in a System
 

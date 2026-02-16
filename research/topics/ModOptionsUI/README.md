@@ -497,7 +497,7 @@ public class Mod : IMod
 
 ### Key Points
 
-- **Registration order matters**: `RegisterInOptionsUI()` -> `LoadSettings()` -> `RegisterKeyBindings()`
+- **Registration order is flexible**: All three calls (`RegisterInOptionsUI()`, `LoadSettings()`, `RegisterKeyBindings()`) must happen in `OnLoad()`, but the order is not strict. Working mods (e.g., yenyang's Recolor, BetterBulldozer) use `RegisterKeyBindings()` first without issues.
 - **ProxyBinding type triggers keybinding widget** -- no extra widget attribute needed
 - **`[SettingsUISection]`** controls tab+group placement; without it, property goes to "General" tab
 - **`[SettingsUIShowGroupName]`** is needed to show group headers -- groups still organize without it but no label is shown
