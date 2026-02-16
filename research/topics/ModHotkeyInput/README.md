@@ -232,7 +232,7 @@ Base class for mod settings. Handles keybinding registration lifecycle.
 
 ### `SettingsUIKeyboardActionAttribute` (Game.Settings)
 
-Applied to the **class** (AllowMultiple = true). Declares an input action.
+Applied to the **class** (AllowMultiple = true). Declares an input action. **Optional** — if omitted, `RegisterKeyBindings()` auto-creates actions from `[SettingsUIKeyboardBinding]` properties using default `ActionType.Button` settings. Explicit class-level attributes give control over `ActionType`, `usages`, `rebindOptions`, and other parameters. Yenyang's Recolor mod successfully uses keybindings without any `[SettingsUIKeyboardAction]` class attributes.
 
 ```csharp
 [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
