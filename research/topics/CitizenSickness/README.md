@@ -17,9 +17,10 @@
 | Assembly | Namespace | What's there |
 |----------|-----------|-------------|
 | Game.dll | Game.Citizens | `HealthProblem`, `HealthProblemFlags`, `Citizen`, `CurrentBuilding`, `CurrentTransport`, `HouseholdMember`, `HouseholdCitizen` |
-| Game.dll | Game.Events | `AddHealthProblem`, `AddHealthProblemSystem`, `TargetElement` |
+| Game.dll | Game.Events | `AddHealthProblem`, `AddHealthProblemSystem`, `HealthEvent` (tag), `TargetElement` |
+| Game.dll | Game.Simulation | `SicknessCheckSystem` |
 | Game.dll | Game.Buildings | `Renter`, `PropertyRenter` |
-| Game.dll | Game.Prefabs | `HealthcareParameterData` |
+| Game.dll | Game.Prefabs | `HealthcareParameterData`, `HealthEventData`, `HealthEventType` |
 
 ## Component Map
 
@@ -145,6 +146,31 @@ Component on household/company entities linking them to their building.
 
 *Source: `Game.dll` → `Game.Buildings.PropertyRenter`*
 
+### `HealthEventData` (Game.Prefabs)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_RandomTargetType | EventTargetType | Target type for this health event (Citizen for natural sickness) |
+| m_HealthEventType | HealthEventType | Disease, Injury, or Death |
+| m_OccurenceProbability | Bounds1 | Min/max probability range (interpolated by health) |
+| m_TransportProbability | Bounds1 | Min/max chance of needing ambulance transport |
+| m_RequireTracking | bool | If true, creates full event entity; if false, creates lightweight AddHealthProblem |
+
+Per-prefab configuration for health events. Used by `SicknessCheckSystem` to determine natural sickness probability.
+
+*Source: `Game.dll` → `Game.Prefabs.HealthEventData`*
+
+### `HealthEventType` (Game.Prefabs)
+
+```csharp
+public enum HealthEventType
+{
+    Disease,  // Maps to HealthProblemFlags.Sick
+    Injury,   // Maps to HealthProblemFlags.Injured
+    Death     // Maps to HealthProblemFlags.Dead
+}
+```
+
 ## System Map
 
 ### `AddHealthProblemSystem` (Game.Events)
@@ -165,6 +191,34 @@ Component on household/company entities linking them to their building.
 - **Usage by the game**:
   - **Fire ignition** (`Ignite` event targeting a building): Schedules `FindCitizensInBuildingJob` with `flags = InDanger`, `deathProb = 0`
   - **Building destruction** (`Destroy` event targeting a building): Schedules `FindCitizensInBuildingJob` with `flags = Trapped`, `deathProb = HealthcareParameterData.m_BuildingDestoryDeathRate`
+
+### `SicknessCheckSystem` (Game.Simulation)
+
+- **Base class**: GameSystemBase
+- **Update interval**: 16384 frames (~once per game day, partitioned into 16 sub-frames)
+- **Queries**:
+  - Citizen query: `[Citizen, UpdateFrame]`, excluding `[HealthProblem, Deleted, Temp]` — only healthy citizens
+  - Event query: `[HealthEventData]`, excluding `[Locked]`
+- **Reads**: Citizen (m_Health), HouseholdMember, HouseholdCitizen, Worker, CityModifier, ServiceFee, HealthProblem, EconomyParameterData, TaxRates
+- **Writes**: Creates `AddHealthProblem` event entities via EntityCommandBuffer
+- **Key methods**:
+  - `TryAddHealthProblem()` — Calculates sickness probability from citizen health:
+    - `t = saturate(pow(2, 10 - health * 0.1) * 0.001)`
+    - At health=255: t ≈ 0 (virtually immune)
+    - At health=100: t ≈ 0.001
+    - At health=50: t ≈ 0.032
+    - At health=10: t ≈ 0.5
+    - At health=0: t = 1.0 (guaranteed sick)
+    - Probability = `lerp(occurenceProbability.min, occurenceProbability.max, t)`
+    - For Disease type: modified by `CityModifier.DiseaseProbability`
+  - `CreateHealthEvent()` — Maps `HealthEventType` to flags:
+    - Disease → `Sick`
+    - Injury → `Injured`
+    - Death → `Dead`
+    - Transport probability: `lerp(transportMax, transportMin, health * 0.01)` — healthier citizens less likely to need ambulance
+    - NoHealthcare flag: `10/health - fee/2 * income` threshold — poor/unhealthy citizens may skip hospital
+
+This is how **natural sickness** works — it's the system a mod would replace or supplement to change sickness rates.
 
 ## Data Flow
 
@@ -423,7 +477,7 @@ public void MakeAllResidentsSick(Entity buildingEntity)
 
 ## Open Questions
 
-- [ ] How does natural sickness work (from pollution, sewage, lack of healthcare)? There's likely a separate system (possibly `CitizenHealthSystem` or similar) that creates `AddHealthProblem` events based on environmental factors — not yet traced.
+- [x] How does natural sickness work? **Answered**: `SicknessCheckSystem` runs once/day, iterates healthy citizens, calculates sickness probability from `Citizen.m_Health` using exponential curve `pow(2, 10 - health*0.1) * 0.001`, rolls against `HealthEventData` prefab probabilities. Disease probability modified by `CityModifier.DiseaseProbability`.
 - [ ] What determines `Citizen.m_Health` decay over time? The health byte presumably decreases from sickness and increases from healthcare, but the exact system wasn't traced.
 - [ ] How does `m_SicknessPenalty` on the `Citizen` component accumulate and affect gameplay? It's serialized but the system that reads/writes it wasn't traced.
 - [ ] What happens when a citizen with `HealthProblemFlags.Sick` (without `RequireTransport`) reaches a hospital? The treatment/recovery system wasn't traced.
