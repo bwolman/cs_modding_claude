@@ -147,6 +147,66 @@ public bool ActivatePrefabTool(PrefabBase prefab)
 
 This confirms Colossal Order considers setting `activeTool` from outside `ToolUpdate` to be the normal usage pattern.
 
+### `toolID` Spoofing for Custom Sub-Tools
+
+Custom tools can return another tool's `toolID` to appear as that tool to the game's UI system. This is useful when a mod provides alternative behavior for an existing tool category. The game's UI checks `activeTool.toolID` to decide which panels, overlays, and toolbar states to show.
+
+```csharp
+// BetterBulldozer pattern: custom tool impersonates the vanilla bulldozer
+public class SubElementBulldozerTool : ToolBaseSystem
+{
+    private BulldozeToolSystem m_BulldozeToolSystem;
+
+    // Return the vanilla bulldozer's toolID so the UI shows the bulldozer
+    // panel, toolbar highlight, etc. as if the vanilla tool were active.
+    public override string toolID => m_BulldozeToolSystem.toolID;
+
+    // ...custom raycast and behavior logic...
+}
+```
+
+This pattern is used by BetterBulldozer to provide sub-element bulldozing and vehicle/citizen removal while keeping the bulldozer UI active.
+
+### `ToolSystem.tools` — Mutable Tool Registration List
+
+`ToolSystem.tools` is a `List<ToolBaseSystem>` that is **mutable at runtime**. The game populates it with vanilla tools, and mods can add their own tools to it. The list's iteration order matters for `ActivatePrefabTool()`, which iterates `tools` and calls `TrySetPrefab()` on each — the first tool that returns `true` wins.
+
+```csharp
+// ToolSystem field
+public List<ToolBaseSystem> tools;
+
+// ActivatePrefabTool iterates the list
+public bool ActivatePrefabTool(PrefabBase prefab)
+{
+    foreach (ToolBaseSystem tool in tools)
+    {
+        if (tool.TrySetPrefab(prefab))
+        {
+            activeTool = tool;
+            return true;
+        }
+    }
+    return false;
+}
+```
+
+Mods that want their tool to handle certain prefabs (before vanilla tools) should insert at the beginning of the list. Mods that add fallback behavior can append to the end.
+
+### `EventPrefabChanged` and `activePrefab`
+
+`ToolSystem` exposes `activePrefab` (read-only, returns `activeTool.GetPrefab()`) and fires `EventPrefabChanged` when the prefab changes. Mods can subscribe to this event to react to prefab selection:
+
+```csharp
+// ToolSystem events
+public event Action<ToolBaseSystem> EventToolChanged;
+public event Action<PrefabBase> EventPrefabChanged;
+
+// activePrefab property
+public PrefabBase activePrefab => activeTool?.GetPrefab();
+```
+
+`EventPrefabChanged` fires during `ToolUpdate()` when the current tool's `GetPrefab()` returns a different value than last frame. Both `EventToolChanged` and `EventPrefabChanged` subscribers may do more than UI updates — Anarchy's systems check `activeTool.toolID` and `activePrefab` in these handlers to conditionally enable/disable features.
+
 ## Verdict
 
 **Setting `ToolSystem.activeTool` from a TriggerBinding callback is safe. No deferral pattern is needed.**
