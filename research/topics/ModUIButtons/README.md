@@ -198,10 +198,20 @@ export default register;
 | `"GameTopLeft"` | Top-left toolbar area | `append` | Toolbar buttons alongside vanilla tools |
 | `"Game"` | Game view root | `append` | Full panels/overlays during gameplay |
 | `"Editor"` | Editor view root | `append` | Panels during map/asset editor |
-| Vanilla component paths | e.g. `"game-ui/game/components/right-menu/right-menu.tsx"` | `extend` | Wrap/replace vanilla components |
+| `"GameBottomRight"` | Bottom-right area (near chirper) | `append` | Floating buttons/indicators |
+| Vanilla component paths | (see examples below) | `extend` | Wrap/replace vanilla components |
 
 - `append(slot, Component)` — adds a React component to an injection slot
-- `extend(path, exportName, WrapperComponent)` — wraps a vanilla component with a higher-order component
+- `extend(path, exportName, WrapperComponent)` — wraps a vanilla component with a higher-order component. The wrapper receives the original component as a prop and can render it with modifications.
+
+**Common `extend()` targets** (from Anarchy mod):
+
+| Path | Export Name | Purpose |
+|------|-------------|---------|
+| `"game-ui/game/components/tool-options/mouse-tool-options/mouse-tool-options.tsx"` | `'MouseToolOptions'` | Add custom sections to tool options panel |
+| `"game-ui/game/components/tool-options/gamepad-tool-options/gamepad-tool-options.tsx"` | `'GamepadToolOptions'` | Gamepad variant of tool options |
+| `"game-ui/game/components/tool-options/tool-options-panel.tsx"` | `'useToolOptionsVisible'` | Control tool options panel visibility |
+| `"game-ui/game/components/selected-info-panel/selected-info-sections/selected-info-sections.tsx"` | `'selectedInfoSectionComponents'` | Add sections to entity info panel |
 
 ### TypeScript Binding Usage
 
