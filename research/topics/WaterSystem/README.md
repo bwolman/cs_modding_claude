@@ -48,9 +48,9 @@ The core component for any entity that adds or removes water from the surface si
 
 | Field | Type | Description |
 |-------|------|-------------|
-| m_ConstantDepth | int | Source type flag: 0 = flow source (uses m_Height as target depth above terrain), 2 = sea level marker, 3 = legacy sea source (destroyed on upgrade) |
+| m_ConstantDepth | int | Source type: 0 = Stream/flow source, 1 = VanillaLake (constant level), 2 = River (border river source), 3 = Sea (border sea source). See Water_Features mod's `SourceType` enum for confirmation. |
 | m_Radius | float | Radius of effect in world units (max 2500) |
-| m_Height | float | For constant sources: target water height above terrain. For flow sources (pump/sewage): rate multiplier. Negative = drain water. Max 250. |
+| m_Height | float | For stream sources (type 0): rate multiplier (negative = drain). For lake/sea sources (types 1-3): **absolute world-space elevation**, NOT relative to terrain. Max 250. |
 | m_Multiplier | float | Computed by CalculateSourceMultiplier -- normalizes contribution across cells within radius |
 | m_Polluted | float | Pollution fraction (0.0 = clean, 1.0 = fully polluted). Set by sewage outlets. |
 | m_Id | int | Unique source ID assigned by WaterSystem.GetNextSourceId(). -1 for legacy sources. |
