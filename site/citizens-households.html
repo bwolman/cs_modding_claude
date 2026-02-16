@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Citizens &amp; Households - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+    <h3>Infrastructure</h3>
+    <a href="transportation.html">Transportation</a>
+    <a href="zoning-building.html">Zoning &amp; Building</a>
+    <a href="utility-networks.html">Utility Networks</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html" class="active">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+
+    <h3>City Services</h3>
+    <a href="education-system.html">Education</a>
+    <a href="healthcare-deathcare.html">Healthcare &amp; Deathcare</a>
+    <a href="police-fire-services.html">Police &amp; Fire</a>
+
+    <h3>Environment</h3>
+    <a href="pollution-system.html">Pollution</a>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Citizens &amp; Households</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 model individual citizens and households? What is the
+      full lifecycle from birth to death, and how do households form, find housing, and leave the city?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Citizens and households use a two-entity model. Each citizen entity carries
+      a <code>Citizen</code> component (health, wellbeing, age, education encoded in bitflags) and links
+      to a household via <code>HouseholdMember</code>. Households hold a <code>DynamicBuffer&lt;HouseholdCitizen&gt;</code>
+      listing their members and connect to buildings via <code>PropertyRenter</code>. The lifecycle is driven
+      by six core systems: <code>HouseholdSpawnSystem</code> (immigration), <code>BirthSystem</code> (reproduction),
+      <code>AgingSystem</code> (age transitions at day 21/36/84), <code>CitizenHappinessSystem</code> (26 factors),
+      <code>DeathCheckSystem</code> (age/sickness mortality), and <code>HouseholdMoveAwaySystem</code> (emigration).
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Transportation pathfinding details, commercial shopping mechanics,
+      and leisure activity specifics. These are covered only where they intersect citizen/household state.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <h3>The Two-Entity Model</h3>
+
+  <p>
+    CS2 separates population into two kinds of ECS entities:
+  </p>
+
+  <ul>
+    <li><strong>Citizen entities</strong> represent individual people. They carry the <code>Citizen</code>
+    component (health, wellbeing, birth day, state flags), plus optional components like <code>Worker</code>,
+    <code>Student</code>, <code>HealthProblem</code>, and <code>TravelPurpose</code>.</li>
+    <li><strong>Household entities</strong> represent family units. They carry the <code>Household</code>
+    component (money, consumption, flags), a <code>DynamicBuffer&lt;HouseholdCitizen&gt;</code> listing
+    all members, and a <code>PropertyRenter</code> linking to a residential building.</li>
+  </ul>
+
+  <p>
+    The link is bidirectional: each citizen has a <code>HouseholdMember</code> component pointing to
+    its household entity, and each household has a buffer listing its citizen entities. The buffer has
+    an internal capacity of 5, meaning most households have up to 5 members without additional allocation.
+  </p>
+
+  <h3>Citizen State Encoding</h3>
+
+  <p>
+    The <code>Citizen</code> component packs significant state into a <code>CitizenFlags</code> short
+    (16-bit bitfield). Age is encoded in 2 bits (4 possible values), education level uses 3 bits
+    (levels 0-4), and additional flags track gender, tourist/commuter status, job-seeking state,
+    and bicycle usage.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Bits</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>AgeBit1, AgeBit2</td><td>0-1</td><td>Encode CitizenAge: Child(0), Teen(1), Adult(2), Elderly(3)</td></tr>
+      <tr><td>Male</td><td>3</td><td>Gender (absence = female)</td></tr>
+      <tr><td>EducationBit1/2/3</td><td>4-6</td><td>Education level 0-4 (bit3 alone = level 4)</td></tr>
+      <tr><td>Tourist</td><td>9</td><td>Citizen is a tourist visitor</td></tr>
+      <tr><td>Commuter</td><td>10</td><td>Citizen commutes from outside</td></tr>
+      <tr><td>NeedsNewJob</td><td>12</td><td>Flagged for the job search system</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Happiness = (Health + WellBeing) / 2</h3>
+
+  <p>
+    Citizen happiness is simply the average of two byte values: <code>m_Health</code> and
+    <code>m_WellBeing</code>, both ranging from 0 to 255. The <code>CitizenHappinessSystem</code>
+    evaluates 26 distinct factors and updates these two values. Each factor contributes a health
+    bonus and a wellbeing bonus independently.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <h3>Citizen (Game.Citizens)</h3>
+
+  <p>The primary component on every citizen entity.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_State</code></td><td>CitizenFlags (short)</td><td>Bitfield encoding age, gender, education, status</td></tr>
+      <tr><td><code>m_Health</code></td><td>byte</td><td>Health score (0-255)</td></tr>
+      <tr><td><code>m_WellBeing</code></td><td>byte</td><td>Wellbeing score (0-255)</td></tr>
+      <tr><td><code>m_BirthDay</code></td><td>short</td><td>Simulation day the citizen was born</td></tr>
+      <tr><td><code>m_LeisureCounter</code></td><td>byte</td><td>Decremented over time; reset by leisure activities</td></tr>
+      <tr><td><code>m_UnemploymentCounter</code></td><td>int</td><td>Days spent unemployed</td></tr>
+      <tr><td><code>m_UnemploymentTimeCounter</code></td><td>float</td><td>Continuous unemployment time (affects happiness)</td></tr>
+      <tr><td><code>m_SicknessPenalty</code></td><td>int</td><td>Health penalty accumulated from sickness</td></tr>
+      <tr><td><code>m_PseudoRandom</code></td><td>ushort</td><td>Seed for deterministic per-citizen random decisions</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Household (Game.Citizens)</h3>
+
+  <p>The primary component on every household entity.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_Flags</code></td><td>HouseholdFlags (byte)</td><td>Tourist (1), Commuter (2), MovedIn (4)</td></tr>
+      <tr><td><code>m_Resources</code></td><td>int</td><td>Available money (clamped &gt;= 0 on load)</td></tr>
+      <tr><td><code>m_ConsumptionPerDay</code></td><td>short</td><td>Daily resource consumption rate</td></tr>
+      <tr><td><code>m_ShoppedValueLastDay</code></td><td>uint</td><td>Shopping spending last day (affects happiness)</td></tr>
+      <tr><td><code>m_SalaryLastDay</code></td><td>int</td><td>Income earned last day</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Worker (Game.Citizens)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_Workplace</code></td><td>Entity</td><td>The company or service building</td></tr>
+      <tr><td><code>m_Level</code></td><td>byte</td><td>Job level (matches education)</td></tr>
+      <tr><td><code>m_Shift</code></td><td>Workshift</td><td>Day, evening, or night shift</td></tr>
+      <tr><td><code>m_LastCommuteTime</code></td><td>float</td><td>Duration of last commute</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Link Components</h3>
+
+  <ul>
+    <li><code>HouseholdMember</code> -- on citizen entities, field <code>m_Household</code> (Entity)</li>
+    <li><code>HouseholdCitizen</code> -- buffer on household entities, field <code>m_Citizen</code> (Entity), capacity 5</li>
+    <li><code>PropertyRenter</code> -- on household entities, field <code>m_Property</code> (Entity) pointing to building</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram"><pre>
+Outside Connection
+       |
+       v
+HouseholdSpawnSystem -----> creates household entity (based on demand)
+       |
+       v
+HouseholdInitializeSystem -> populates with citizen entities
+       |
+       v
+HouseholdFindPropertySystem -> assigns residential property
+       |
+       v
+  [LIVING IN CITY]
+       |
+       +----> BirthSystem (adult female + male = chance of child)
+       |         |
+       |         v
+       |      New child citizen (m_BirthDay = 0)
+       |
+       +----> AgingSystem (once per day)
+       |         |
+       |         +-- Day 21: Child --> Teen (leave school, get bicycle)
+       |         +-- Day 36: Teen  --> Adult (leave school, leave household)
+       |         +-- Day 84: Adult --> Elderly (lose job)
+       |
+       +----> CitizenFindJobSystem / FindJobSystem
+       |         |
+       |         v
+       |      Worker component added (m_Workplace, m_Level, m_Shift)
+       |
+       +----> CitizenHappinessSystem (26 factors)
+       |         |
+       |         v
+       |      m_Health + m_WellBeing updated
+       |
+       +----> DeathCheckSystem (4x/day)
+       |         |
+       |         +-- Age-based: m_DeathRate curve at normalized age
+       |         +-- Sickness: health-based probability
+       |         v
+       |      HealthProblemFlags.Dead --> deathcare collection
+       |
+       +----> HouseholdMoveAwaySystem
+                 |
+                 v
+          Route to Outside Connection --> household entity deleted
+  </pre></div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>The Citizen Lifecycle in Detail</h3>
+
+  <p>A typical citizen goes through this sequence:</p>
+
+  <ol>
+    <li><strong>Birth</strong>: <code>BirthSystem</code> creates a new entity with <code>Citizen { m_BirthDay = 0, m_State = None }</code>
+    and <code>HouseholdMember</code> pointing to the parent household. The child is also added to the
+    household's <code>HouseholdCitizen</code> buffer.</li>
+
+    <li><strong>Childhood (days 0-20)</strong>: The citizen may attend elementary school (gaining a
+    <code>Student</code> component). The <code>Child</code> tag component is present for efficient queries.</li>
+
+    <li><strong>Teenage years (days 21-35)</strong>: At day 21, <code>AgingSystem</code> removes
+    <code>Student</code> (if present), enables <code>BicycleOwner</code>, and changes the age bits.
+    The teen may enroll in high school.</li>
+
+    <li><strong>Adulthood (days 36-83)</strong>: At day 36, the teen becomes an adult.
+    <code>AgingSystem</code> adds <code>LeaveHouseholdTag</code>, causing <code>LeaveHouseholdSystem</code>
+    to create a new household for this citizen. <code>CitizenFindJobSystem</code> assigns employment
+    (adding <code>Worker</code>). <code>HouseholdFindPropertySystem</code> finds a home.</li>
+
+    <li><strong>Elder years (day 84+)</strong>: At day 84, the adult becomes elderly.
+    <code>AgingSystem</code> removes the <code>Worker</code> component (retirement). The citizen
+    lives on household resources.</li>
+
+    <li><strong>Death</strong>: <code>DeathCheckSystem</code> evaluates a death probability curve
+    based on normalized age (<code>ageInDays / daysPerYear / 9</code>). The maximum lifespan is
+    approximately 9 game-years. On death, <code>HealthProblemFlags.Dead</code> is set and deathcare
+    services collect the body.</li>
+  </ol>
+
+  <h3>Age Thresholds</h3>
+
+  <table>
+    <thead>
+      <tr><th>Transition</th><th>Day Threshold</th><th>Key Actions</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Child to Teen</td><td>Day 21</td><td>Remove Student, enable BicycleOwner</td></tr>
+      <tr><td>Teen to Adult</td><td>Day 36</td><td>Remove Student, add LeaveHouseholdTag</td></tr>
+      <tr><td>Adult to Elderly</td><td>Day 84</td><td>Remove Worker, cancel work travel</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Birth Rate Calculation</h3>
+
+  <pre><code>// From BirthSystem.CheckBirthJob
+// Only adult females (non-male, non-tourist, non-commuter) can give birth
+// Household must have a property (PropertyRenter)
+
+float birthRate = m_CitizenParametersData.m_BaseBirthRate;
+
+// Bonus if household has an adult male partner
+if (householdHasAdultMale)
+    birthRate += m_CitizenParametersData.m_AdultFemaleBirthRateBonus;
+
+// Reduced rate if mother is a student
+if (isStudent)
+    birthRate *= m_CitizenParametersData.m_StudentBirthRateAdjust;
+
+// Random check (16 times per day)
+if (random.NextFloat(1f) &lt; birthRate / kUpdatesPerDay)
+    SpawnBaby(household);</code></pre>
+
+  <h3>Death Probability</h3>
+
+  <pre><code>// From DeathCheckSystem.DeathCheckJob
+// Natural death: age-based probability curve
+float ageInDays = citizen.GetAgeInDays(simulationFrame, timeData);
+float normalizedAge = ageInDays / daysPerYear / kMaxAgeInGameYear; // max = 9 years
+float deathProb = m_HealthcareParameterData.m_DeathRate.Evaluate(normalizedAge);
+
+if (citizen.GetPseudoRandom(CitizenPseudoRandom.Death).NextFloat() &lt; deathProb)
+    Die(citizen);
+
+// Sickness death: health-based probability
+// Lower health = higher death chance
+int healthFactor = 10 - citizen.m_Health / 10;
+int threshold = healthFactor * healthFactor + 8;
+if (random.NextInt(kUpdatesPerDay * 1000) &lt;= threshold)
+    Die(citizen);</code></pre>
+
+  <h3>Happiness Factors (all 26)</h3>
+
+  <pre><code>public enum HappinessFactor
+{
+    Telecom,          // Telecom coverage at residence
+    Crime,            // Crime level at residence
+    AirPollution,     // Air pollution at property location
+    Apartment,        // Space per person * building level
+    Electricity,      // Electricity supply status
+    Healthcare,       // Healthcare service coverage
+    GroundPollution,  // Ground pollution at property
+    NoisePollution,   // Noise pollution at property
+    Water,            // Water supply status
+    WaterPollution,   // Water contamination level
+    Sewage,           // Sewage service status
+    Garbage,          // Garbage collection service
+    Entertainment,    // Park / entertainment coverage
+    Education,        // Education service coverage
+    Mail,             // Mail delivery service
+    Welfare,          // Welfare / social services
+    Leisure,          // Personal leisure satisfaction
+    Tax,              // Tax rate impact
+    Buildings,        // Building-specific effects (prison/school)
+    Consumption,      // Shopping satisfaction
+    TrafficPenalty,   // Commute duration penalty
+    DeathPenalty,     // Family member death penalty
+    Homelessness,     // Penalty for being homeless
+    ElectricityFee,   // Fee relative to default rate
+    WaterFee,         // Fee relative to default rate
+    Unemployment,     // Duration-based unemployment penalty
+    Count             // = 26 factors total
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <p>Key parameters that control citizen and household behavior come from prefab data singletons:</p>
+
+  <table>
+    <thead>
+      <tr><th>Prefab Data</th><th>Key Fields</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>CitizenParametersData</code></td>
+        <td><code>m_BaseBirthRate</code>, <code>m_AdultFemaleBirthRateBonus</code>, <code>m_StudentBirthRateAdjust</code></td>
+        <td>Controls birth probability and modifiers</td>
+      </tr>
+      <tr>
+        <td><code>HealthcareParameterData</code></td>
+        <td><code>m_DeathRate</code> (BezierCurve), <code>m_AmbulanceNotificationPrefab</code></td>
+        <td>Age-based death probability curve</td>
+      </tr>
+      <tr>
+        <td><code>CitizenHappinessParameterData</code></td>
+        <td>Thresholds and weights for all 26 happiness factors</td>
+        <td>How strongly each factor affects health/wellbeing</td>
+      </tr>
+      <tr>
+        <td><code>DemandParameterData</code></td>
+        <td><code>m_HouseholdSpawnSpeedFactor</code>, <code>m_CitizenOCSpawnParameters</code></td>
+        <td>Immigration rate and outside connection selection</td>
+      </tr>
+      <tr>
+        <td><code>TimeSettingsData</code></td>
+        <td><code>m_DaysPerYear</code></td>
+        <td>Determines how game-days map to game-years for aging</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The aging thresholds are hardcoded as static methods in <code>AgingSystem</code>:
+    <code>GetTeenAgeLimitInDays() = 21</code>, <code>GetAdultAgeLimitInDays() = 36</code>,
+    <code>GetElderAgeLimitInDays() = 84</code>. These cannot be changed via prefab data and
+    require Harmony patches to modify.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Patch Points</h2>
+
+  <h3>1. Adjusting Age Thresholds</h3>
+  <p>
+    <strong>Target:</strong> <code>AgingSystem.GetTeenAgeLimitInDays()</code>,
+    <code>GetAdultAgeLimitInDays()</code>, <code>GetElderAgeLimitInDays()</code><br>
+    <strong>Method:</strong> Harmony postfix returning custom values.<br>
+    <strong>Effect:</strong> Controls how long citizens spend in each life stage.
+    For example, setting teen limit to 42 and adult limit to 72 would double childhood and adolescence.
+  </p>
+
+  <h3>2. Modifying Birth Rate</h3>
+  <p>
+    <strong>Target:</strong> <code>BirthSystem.OnUpdate()</code> or the
+    <code>CitizenParametersData</code> singleton.<br>
+    <strong>Method:</strong> Harmony prefix to modify the parameters data before the job runs,
+    or a custom system that overwrites the singleton each frame.<br>
+    <strong>Effect:</strong> Increase or decrease natural population growth rate.
+  </p>
+
+  <h3>3. Custom Happiness Factors</h3>
+  <p>
+    <strong>Target:</strong> <code>CitizenHappinessSystem</code> output (m_Health, m_WellBeing).<br>
+    <strong>Method:</strong> A custom system running after <code>CitizenHappinessSystem</code>
+    that reads and modifies the <code>Citizen</code> component values.<br>
+    <strong>Effect:</strong> Add new happiness factors or rebalance existing ones.
+    Since happiness is just two bytes, a postfix system can clamp and adjust freely.
+  </p>
+
+  <h3>4. Controlling Immigration Rate</h3>
+  <p>
+    <strong>Target:</strong> <code>HouseholdSpawnSystem.OnUpdate()</code> or the demand value
+    from <code>ResidentialDemandSystem</code>.<br>
+    <strong>Method:</strong> Harmony prefix to modify the demand integer before
+    <code>SpawnHouseholdJob</code> uses it.<br>
+    <strong>Effect:</strong> Control how many new households move into the city per day.
+  </p>
+
+  <h3>5. Housing Assignment Scoring</h3>
+  <p>
+    <strong>Target:</strong> <code>PropertyUtils.GetGenericApartmentQuality()</code>
+    (called by <code>HouseholdFindPropertySystem</code>).<br>
+    <strong>Method:</strong> Harmony postfix to modify the returned
+    <code>GenericApartmentQuality</code> score.<br>
+    <strong>Effect:</strong> Change how households evaluate and choose properties.
+    Could prioritize certain building types or areas.
+  </p>
+
+  <h3>6. Preventing or Delaying Death</h3>
+  <p>
+    <strong>Target:</strong> <code>DeathCheckSystem.OnUpdate()</code>.<br>
+    <strong>Method:</strong> Harmony prefix that disables the system conditionally,
+    or modify the <code>m_DeathRate</code> curve in <code>HealthcareParameterData</code>.<br>
+    <strong>Effect:</strong> Create immortal citizens or extend maximum lifespan beyond 9 game-years.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>What exactly triggers the <code>MovingAway</code> component to be added to a household?
+    Likely driven by sustained low happiness or inability to find property, but the triggering
+    system was not fully traced in this research.</li>
+    <li>How does <code>LeaveHouseholdSystem</code> determine the initial resources for a newly
+    independent adult's household?</li>
+    <li>What is the exact shape of the <code>m_DeathRate</code> Bezier curve in
+    <code>HealthcareParameterData</code>? It is evaluated at normalized age (0.0 to 1.0) but
+    the control points were not extracted.</li>
+    <li>How do commuter and tourist households differ in lifecycle beyond their flag bits?
+    Tourist households track income via <code>StatisticType.TouristIncome</code> on departure.</li>
+    <li>How does the <code>CitizenFindJobSystem</code> match education level to job level,
+    and what role does <code>m_UnemploymentCounter</code> play in job acceptance?</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <footer>
+    <p>
+      Research based on decompiled Game.dll from Cities: Skylines II.
+      Generated with Claude | Supervised by repository owner.
+    </p>
+  </footer>
+
+  </main>
+</div>
+
+</body>
+</html>

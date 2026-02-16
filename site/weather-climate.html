@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weather &amp; Climate - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html" class="active">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Weather &amp; Climate</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 model weather, climate, seasons, snow, and wind?
+      How do weather phenomena (thunderstorms, tornadoes) spawn and affect gameplay through
+      fire ignition, building damage, and traffic accidents?
+    </p>
+    <p>
+      <strong>Verdict:</strong> The climate system evaluates animation curves from a
+      <code>ClimatePrefab</code> to produce continuous temperature, precipitation, and cloudiness
+      values. Weather phenomena spawn probabilistically from <code>WeatherHazardSystem</code> and
+      are simulated by <code>WeatherPhenomenonSystem</code>. Snow and wind are GPU-based simulations.
+      All climate properties are <code>OverridableProperty&lt;float&gt;</code>, so mods can override
+      them directly without patches.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Rendering effects (volumetric clouds, rain particles, fog shaders),
+      weather audio, and climate editor UI.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The weather system has four layers that work together:
+  </p>
+
+  <ol>
+    <li>
+      <strong>Climate Layer</strong> (<code>ClimateSystem</code>) -- evaluates animation curves
+      from a <code>ClimatePrefab</code> to produce continuous temperature, precipitation, cloudiness,
+      aurora, and fog values. These change smoothly over the in-game year.
+    </li>
+    <li>
+      <strong>Weather Phenomena Layer</strong> (<code>WeatherHazardSystem</code> +
+      <code>WeatherPhenomenonSystem</code>) -- probabilistically spawns discrete weather events
+      (thunderstorms, tornadoes) based on current climate conditions. Each event has a moving hotspot
+      that damages buildings and causes traffic accidents.
+    </li>
+    <li>
+      <strong>Snow Layer</strong> (<code>SnowSystem</code>) -- GPU-based 1024x1024 simulation that
+      accumulates snow when temperature is below freezing and precipitation is active, and melts it
+      when temperature rises.
+    </li>
+    <li>
+      <strong>Wind Layer</strong> (<code>WindSimulationSystem</code> + <code>WindSystem</code>) --
+      3D pressure-velocity simulation that produces a 64x64 2D wind map. Wind moves weather
+      phenomena and redistributes snow.
+    </li>
+  </ol>
+
+  <h3>Climate Sampling</h3>
+
+  <p>
+    <code>ClimateSystem</code> is the central hub. Every frame it evaluates the
+    <code>ClimatePrefab</code> animation curves at the current <code>normalizedDate</code>
+    (0 to 1 over the year), setting <code>temperature</code>, <code>precipitation</code>,
+    <code>cloudiness</code>, <code>aurora</code>, and <code>fog</code>. All of these are
+    <code>OverridableProperty&lt;float&gt;</code> values -- meaning a mod can set
+    <code>.overrideState = true</code> and <code>.overrideValue = X</code> to override them directly.
+  </p>
+
+  <p>
+    The system determines rain vs snow by comparing the current temperature to
+    <code>freezingTemperature</code> (defined in the ClimatePrefab):
+  </p>
+
+  <pre><code class="language-csharp">public bool isRaining =&gt; precipitation &gt; 0f &amp;&amp; temperature &gt; freezingTemperature;
+public bool isSnowing =&gt; precipitation &gt; 0f &amp;&amp; temperature &lt;= freezingTemperature;</code></pre>
+
+  <h3>Seasonal Cycle</h3>
+
+  <p>
+    Seasons are defined as <code>SeasonInfo</code> entries in the <code>ClimatePrefab</code>. Each
+    season has a start time (0..1 normalized date), night/day temperature ranges, cloud and
+    precipitation chances, turbulence, and aurora settings. The system finds which season range
+    contains the current date and computes per-season averages for temperature, precipitation, and
+    cloudiness.
+  </p>
+
+  <h3>Weather Classification</h3>
+
+  <p>
+    The <code>WeatherClassification</code> enum categorizes the visual weather state:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Classification</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Irrelevant</td><td>Does not affect classification</td></tr>
+      <tr><td>Clear</td><td>Clear skies</td></tr>
+      <tr><td>Few</td><td>Few clouds</td></tr>
+      <tr><td>Scattered</td><td>Scattered clouds</td></tr>
+      <tr><td>Broken</td><td>Broken cloud cover</td></tr>
+      <tr><td>Overcast</td><td>Full cloud cover</td></tr>
+      <tr><td>Stormy</td><td>Active storm</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Weather Phenomena Pipeline</h2>
+
+  <p>
+    Weather phenomena (thunderstorms, tornadoes, etc.) are spawned and simulated by three systems:
+  </p>
+
+  <h3>1. WeatherHazardSystem (Spawning)</h3>
+
+  <p>
+    Runs every 2048 frames. For each <code>WeatherPhenomenonData</code> prefab, it computes
+    an occurrence probability based on current conditions:
+  </p>
+
+  <pre><code class="language-csharp">// Temperature factor: Gaussian curve centered on OccurenceTemperature
+float tempCenter = Center(m_OccurenceTemperature);
+float tempExtent = max(0.5, Extents(m_OccurenceTemperature));
+float tempFactor = max(0, 1 - ((temp - tempCenter) / tempExtent)^2);
+
+// Rain factor: linear ramp within OccurenceRain bounds
+float rainFactor = saturate(ramp within m_OccurenceRain);
+
+// Cloudiness factor: linear ramp within OccurenceCloudiness bounds
+float cloudFactor = saturate(ramp within m_OccurenceCloudiness);
+
+// Final probability
+float prob = m_OccurenceProbability * tempFactor * rainFactor * cloudFactor * 34.13;
+if (random(100) &lt; prob) CreateWeatherEvent();</code></pre>
+
+  <p>
+    Damaging phenomena (<code>m_DamageSeverity != 0</code>) only spawn if
+    <code>naturalDisasters</code> is enabled in the city configuration.
+  </p>
+
+  <h3>2. WeatherPhenomenonSystem (Simulation)</h3>
+
+  <p>
+    Runs every 16 frames. For each active <code>WeatherPhenomenon</code> entity:
+  </p>
+
+  <ol>
+    <li>Ramps intensity up at +0.2/sec after start, down at -0.2/sec after duration ends</li>
+    <li>Moves the phenomenon position with wind: <code>position.xz += wind * 20 * dt</code></li>
+    <li>Moves the hotspot within the phenomenon radius using wind + random instability</li>
+    <li>If <code>m_DamageSeverity != 0</code>: searches quad tree for affected buildings, creates <code>FaceWeather</code> events</li>
+    <li>Lightning: finds tallest building/tree within hotspot radius, rolls fire ignition chance</li>
+    <li>Traffic: finds moving cars in hotspot, creates <code>Impact</code> events (loss of control)</li>
+    <li>Danger warnings: projects path ahead using wind, warns buildings in danger zone</li>
+  </ol>
+
+  <h3>3. WeatherDamageSystem (Damage)</h3>
+
+  <p>
+    Runs every 64 frames. For each building with a <code>FacingWeather</code> component:
+  </p>
+
+  <ul>
+    <li>Damage rate = <code>severity / structuralIntegrity * timeDelta</code>, capped at 0.5 per tick</li>
+    <li>Buildings with structural integrity &gt;= 100,000,000 are immune</li>
+    <li>City modifier <code>DisasterDamageRate</code> scales damage for buildings</li>
+    <li>At 100% damage: creates a <code>Destroy</code> event</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Snow Simulation</h2>
+
+  <p>
+    The snow system is GPU-based, running on a 1024x1024 <code>RenderTexture</code>
+    (format <code>R16G16_UNorm</code>). It updates every 4 frames with two compute shader passes:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Pass</th><th>What it does</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>AddSnow</td>
+        <td>Accumulates snow when temp &lt;= freezing and precipitation &gt; 0. Melts snow when
+        temp &gt; freezing. Melt rate (2e-5) is 2x accumulation rate (1e-5). Height-adjusted:
+        <code>snowTemperatureHeightScale = 0.01</code> means 1 degree cooler per 100 world units
+        of elevation.</td>
+      </tr>
+      <tr>
+        <td>SnowTransfer</td>
+        <td>Redistributes snow based on wind direction. Only runs when precipitating and temperature
+        is below freezing.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Snow Constants</h3>
+
+  <table>
+    <thead>
+      <tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>kTexSize</td><td>1024</td><td>Snow texture resolution</td></tr>
+      <tr><td>kSnowHeightScale</td><td>8.0</td><td>Snow depth scale factor</td></tr>
+      <tr><td>m_SnowAddConstant</td><td>1e-5</td><td>Snow accumulation rate per step</td></tr>
+      <tr><td>MeltMultiplier</td><td>2e-5</td><td>Snow melt rate (2x add rate)</td></tr>
+      <tr><td>m_WaterAddConstant</td><td>0.1</td><td>Water from melting snow</td></tr>
+      <tr><td>ElapseWaterMultiplier</td><td>0.05</td><td>Water evaporation from melt</td></tr>
+      <tr><td>snowTemperatureHeightScale</td><td>0.01</td><td>Degrees per world unit elevation</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Wind Simulation</h2>
+
+  <p>
+    Wind is a 3D pressure-velocity simulation (<code>WindSimulationSystem</code>) that produces a
+    64x64 2D wind map (<code>WindSystem</code>) for gameplay use.
+  </p>
+
+  <ul>
+    <li><code>WindSimulationSystem</code>: 3D grid with pressure and velocity per cell. Terrain
+    obstructs airflow (terrain slowdown vs air slowdown). Wind enters from map edges based on
+    <code>ClimateSystem.wind</code> direction.</li>
+    <li><code>WindSystem</code>: Samples the 3D simulation at terrain height to produce a 2D cell
+    map. Updates every 512 frames. Provides <code>Wind.SampleWind()</code> for bilinear interpolation
+    at any world position.</li>
+  </ul>
+
+  <p>
+    Wind affects:
+  </p>
+
+  <ul>
+    <li>Weather phenomenon movement (position drifts with wind * 20)</li>
+    <li>Snow redistribution (SnowTransfer kernel)</li>
+    <li>Wind-powered buildings (power generation)</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>ClimateSystem, SnowSystem, WindSystem, WindSimulationSystem, WeatherHazardSystem, WeatherPhenomenonSystem, WeatherDamageSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Events</td>
+        <td>WeatherPhenomenon (component), FacingWeather, FaceWeather, FaceWeatherSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>WeatherPhenomenonData, WeatherPhenomenon (prefab), WindPowered, WindPoweredData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs.Climate</td>
+        <td>ClimatePrefab, ClimateData, SeasonData, WeatherData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>WeatherPhenomenon (Game.Events)</h3>
+
+  <p>Runtime ECS component on an active weather event entity.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_PhenomenonPosition</td><td>float3</td><td>Center of the weather cell (moves with wind)</td></tr>
+      <tr><td>m_HotspotPosition</td><td>float3</td><td>Center of the damage hotspot</td></tr>
+      <tr><td>m_HotspotVelocity</td><td>float3</td><td>Hotspot movement velocity</td></tr>
+      <tr><td>m_PhenomenonRadius</td><td>float</td><td>Outer radius of the weather cell</td></tr>
+      <tr><td>m_HotspotRadius</td><td>float</td><td>Inner radius of the damage zone</td></tr>
+      <tr><td>m_Intensity</td><td>float</td><td>0..1, ramps up/down at 0.2 per second</td></tr>
+      <tr><td>m_LightningTimer</td><td>float</td><td>Countdown to next lightning strike</td></tr>
+    </tbody>
+  </table>
+
+  <h3>WeatherPhenomenonData (Game.Prefabs)</h3>
+
+  <p>Prefab configuration for a weather phenomenon type.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_OccurenceProbability</td><td>float</td><td>Base probability per hazard tick</td></tr>
+      <tr><td>m_HotspotInstability</td><td>float</td><td>How much the hotspot wanders</td></tr>
+      <tr><td>m_DamageSeverity</td><td>float</td><td>Damage multiplier; 0 = harmless</td></tr>
+      <tr><td>m_DangerLevel</td><td>float</td><td>Danger level for early warning</td></tr>
+      <tr><td>m_PhenomenonRadius</td><td>Bounds1</td><td>Min/max outer radius</td></tr>
+      <tr><td>m_HotspotRadius</td><td>Bounds1</td><td>Min/max hotspot radius</td></tr>
+      <tr><td>m_LightningInterval</td><td>Bounds1</td><td>Min/max seconds between lightning</td></tr>
+      <tr><td>m_Duration</td><td>Bounds1</td><td>Min/max duration</td></tr>
+      <tr><td>m_OccurenceTemperature</td><td>Bounds1</td><td>Temperature range for occurrence</td></tr>
+      <tr><td>m_OccurenceRain</td><td>Bounds1</td><td>Rain range for occurrence</td></tr>
+      <tr><td>m_OccurenceCloudiness</td><td>Bounds1</td><td>Cloudiness range for occurrence</td></tr>
+      <tr><td>m_DangerFlags</td><td>DangerFlags</td><td>Evacuate, StayIndoors</td></tr>
+    </tbody>
+  </table>
+
+  <h3>FacingWeather (Game.Events)</h3>
+
+  <p>Attached to buildings within the hotspot of a weather phenomenon.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Event</td><td>Entity</td><td>The weather phenomenon event entity</td></tr>
+      <tr><td>m_Severity</td><td>float</td><td>Current damage severity (distance-based)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+ClimatePrefab (animation curves)
+     |
+     v
+ClimateSystem.OnUpdate()                         [every frame]
+     |-- Evaluate curves at normalizedDate
+     |-- Set: temperature, precipitation, cloudiness, aurora, fog
+     |-- Update season, fire trigger events
+     |
+     +-----+-----+-----+
+     |     |     |     |
+     v     v     v     v
+
+WeatherHazard     SnowSystem      WindSim        Triggers
+[2048 frames]     [4 frames]      [continuous]   [every frame]
+     |                |                |
+     | Spawn          | Accumulate/    | 3D pressure-
+     | events         | melt snow      | velocity sim
+     |                | (GPU)          |
+     v                                 v
+WeatherPhenomenon                  WindSystem
+System [16 frames]                 [512 frames]
+     |                                 |
+     |-- Move with wind &lt;------------- 64x64 2D map
+     |-- Lightning -&gt; Ignite (fire)
+     |-- Damage -&gt; FaceWeather
+     |-- Traffic -&gt; Impact (accidents)
+     |
+     v
+WeatherDamage
+System [64 frames]
+     |-- Apply damage to buildings
+     |-- Destroy at 100%
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Cross-System Interactions</h2>
+
+  <table>
+    <thead>
+      <tr><th>Weather State</th><th>Affected System</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Lightning strike</td>
+        <td>IgniteSystem (Fire)</td>
+        <td>Can ignite buildings/trees if <code>FireData.m_StartProbability &gt; 0.01</code></td>
+      </tr>
+      <tr>
+        <td>Hotspot over road</td>
+        <td>Traffic (Impact events)</td>
+        <td>Vehicles lose control (severity=5, angular velocity delta)</td>
+      </tr>
+      <tr>
+        <td>Hotspot over building</td>
+        <td>WeatherDamageSystem</td>
+        <td>Incremental structural damage, eventual destruction</td>
+      </tr>
+      <tr>
+        <td>Temp &lt;= freezing + precip</td>
+        <td>SnowSystem</td>
+        <td>Snow accumulates on terrain</td>
+      </tr>
+      <tr>
+        <td>Temp &gt; freezing</td>
+        <td>SnowSystem</td>
+        <td>Snow melts</td>
+      </tr>
+      <tr>
+        <td>Wind direction</td>
+        <td>WeatherPhenomenonSystem</td>
+        <td>Moves weather phenomena across the map</td>
+      </tr>
+      <tr>
+        <td>Danger flags</td>
+        <td>Emergency system</td>
+        <td>Buildings get InDanger, evacuation warnings issued</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Override Weather Conditions</h3>
+
+  <p>
+    The simplest approach -- no Harmony patches needed. All climate properties are
+    <code>OverridableProperty&lt;float&gt;</code> with built-in override support.
+  </p>
+
+  <pre><code class="language-csharp">public partial class WeatherControlSystem : GameSystemBase
+{
+    private ClimateSystem _climateSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _climateSystem = World.GetOrCreateSystemManaged&lt;ClimateSystem&gt;();
+    }
+
+    /// &lt;summary&gt;
+    /// Force a specific temperature. Set to null to restore natural climate.
+    /// &lt;/summary&gt;
+    public void SetTemperature(float? value)
+    {
+        if (value.HasValue)
+        {
+            _climateSystem.temperature.overrideState = true;
+            _climateSystem.temperature.overrideValue = value.Value;
+        }
+        else
+        {
+            _climateSystem.temperature.overrideState = false;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Force heavy rain. Precipitation is 0..1.
+    /// &lt;/summary&gt;
+    public void SetPrecipitation(float? value)
+    {
+        if (value.HasValue)
+        {
+            _climateSystem.precipitation.overrideState = true;
+            _climateSystem.precipitation.overrideValue = value.Value;
+        }
+        else
+        {
+            _climateSystem.precipitation.overrideState = false;
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Force cloudiness level. Cloudiness is 0..1.
+    /// &lt;/summary&gt;
+    public void SetCloudiness(float? value)
+    {
+        if (value.HasValue)
+        {
+            _climateSystem.cloudiness.overrideState = true;
+            _climateSystem.cloudiness.overrideValue = value.Value;
+        }
+        else
+        {
+            _climateSystem.cloudiness.overrideState = false;
+        }
+    }
+
+    protected override void OnUpdate()
+    {
+        // Apply settings from mod UI each frame if needed
+    }
+}</code></pre>
+
+  <h3>Read Current Weather State</h3>
+
+  <pre><code class="language-csharp">public void LogWeatherState(ClimateSystem climate)
+{
+    float temp = climate.temperature;
+    float precip = climate.precipitation;
+    float clouds = climate.cloudiness;
+    bool raining = climate.isRaining;
+    bool snowing = climate.isSnowing;
+    string season = climate.currentSeasonName;
+    var classification = climate.classification;
+
+    Log.Info($"Season: {season}, Temp: {temp:F1}, Precip: {precip:F2}, " +
+             $"Clouds: {clouds:F2}, Rain: {raining}, Snow: {snowing}, " +
+             $"Classification: {classification}");
+}</code></pre>
+
+  <h3>Sample Wind at a Position</h3>
+
+  <pre><code class="language-csharp">public float2 GetWindAt(WindSystem windSystem, float3 worldPosition)
+{
+    JobHandle deps;
+    CellMapData&lt;Wind&gt; windData = windSystem.GetData(readOnly: true, out deps);
+    deps.Complete();
+
+    return Wind.SampleWind(windData, worldPosition);
+}</code></pre>
+
+  <h3>Prevent Weather Damage (Harmony Patch)</h3>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.WeatherDamageSystem), "OnUpdate")]
+public static class DisableWeatherDamage
+{
+    /// &lt;summary&gt;
+    /// Skip weather damage entirely when the mod setting is enabled.
+    /// &lt;/summary&gt;
+    public static bool Prefix()
+    {
+        return !MyModSettings.DisableWeatherDamage;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>ClimateSystem Key Properties</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>temperature</td><td>OverridableProperty&lt;float&gt;</td><td>Current temperature (degrees)</td></tr>
+      <tr><td>precipitation</td><td>OverridableProperty&lt;float&gt;</td><td>Precipitation amount (0..1)</td></tr>
+      <tr><td>cloudiness</td><td>OverridableProperty&lt;float&gt;</td><td>Cloud coverage (0..1)</td></tr>
+      <tr><td>aurora</td><td>OverridableProperty&lt;float&gt;</td><td>Aurora intensity</td></tr>
+      <tr><td>fog</td><td>OverridableProperty&lt;float&gt;</td><td>Fog intensity</td></tr>
+      <tr><td>thunder</td><td>OverridableProperty&lt;float&gt;</td><td>Thunder intensity</td></tr>
+      <tr><td>wind</td><td>float2</td><td>Base wind direction (read-only)</td></tr>
+      <tr><td>hail</td><td>float</td><td>Hail intensity</td></tr>
+      <tr><td>rainbow</td><td>float</td><td>Rainbow intensity</td></tr>
+      <tr><td>freezingTemperature</td><td>float</td><td>Temperature threshold for snow vs rain</td></tr>
+      <tr><td>averageTemperature</td><td>float</td><td>Yearly average temperature</td></tr>
+      <tr><td>classification</td><td>WeatherClassification</td><td>Current weather visual category</td></tr>
+      <tr><td>isRaining</td><td>bool</td><td>True if precipitating above freezing</td></tr>
+      <tr><td>isSnowing</td><td>bool</td><td>True if precipitating at or below freezing</td></tr>
+      <tr><td>currentSeasonName</td><td>string</td><td>Name of the current season</td></tr>
+    </tbody>
+  </table>
+
+  <h3>System Update Intervals</h3>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Interval (frames)</th><th>Approx Real Time</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>ClimateSystem</td><td>1 (every frame)</td><td>~16ms</td></tr>
+      <tr><td>SnowSystem</td><td>4</td><td>~67ms</td></tr>
+      <tr><td>WeatherPhenomenonSystem</td><td>16</td><td>~267ms</td></tr>
+      <tr><td>WeatherDamageSystem</td><td>64</td><td>~1.07s</td></tr>
+      <tr><td>WindSystem</td><td>512</td><td>~8.5s</td></tr>
+      <tr><td>WeatherHazardSystem</td><td>2048</td><td>~34s</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>ClimatePrefab curve shapes:</strong> The exact animation curves for the default
+      climates (temperate, tropical, etc.) are baked into prefab assets. Examining them requires
+      loading the game and inspecting the ClimatePrefab in the editor.
+    </li>
+    <li>
+      <strong>Weather effect stacking:</strong> The placeholder selection logic for weather visual
+      effects (m_DefaultWeathers) involves cloudiness-based sorting with season and aurora layers.
+      The exact transition behavior needs in-game testing.
+    </li>
+    <li>
+      <strong>SnowSimSpeed modification:</strong> The property has a public setter, but changing
+      it at runtime could have GPU timing implications that need testing.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.ClimateSystem, WeatherHazardSystem, WeatherPhenomenonSystem, WeatherDamageSystem, SnowSystem, WindSystem, WindSimulationSystem</li>
+    <li>Event components: Game.Events.WeatherPhenomenon, Game.Events.FacingWeather, Game.Events.FaceWeather</li>
+    <li>Prefab types: Game.Prefabs.WeatherPhenomenonData, Game.Prefabs.Climate.ClimatePrefab, ClimateData, SeasonData, WeatherData</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- ClimateSystem, WeatherHazardSystem, WeatherPhenomenonSystem, WeatherDamageSystem, SnowSystem, WindSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

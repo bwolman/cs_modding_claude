@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zoning System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="road-network.html">Road Network</a>
+    <a href="zoning.html" class="active">Zoning</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Zoning System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 manage the zoning lifecycle -- from road placement
+      creating zone blocks, to cells being painted with zone types, to buildings spawning on
+      vacant lots? What are the data structures and systems involved?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Zoning uses a block-and-cell grid system. Each road edge owns
+      <code>Block</code> entities (via <code>SubBlock</code> buffer). Each block contains a flat
+      array of <code>Cell</code> buffer elements. Cells track zone type, flags, and height limits.
+      <code>CellCheckSystem</code> identifies <code>VacantLot</code> entries on blocks.
+      <code>ZoneSpawnSystem</code> evaluates vacant lots against demand, selects a matching
+      building prefab, and creates it. Cell size is 8m x 8m, blocks are max 10 wide x 6 deep.
+      No Harmony patches needed for reading zone state or monitoring spawns.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Zone tool UI rendering, zone ambience/sound systems, and
+      the detailed internals of demand calculation systems. Those are separate topics -- we cover
+      demand only where it feeds into ZoneSpawnSystem.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The zoning system is built on a grid of <strong>blocks</strong> and <strong>cells</strong>.
+    When a road with zoning enabled is placed, <code>BlockSystem</code> creates zone block
+    entities perpendicular to the road on each side. Each block contains a buffer of cells
+    arranged in a grid (width along the road, depth away from the road).
+  </p>
+
+  <h3>Block Creation</h3>
+
+  <p>
+    <code>BlockSystem</code> reacts to road edge changes. For each road edge with the
+    <code>RoadFlags.EnableZoning</code> flag on its composition:
+  </p>
+
+  <ul>
+    <li>Skips elevated roads, tunnels, and sides with Raised/Lowered flags</li>
+    <li>Calculates block width from road width: <code>ceil(roadWidth / 8m)</code></li>
+    <li>Block depth is fixed at <strong>6 cells</strong> (48 meters from the road edge)</li>
+    <li>Long road segments are split into multiple blocks (max ~10 cells wide per block)</li>
+    <li>Each block is linked to its parent road via the <code>SubBlock</code> buffer element</li>
+    <li>Blocks at roundabout intersections are handled separately with curve-based geometry</li>
+  </ul>
+
+  <p>
+    The block's <code>m_Direction</code> field points perpendicular to the road, away from it.
+    The <code>m_Position</code> is the center of the block in world space. The
+    <code>m_Size</code> gives the grid dimensions in cells.
+  </p>
+
+  <h3>Cell State Management</h3>
+
+  <p>
+    Each block has a <code>Cell</code> buffer with up to 60 elements (10 x 6 max). Cells are
+    indexed as <code>cellIndex.y * block.m_Size.x + cellIndex.x</code>. The cell state is
+    managed by <code>CellCheckSystem</code>, which runs multiple jobs:
+  </p>
+
+  <ul>
+    <li><strong>CellBlockJobs.BlockCellsJob</strong>: Checks for obstructions from nets, objects, and terrain. Sets <code>CellFlags.Blocked</code>.</li>
+    <li><strong>CellOccupyJobs.ZoneAndOccupyCellsJob</strong>: Marks cells under existing buildings as <code>CellFlags.Occupied</code>.</li>
+    <li><strong>CellOverlapJobs.CheckBlockOverlapJob</strong>: Handles cells shared between overlapping blocks. Sets <code>CellFlags.Shared</code>.</li>
+    <li><strong>LotSizeJobs.UpdateLotSizeJob</strong>: Finds contiguous groups of visible, unoccupied cells and creates <code>VacantLot</code> entries.</li>
+  </ul>
+
+  <h3>Zone Painting</h3>
+
+  <p>
+    When the player uses the zone tool, <code>ZoneToolSystem</code> paints cells with a zone type.
+    The <code>SetZoneTypeJob</code> sets <code>Cell.m_Zone</code> to the selected zone type and
+    adds the <code>CellFlags.Visible</code> flag. <code>GenerateZonesSystem</code> creates
+    temporary zone definitions, and <code>ApplyZonesSystem</code> applies them.
+  </p>
+
+  <h3>Building Spawning</h3>
+
+  <p>
+    <code>ZoneSpawnSystem</code> runs every 16 frames. It evaluates all <code>VacantLot</code>
+    entries on blocks and selects up to 3 buildings to spawn per update (one per area type:
+    residential, commercial, industrial). The process:
+  </p>
+
+  <ol>
+    <li>Check demand from the relevant demand system (residential, commercial, or industrial)</li>
+    <li>Look up the <code>ZoneData</code> for the lot's zone type to determine area type</li>
+    <li>Search building prefabs matched by <code>BuildingSpawnGroupData.m_ZoneType</code></li>
+    <li>Filter buildings: must be level 1, lot size must fit, height must fit</li>
+    <li>Score each building: lot coverage ratio * demand * zone evaluation score</li>
+    <li>Create a <code>CreationDefinition</code> entity for the winning building</li>
+    <li>The <code>EndFrameBarrier</code> processes the creation in the next frame</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Zones</td>
+        <td>Block, Cell, CellFlags, ZoneType, ValidArea, VacantLot, SubBlock, BuildOrder, CurvePosition, ProcessEstimate, LotFlags, AreaType, ZoneUtils, BlockSystem, CellCheckSystem, SearchSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>ZoneSpawnSystem, ZoneAmbienceSystem, ZoneEvaluationUtils</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>ZoneData, ZonePropertiesData, ZoneFlags, ZoneDensity, ZonePrefabs, ZonePrefab, ZoneBlockData, NetZoneData, ZonePreferenceData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Tools</td>
+        <td>ZoneToolSystem, GenerateZonesSystem, ApplyZonesSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>ZoneCheckSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Block (Game.Zones)</h3>
+
+  <p>The primary zone grid entity. Created by <code>BlockSystem</code> when a road with zoning is placed.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Position</td><td>float3</td><td>World-space center of the block</td></tr>
+      <tr><td>m_Direction</td><td>float2</td><td>Forward direction (perpendicular to road, pointing away)</td></tr>
+      <tr><td>m_Size</td><td>int2</td><td>Width (x, along road) and depth (y, away from road) in cells</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Cell (Game.Zones)</h3>
+
+  <p>
+    Buffer element on Block entities. Capacity 60 (10 x 6 max). Indexed as
+    <code>y * block.m_Size.x + x</code>.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_State</td><td>CellFlags</td><td>Bitfield: Blocked, Visible, Occupied, Shared, Roadside, etc.</td></tr>
+      <tr><td>m_Zone</td><td>ZoneType</td><td>Zone type index (maps to zone prefab via ZonePrefabs)</td></tr>
+      <tr><td>m_Height</td><td>short</td><td>Maximum building height allowed at this cell</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CellFlags (Game.Zones)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>None</td><td>0x0000</td><td>Default state</td></tr>
+      <tr><td>Blocked</td><td>0x0001</td><td>Obstructed by object, net, or terrain</td></tr>
+      <tr><td>Shared</td><td>0x0002</td><td>Overlaps with another block's cell</td></tr>
+      <tr><td>Roadside</td><td>0x0004</td><td>Adjacent to the road edge</td></tr>
+      <tr><td>Visible</td><td>0x0008</td><td>Painted with a zone type (visible to player)</td></tr>
+      <tr><td>Overridden</td><td>0x0010</td><td>Zone type overridden by newer block</td></tr>
+      <tr><td>Occupied</td><td>0x0020</td><td>Building currently occupies this cell</td></tr>
+      <tr><td>Selected</td><td>0x0040</td><td>Selected by zone tool</td></tr>
+      <tr><td>Redundant</td><td>0x0080</td><td>Redundant (covered by another block)</td></tr>
+      <tr><td>Updating</td><td>0x0100</td><td>Being updated this frame</td></tr>
+      <tr><td>RoadLeft</td><td>0x0200</td><td>Road exists to the left</td></tr>
+      <tr><td>RoadRight</td><td>0x0400</td><td>Road exists to the right</td></tr>
+      <tr><td>RoadBack</td><td>0x0800</td><td>Road exists behind</td></tr>
+    </tbody>
+  </table>
+
+  <h3>VacantLot (Game.Zones)</h3>
+
+  <p>
+    Buffer element on Block entities. Represents a contiguous area of visible, unoccupied cells
+    where a building can spawn.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Area</td><td>int4</td><td>Lot bounds within block: (minX, maxX, minY, maxY)</td></tr>
+      <tr><td>m_Type</td><td>ZoneType</td><td>Zone type for this lot</td></tr>
+      <tr><td>m_Height</td><td>short</td><td>Maximum building height</td></tr>
+      <tr><td>m_Flags</td><td>LotFlags</td><td>CornerLeft (1), CornerRight (2)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ZoneData (Game.Prefabs)</h3>
+
+  <p>Per-zone-prefab configuration. Links zone type to area type and behavior flags.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ZoneType</td><td>ZoneType</td><td>Zone type index</td></tr>
+      <tr><td>m_AreaType</td><td>AreaType</td><td>None, Residential, Commercial, Industrial</td></tr>
+      <tr><td>m_ZoneFlags</td><td>ZoneFlags</td><td>SupportNarrow, SupportLeftCorner, SupportRightCorner, Office</td></tr>
+      <tr><td>m_MinOddHeight</td><td>ushort</td><td>Min height for odd-width lots</td></tr>
+      <tr><td>m_MinEvenHeight</td><td>ushort</td><td>Min height for even-width lots</td></tr>
+      <tr><td>m_MaxHeight</td><td>ushort</td><td>Max allowed building height</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ZonePropertiesData (Game.Prefabs)</h3>
+
+  <p>Zone-specific economic and gameplay properties.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ScaleResidentials</td><td>bool</td><td>Scale residential properties by lot size</td></tr>
+      <tr><td>m_ResidentialProperties</td><td>float</td><td>Base residential property count</td></tr>
+      <tr><td>m_SpaceMultiplier</td><td>float</td><td>Space multiplier for commercial/industrial</td></tr>
+      <tr><td>m_AllowedSold</td><td>Resource</td><td>Allowed commercial sale resources</td></tr>
+      <tr><td>m_AllowedManufactured</td><td>Resource</td><td>Allowed industrial manufacturing resources</td></tr>
+      <tr><td>m_AllowedStored</td><td>Resource</td><td>Allowed warehouse storage resources</td></tr>
+      <tr><td>m_FireHazardMultiplier</td><td>float</td><td>Fire hazard multiplier for this zone</td></tr>
+      <tr><td>m_IgnoreLandValue</td><td>bool</td><td>Whether buildings ignore land value</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Key Constants</h3>
+
+  <table>
+    <thead>
+      <tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>CELL_SIZE</td><td>8.0 m</td><td>Width and depth of a single cell</td></tr>
+      <tr><td>CELL_AREA</td><td>64.0 sq m</td><td>Area of a single cell</td></tr>
+      <tr><td>MAX_ZONE_WIDTH</td><td>10 cells</td><td>Maximum block width (along road)</td></tr>
+      <tr><td>MAX_ZONE_DEPTH</td><td>6 cells</td><td>Maximum block depth (away from road, 48m)</td></tr>
+      <tr><td>MAX_ZONE_TYPES</td><td>339</td><td>Maximum number of zone type indices</td></tr>
+      <tr><td>Cell buffer capacity</td><td>60</td><td>InternalBufferCapacity for Cell</td></tr>
+      <tr><td>SubBlock buffer capacity</td><td>4</td><td>InternalBufferCapacity for SubBlock</td></tr>
+      <tr><td>Spawn interval</td><td>16 frames</td><td>ZoneSpawnSystem update interval</td></tr>
+      <tr><td>Spawns per update</td><td>3 max</td><td>One per area type (residential, commercial, industrial)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+[Road Placed / Modified]
+     |
+     v
+BlockSystem.UpdateBlocksJob
+     |-- Checks RoadFlags.EnableZoning on road composition
+     |-- Skips elevated, tunnel, raised/lowered sides
+     |-- Width = ceil(roadWidth / 8m), Depth = 6 cells
+     |-- Creates Block entities with Cell buffers
+     |-- Links blocks to road via SubBlock buffer
+     |
+     v
+[Zone Tool Paints Cells]
+     |-- ZoneToolSystem.SetZoneTypeJob
+     |-- Sets Cell.m_Zone + CellFlags.Visible
+     |
+     v
+CellCheckSystem
+     |-- CellBlockJobs: checks obstructions -&gt; CellFlags.Blocked
+     |-- CellOccupyJobs: marks occupied cells -&gt; CellFlags.Occupied
+     |-- CellOverlapJobs: handles shared cells -&gt; CellFlags.Shared
+     |-- LotSizeJobs: finds contiguous vacant areas
+     |-- Updates ValidArea, populates VacantLot buffer
+     |
+     v
+[VacantLot Buffer on Block Entities]
+     |  m_Area = lot bounds in block coordinates
+     |  m_Type = zone type index
+     |  m_Height = max building height
+     |  m_Flags = corner flags
+     |
+     v
+ZoneSpawnSystem (every 16 frames)
+     |
+     |-- EvaluateSpawnAreas:
+     |   For each VacantLot:
+     |     1. Check demand (Residential / Commercial / Industrial)
+     |     2. Look up ZoneData.m_AreaType
+     |     3. SelectBuilding:
+     |        - Match BuildingSpawnGroupData.m_ZoneType
+     |        - Filter: level==1, lotSize fits, height fits
+     |        - Score: coverage * demand * evaluation
+     |     4. Best location per area type queued
+     |
+     |-- SpawnBuildingJob:
+     |   For best location per area type:
+     |     1. World position from Block + lot area
+     |     2. Create CreationDefinition entity
+     |     3. Create sub-areas and sub-nets
+     |
+     v
+[Building Entity Created]
+     |  Cells marked CellFlags.Occupied
+     |  Building linked to zone via ZoneCheckSystem
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Query Zone Blocks Along a Road</h3>
+
+  <p>
+    Finds all zone blocks owned by a specific road entity and inspects their cell states.
+  </p>
+
+  <pre><code class="language-csharp">public partial class ZoneBlockInspector : GameSystemBase
+{
+    protected override void OnCreate() { base.OnCreate(); }
+    protected override void OnUpdate() { }
+
+    public void InspectRoadZones(Entity roadEntity)
+    {
+        if (!EntityManager.HasBuffer&lt;SubBlock&gt;(roadEntity))
+        {
+            Log.Info("Entity has no zone blocks");
+            return;
+        }
+
+        var subBlocks = EntityManager.GetBuffer&lt;SubBlock&gt;(roadEntity);
+        Log.Info($"Road has {subBlocks.Length} zone blocks");
+
+        for (int i = 0; i &lt; subBlocks.Length; i++)
+        {
+            Entity blockEntity = subBlocks[i].m_SubBlock;
+            if (!EntityManager.Exists(blockEntity)) continue;
+
+            Block block = EntityManager.GetComponentData&lt;Block&gt;(blockEntity);
+            var cells = EntityManager.GetBuffer&lt;Cell&gt;(blockEntity);
+
+            int visible = 0, occupied = 0, blocked = 0;
+            for (int j = 0; j &lt; cells.Length; j++)
+            {
+                if ((cells[j].m_State &amp; CellFlags.Visible) != 0) visible++;
+                if ((cells[j].m_State &amp; CellFlags.Occupied) != 0) occupied++;
+                if ((cells[j].m_State &amp; CellFlags.Blocked) != 0) blocked++;
+            }
+
+            Log.Info($"Block {i}: size={block.m_Size}, " +
+                     $"visible={visible}, occupied={occupied}, blocked={blocked}");
+        }
+    }
+}</code></pre>
+
+  <h3>Count Vacant Lots by Zone Type</h3>
+
+  <p>
+    Iterates all zone blocks with vacant lots and tallies them by area type.
+  </p>
+
+  <pre><code class="language-csharp">public partial class VacantLotCounter : GameSystemBase
+{
+    private EntityQuery m_LotQuery;
+    private ZoneSystem m_ZoneSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_ZoneSystem = World.GetOrCreateSystemManaged&lt;ZoneSystem&gt;();
+        m_LotQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Block&gt;(),
+            ComponentType.ReadOnly&lt;VacantLot&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        ZonePrefabs zonePrefabs = m_ZoneSystem.GetPrefabs();
+        var entities = m_LotQuery.ToEntityArray(Allocator.Temp);
+
+        int residential = 0, commercial = 0, industrial = 0;
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var lots = EntityManager.GetBuffer&lt;VacantLot&gt;(entities[i]);
+            for (int j = 0; j &lt; lots.Length; j++)
+            {
+                Entity zonePrefab = zonePrefabs[lots[j].m_Type];
+                if (EntityManager.HasComponent&lt;ZoneData&gt;(zonePrefab))
+                {
+                    ZoneData zoneData = EntityManager.GetComponentData&lt;ZoneData&gt;(zonePrefab);
+                    switch (zoneData.m_AreaType)
+                    {
+                        case AreaType.Residential: residential++; break;
+                        case AreaType.Commercial: commercial++; break;
+                        case AreaType.Industrial: industrial++; break;
+                    }
+                }
+            }
+        }
+
+        entities.Dispose();
+        Log.Info($"Vacant lots: R={residential}, C={commercial}, I={industrial}");
+    }
+}</code></pre>
+
+  <h3>Get World Position of a Cell</h3>
+
+  <p>
+    Convert block-relative cell coordinates to world position.
+    Cell (0,0) is at the front-right corner (closest to road, rightmost).
+  </p>
+
+  <pre><code class="language-csharp">// Get world position of cell at index (cellX, cellY) within a block:
+float3 cellWorldPos = ZoneUtils.GetCellPosition(block, new int2(cellX, cellY));
+
+// Get cell index from world position:
+int2 cellIndex = ZoneUtils.GetCellIndex(block, worldPosition.xz);
+
+// Validate the index is within bounds:
+bool valid = math.all(cellIndex &gt;= 0) &amp;&amp; math.all(cellIndex &lt; block.m_Size);
+
+// Read the cell data:
+if (valid)
+{
+    var cells = EntityManager.GetBuffer&lt;Cell&gt;(blockEntity);
+    int index = cellIndex.y * block.m_Size.x + cellIndex.x;
+    Cell cell = cells[index];
+    bool isZoned = (cell.m_State &amp; CellFlags.Visible) != 0;
+    bool isOccupied = (cell.m_State &amp; CellFlags.Occupied) != 0;
+}</code></pre>
+
+  <h3>Read Zone Type at a Position</h3>
+
+  <p>
+    Find which zone type (if any) is painted at a given world position by searching
+    zone blocks.
+  </p>
+
+  <pre><code class="language-csharp">public ZoneType GetZoneTypeAt(float3 worldPosition)
+{
+    // Query all blocks (for efficiency, use SearchSystem's quad tree instead)
+    var blocks = m_BlockQuery.ToComponentDataArray&lt;Block&gt;(Allocator.Temp);
+    var entities = m_BlockQuery.ToEntityArray(Allocator.Temp);
+
+    for (int i = 0; i &lt; blocks.Length; i++)
+    {
+        Block block = blocks[i];
+        int2 cellIndex = ZoneUtils.GetCellIndex(block, worldPosition.xz);
+        if (math.all(cellIndex &gt;= 0) &amp;&amp; math.all(cellIndex &lt; block.m_Size))
+        {
+            var cells = EntityManager.GetBuffer&lt;Cell&gt;(entities[i]);
+            int index = cellIndex.y * block.m_Size.x + cellIndex.x;
+            if (index &lt; cells.Length)
+            {
+                Cell cell = cells[index];
+                if ((cell.m_State &amp; CellFlags.Visible) != 0)
+                {
+                    blocks.Dispose();
+                    entities.Dispose();
+                    return cell.m_Zone;
+                }
+            }
+        }
+    }
+
+    blocks.Dispose();
+    entities.Dispose();
+    return ZoneType.None;
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Zone Types</h3>
+
+  <p>
+    Zone types are identified by a <code>ZoneType</code> struct containing a
+    <code>ushort m_Index</code> (up to 339 types). Each index maps to a zone prefab entity
+    via <code>ZonePrefabs[zoneType]</code>. The prefab carries <code>ZoneData</code> and
+    <code>ZonePropertiesData</code>.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>AreaType</th><th>Description</th><th>Demand Source</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Residential</td><td>Housing zones (low/medium/high density)</td><td>ResidentialDemandSystem (per density: low, medium, high)</td></tr>
+      <tr><td>Commercial</td><td>Shops and services</td><td>CommercialDemandSystem (per resource type)</td></tr>
+      <tr><td>Industrial</td><td>Factories, offices, warehouses</td><td>IndustrialDemandSystem (per resource type + storage)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Zone Flags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>SupportNarrow</td><td>1</td><td>Allow narrow (1-wide) buildings. If not set, buildings skip 1-width lots.</td></tr>
+      <tr><td>SupportLeftCorner</td><td>2</td><td>Allow corner buildings on the left side</td></tr>
+      <tr><td>SupportRightCorner</td><td>4</td><td>Allow corner buildings on the right side</td></tr>
+      <tr><td>Office</td><td>8</td><td>Industrial area type but office (no manufacturing)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Zone Density</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Index</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Low</td><td>0</td><td>Low density (houses, small buildings)</td></tr>
+      <tr><td>Medium</td><td>1</td><td>Medium density (row houses, mid-rise)</td></tr>
+      <tr><td>High</td><td>2</td><td>High density (apartments, towers)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Building Selection Factors</h3>
+
+  <p>
+    <code>ZoneSpawnSystem.EvaluateSpawnAreas.SelectBuilding()</code> uses these factors to
+    score and select buildings:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Factor</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Lot coverage ratio</td><td>Buildings that fill more of the lot score higher</td></tr>
+      <tr><td>Demand level</td><td>Higher demand = higher score for matching area type</td></tr>
+      <tr><td>Land value</td><td>Affects residential scoring (cost per property unit)</td></tr>
+      <tr><td>Pollution (ground, air, noise)</td><td>Fed into ZoneEvaluationUtils for evaluation</td></tr>
+      <tr><td>Resource availability</td><td>Commercial/industrial score depends on nearby resources</td></tr>
+      <tr><td>Corner flags</td><td>Corner lot position bonus for buildings with matching access flags</td></tr>
+      <tr><td>Building access direction</td><td>LeftAccess/RightAccess must align with lot orientation</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Patch Points</h2>
+
+  <h3>Candidate 1: ZoneSpawnSystem.OnUpdate()</h3>
+
+  <ul>
+    <li><strong>Signature:</strong> <code>protected override void OnUpdate()</code></li>
+    <li><strong>Patch type:</strong> Prefix (to block spawning) or Postfix</li>
+    <li><strong>What it enables:</strong> Control building spawning -- prevent spawns, force specific buildings, modify demand inputs, redirect spawn locations</li>
+    <li><strong>Risk:</strong> Low -- only affects new building spawns</li>
+  </ul>
+
+  <h3>Candidate 2: BlockSystem.OnUpdate()</h3>
+
+  <ul>
+    <li><strong>Signature:</strong> <code>protected override void OnUpdate()</code></li>
+    <li><strong>Patch type:</strong> Prefix or Postfix</li>
+    <li><strong>What it enables:</strong> Intercept zone block creation/deletion, modify block sizes, prevent blocks for specific roads</li>
+    <li><strong>Risk:</strong> Medium -- affects the fundamental zone grid structure</li>
+  </ul>
+
+  <h3>Candidate 3: CellCheckSystem.OnUpdate()</h3>
+
+  <ul>
+    <li><strong>Signature:</strong> <code>protected override void OnUpdate()</code></li>
+    <li><strong>Patch type:</strong> Prefix or Postfix</li>
+    <li><strong>What it enables:</strong> Modify cell validity, override blocked/occupied status, force vacant lots</li>
+    <li><strong>Risk:</strong> Medium -- cell state drives the spawn pipeline</li>
+  </ul>
+
+  <h3>Candidate 4: ZoneCheckSystem.OnUpdate()</h3>
+
+  <ul>
+    <li><strong>Signature:</strong> <code>protected override void OnUpdate()</code></li>
+    <li><strong>Patch type:</strong> Prefix or Postfix</li>
+    <li><strong>What it enables:</strong> Control building-zone compatibility checks, prevent demolition when zones change</li>
+    <li><strong>Risk:</strong> Low -- only affects compatibility checks on existing buildings</li>
+  </ul>
+
+  <h3>Alternative: ECS System Approach (No Harmony)</h3>
+
+  <p>
+    A custom <code>GameSystemBase</code> can query <code>Block</code>, <code>Cell</code>,
+    <code>VacantLot</code>, and <code>ZoneData</code> directly. This is sufficient for:
+    reading zone state, monitoring spawns, counting lots, and creating
+    <code>CreationDefinition</code> entities to spawn buildings. No Harmony patches needed
+    for read-only operations.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Zone search tree internals:</strong> <code>Game.Zones.SearchSystem</code> uses a
+      <code>NativeQuadTree&lt;Entity, Bounds2&gt;</code> but the rebuild frequency and spatial
+      granularity were not fully traced.
+    </li>
+    <li>
+      <strong>Block splitting algorithm:</strong> When <code>BlockSystem</code> divides long road
+      edges into multiple blocks, the exact split logic (involving <code>TryOption()</code> with
+      width combinations of 2 and 3) was not fully analyzed.
+    </li>
+    <li>
+      <strong>Zone compatibility demolition:</strong> How <code>ZoneCheckSystem</code> decides
+      when to demolish vs. flag buildings on zone type changes was not fully decompiled.
+    </li>
+    <li>
+      <strong>Zone type names:</strong> The actual zone prefab names (Low Density Residential,
+      etc.) are in game data files, not code. The code only works with numeric
+      <code>ZoneType.m_Index</code> values.
+    </li>
+    <li>
+      <strong>ZoneEvaluationUtils.GetScore():</strong> The full scoring formula considering
+      pollution, resources, land value, and preferences was not fully traced.
+    </li>
+    <li>
+      <strong>BuildingSpawnGroupData:</strong> How this shared component groups building prefabs
+      by zone type (chunk-level partitioning) was not fully investigated.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- Game.Zones.BlockSystem, Game.Zones.CellCheckSystem, Game.Simulation.ZoneSpawnSystem, Game.Zones.ZoneUtils, Game.Prefabs.ZoneData, Game.Prefabs.ZonePropertiesData.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

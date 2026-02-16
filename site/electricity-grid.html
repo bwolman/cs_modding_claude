@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Electricity Grid - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="top-bar">
+    <a href="index.html" class="site-title">CS2 Modding Research</a>
+    <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+  </div>
+
+  <div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html" class="active">Electricity Grid</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+    <main class="content">
+    <h1>Electricity Grid</h1>
+
+    <div class="scope">
+      <p><strong>Goal:</strong> Understand how electricity flows through the building/road graph in CS2 -- how power plants produce, how consumers draw, how batteries store, and how the max-flow solver distributes electricity across the grid.</p>
+      <p><strong>Use cases:</strong> Custom power sources, consumption modifiers, battery behavior changes, blackout mechanics, grid monitoring tools.</p>
+      <p><strong>Not covered:</strong> Water/sewage pipe systems (separate graph), heating, UI infoview rendering. This focuses on the simulation-side electricity graph.</p>
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>How It Works</h2>
+
+    <p>CS2 models its electricity grid as a <strong>max-flow graph</strong>. Every power plant, consumer building, battery, road segment, and power line is represented as nodes and edges in this graph. A global <strong>source node</strong> feeds all producers, and a global <strong>sink node</strong> receives all consumption. The system solves for maximum flow from source to sink every 128 simulation frames (one electricity cycle).</p>
+
+    <p>The key insight: electricity is not routed building-to-building. Instead, the entire grid is solved simultaneously using a max-flow algorithm. Each producer edge has a capacity equal to the plant's current output. Each consumer edge has a capacity equal to the building's wanted consumption. The solver finds the optimal flow through all edges, respecting capacity constraints and identifying bottlenecks.</p>
+
+    <h3>The 128-Frame Cycle</h3>
+
+    <p>The electricity system operates on a strict 128-frame cycle, synchronized via <code>SimulationSystem.frameIndex % 128</code>. Each cycle has distinct phases:</p>
+
+    <div class="diagram"><pre>Frame 0:     AdjustElectricityConsumptionSystem
+             - Calculates wanted consumption for each building
+             - Factors: base consumption, temperature, fees, occupancy, district modifiers
+             PowerPlantAISystem
+             - Updates production capacity based on fuel, wind, sun, water flow
+             BatteryAISystem
+             - Updates charge/discharge edge capacities based on stored energy
+
+Frame 1:     ElectricityFlowSystem -- PREPARE
+             - Builds solver arrays from ECS component data
+             - Assigns indices to all flow nodes and edges
+             - Identifies charge nodes, discharge nodes, trade nodes
+
+Frame 2-125: ElectricityFlowSystem -- FLOW
+             - Runs max-flow solver iteratively (124 frames)
+             - Uses layered labeling with height = 20
+             - Converges toward optimal flow distribution
+
+Frame 125:   Final flow iteration (m_FinalFrame = true)
+
+Frame 126:   ElectricityFlowSystem -- APPLY
+             - Writes solved flow values back to ElectricityFlowEdge components
+             - Sets bottleneck/disconnected flags on edges
+             DispatchElectricitySystem
+             - Distributes flow results to ElectricityConsumer components
+             - Sets Connected flag, manages cooldown warnings
+
+Frame 127:   ElectricityStatusSystem
+             - Generates notification icons for disconnected/bottleneck edges</pre></div>
+
+    <h3>Building Connection Architecture</h3>
+
+    <p>When a building with electricity components is created or updated, <code>ElectricityBuildingGraphSystem</code> creates the necessary flow graph structure. Each building can have up to five internal nodes connected through a valve node to the wider grid:</p>
+
+    <div class="diagram"><pre>                    ELECTRICITY GRAPH TOPOLOGY
+                    ==========================
+
+    SourceNode (global)                         SinkNode (global)
+        |                                             ^
+        | ProducerEdge                                | ConsumerEdge
+        | (capacity = plant output)                   | (capacity = wanted)
+        v                                             |
+    [ProducerNode] --+--> [ValveNode] --> [ConsumerNode]
+                     |        ^
+                     |        |
+    SourceNode ------+   MarkerNode (building subnet)
+        |                     |
+        | DischargeEdge  ElectricityNodeConnection
+        v                     |
+    [DischargeNode] --> [ValveNode] --> [ChargeNode]
+                                            |
+                                            | ChargeEdge
+                                            v
+                                       SinkNode (global)
+
+    CONNECTION TO WIDER GRID:
+    MarkerNode <---> [Road EdgeNode] <---> [Other MarkerNode]
+                 ElectricityConnectionData
+                 (capacity, direction, voltage)</pre></div>
+
+    <p>Buildings without a direct <code>ElectricityBuildingConnection</code> (typically low-voltage consumers like houses) get electricity proportionally from their road edge. The <code>DispatchElectricitySystem</code> reads the road edge's flow ratio and scales consumption accordingly.</p>
+
+    <!-- ============================================================ -->
+    <h2>Key Components</h2>
+
+    <h3>ElectricityConsumer</h3>
+    <p>Namespace: <code>Game.Buildings</code>. Attached to every building that consumes electricity.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_WantedConsumption</code></td><td><code>int</code></td><td>Desired consumption (set by AdjustElectricityConsumptionSystem)</td></tr>
+      <tr><td><code>m_FulfilledConsumption</code></td><td><code>int</code></td><td>Actual consumption received (set by DispatchElectricitySystem)</td></tr>
+      <tr><td><code>m_CooldownCounter</code></td><td><code>short</code></td><td>Frames of unmet demand; triggers warning at threshold 2</td></tr>
+      <tr><td><code>m_Flags</code></td><td><code>ElectricityConsumerFlags</code></td><td>Connected (1), NoElectricityWarning (2), BottleneckWarning (4)</td></tr>
+    </table>
+
+    <h3>ElectricityProducer</h3>
+    <p>Namespace: <code>Game.Buildings</code>. Attached to power plants.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Capacity</code></td><td><code>int</code></td><td>Current production capacity (updated each cycle by PowerPlantAISystem)</td></tr>
+      <tr><td><code>m_LastProduction</code></td><td><code>int</code></td><td>Actual flow delivered in the last solve cycle</td></tr>
+    </table>
+
+    <h3>Battery</h3>
+    <p>Namespace: <code>Game.Buildings</code>. Attached to energy storage buildings.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_StoredEnergy</code></td><td><code>long</code></td><td>Current energy in simulation ticks</td></tr>
+      <tr><td><code>m_Capacity</code></td><td><code>int</code></td><td>Max capacity from BatteryData</td></tr>
+      <tr><td><code>m_LastFlow</code></td><td><code>int</code></td><td>Net flow last cycle (positive = charging)</td></tr>
+      <tr><td><code>storedEnergyHours</code></td><td><code>int</code> (property)</td><td><code>m_StoredEnergy / 85</code> (kUpdatesPerHour)</td></tr>
+    </table>
+
+    <h3>ElectricityFlowEdge</h3>
+    <p>Namespace: <code>Game.Simulation</code>. An edge in the flow graph carrying capacity and solved flow.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Index</code></td><td><code>int</code></td><td>Index into the solver's native edge array</td></tr>
+      <tr><td><code>m_Start</code></td><td><code>Entity</code></td><td>Start node entity</td></tr>
+      <tr><td><code>m_End</code></td><td><code>Entity</code></td><td>End node entity</td></tr>
+      <tr><td><code>m_Capacity</code></td><td><code>int</code></td><td>Maximum flow capacity</td></tr>
+      <tr><td><code>m_Flow</code></td><td><code>int</code></td><td>Actual flow after solving</td></tr>
+      <tr><td><code>m_Flags</code></td><td><code>ElectricityFlowEdgeFlags</code></td><td>Direction, Bottleneck (4), BeyondBottleneck (8), Disconnected (16)</td></tr>
+    </table>
+
+    <h3>ElectricityBuildingConnection</h3>
+    <p>Namespace: <code>Game.Simulation</code>. Links a building to its flow graph nodes. One per connected building.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_TransformerNode</code></td><td><code>Entity</code></td><td>Transformer flow node (if building is a transformer)</td></tr>
+      <tr><td><code>m_ProducerEdge</code></td><td><code>Entity</code></td><td>Edge from global source to producer node</td></tr>
+      <tr><td><code>m_ConsumerEdge</code></td><td><code>Entity</code></td><td>Edge from consumer node to global sink</td></tr>
+      <tr><td><code>m_ChargeEdge</code></td><td><code>Entity</code></td><td>Battery charge edge (charge node to sink)</td></tr>
+      <tr><td><code>m_DischargeEdge</code></td><td><code>Entity</code></td><td>Battery discharge edge (source to discharge node)</td></tr>
+    </table>
+
+    <h3>ElectricityNodeConnection</h3>
+    <p>Namespace: <code>Game.Simulation</code>. Links a net node (road/power line endpoint) to the electricity graph.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_ElectricityNode</code></td><td><code>Entity</code></td><td>The ElectricityFlowNode entity for this net node</td></tr>
+    </table>
+
+    <h3>ElectricityFlowNode</h3>
+    <p>Namespace: <code>Game.Simulation</code>. A node in the flow graph.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Index</code></td><td><code>int</code></td><td>Index into the solver's native node array (assigned during Prepare phase)</td></tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <h2>Data Flow</h2>
+
+    <h3>Production Capacity Calculation</h3>
+
+    <p><code>PowerPlantAISystem</code> runs at frame offset 0 and calculates each plant's capacity from its prefab data and environmental conditions:</p>
+
+    <div class="diagram"><pre>Production Source     Formula
+----------------     -------
+Base (coal/gas/etc)  efficiency * m_ElectricityProduction  (if resources available)
+Wind                 efficiency * m_Production * saturate(pow(windSq / maxWindSq, 1.5))
+Solar                efficiency * m_Production * sunLight * (1 - cloudiness * penalty)
+Water (hydro)        flowRate * heightDiff * productionFactor  (capped by capacity)
+Ground water         efficiency * m_Production * (groundWater / maxGroundWater)
+Garbage              clamp(processingRate / productionPerUnit, 0, capacity)
+
+Total capacity is written to both ElectricityProducer.m_Capacity
+and the producer edge's m_Capacity.</pre></div>
+
+    <h3>Consumption Calculation</h3>
+
+    <p><code>AdjustElectricityConsumptionSystem</code> calculates wanted consumption with multiple multipliers:</p>
+
+    <div class="diagram"><pre>wantedConsumption = ConsumptionData.m_ElectricityConsumption
+                  * temperatureMultiplier    (from AnimationCurve)
+                  * feeMultiplier            (higher fees = less consumption)
+                  * districtModifier         (EnergyConsumptionAwareness)
+                  * occupancyMultiplier      (scales by renters/employees)
+
+If building is inactive: wantedConsumption /= 10
+Minimum: 1 (if base consumption &gt; 0)</pre></div>
+
+    <h3>Battery Charge/Discharge</h3>
+
+    <p><code>BatteryAISystem</code> manages stored energy and sets edge capacities:</p>
+
+    <div class="diagram"><pre>netFlow = chargeEdge.m_Flow - dischargeEdge.m_Flow
+storedEnergy = clamp(storedEnergy + netFlow, 0, capacityTicks)
+
+Discharge capacity = min(m_PowerOutput, storedEnergy)     // can only output what's stored
+Charge capacity    = min(efficiency * m_PowerOutput,       // limited by output rate
+                         capacityTicks - storedEnergy)     // and remaining space
+
+capacityTicks = 85 * m_Capacity  (kUpdatesPerHour = 85)</pre></div>
+
+    <!-- ============================================================ -->
+    <h2>Examples</h2>
+
+    <h3>Query All Unpowered Buildings</h3>
+
+    <pre><code class="language-csharp">// In a GameSystemBase.OnUpdate:
+EntityQuery query = GetEntityQuery(
+    ComponentType.ReadOnly&lt;ElectricityConsumer&gt;(),
+    ComponentType.ReadOnly&lt;Building&gt;(),
+    ComponentType.Exclude&lt;Deleted&gt;(),
+    ComponentType.Exclude&lt;Temp&gt;()
+);
+
+NativeArray&lt;ElectricityConsumer&gt; consumers =
+    query.ToComponentDataArray&lt;ElectricityConsumer&gt;(Allocator.TempJob);
+NativeArray&lt;Entity&gt; entities =
+    query.ToEntityArray(Allocator.TempJob);
+
+for (int i = 0; i &lt; consumers.Length; i++)
+{
+    if (!consumers[i].electricityConnected &amp;&amp;
+        consumers[i].m_WantedConsumption &gt; 0)
+    {
+        Log.Info($"Building {entities[i]} has no power! " +
+            $"Wants: {consumers[i].m_WantedConsumption}, " +
+            $"Gets: {consumers[i].m_FulfilledConsumption}");
+    }
+}
+
+consumers.Dispose();
+entities.Dispose();</code></pre>
+
+    <h3>Read Total Production and Consumption</h3>
+
+    <pre><code class="language-csharp">EntityQuery producerQuery = GetEntityQuery(
+    ComponentType.ReadOnly&lt;ElectricityProducer&gt;(),
+    ComponentType.Exclude&lt;Deleted&gt;(),
+    ComponentType.Exclude&lt;Temp&gt;()
+);
+
+NativeArray&lt;ElectricityProducer&gt; producers =
+    producerQuery.ToComponentDataArray&lt;ElectricityProducer&gt;(Allocator.TempJob);
+
+int totalCapacity = 0;
+int totalProduction = 0;
+for (int i = 0; i &lt; producers.Length; i++)
+{
+    totalCapacity += producers[i].m_Capacity;
+    totalProduction += producers[i].m_LastProduction;
+}
+producers.Dispose();
+
+Log.Info($"Grid: {totalProduction}/{totalCapacity} capacity utilized");</code></pre>
+
+    <h3>Check Battery Charge Levels</h3>
+
+    <pre><code class="language-csharp">EntityQuery batteryQuery = GetEntityQuery(
+    ComponentType.ReadOnly&lt;Battery&gt;(),
+    ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+    ComponentType.Exclude&lt;Deleted&gt;(),
+    ComponentType.Exclude&lt;Temp&gt;()
+);
+
+NativeArray&lt;Battery&gt; batteries =
+    batteryQuery.ToComponentDataArray&lt;Battery&gt;(Allocator.TempJob);
+
+for (int i = 0; i &lt; batteries.Length; i++)
+{
+    float chargePercent = (float)batteries[i].m_StoredEnergy /
+        (85L * batteries[i].m_Capacity) * 100f;
+    Log.Info($"Battery {i}: {chargePercent:F1}% charged, " +
+        $"flow: {batteries[i].m_LastFlow}");
+}
+batteries.Dispose();</code></pre>
+
+    <h3>Create a Flow Edge Programmatically</h3>
+
+    <pre><code class="language-csharp">// Using ElectricityGraphUtils to add a flow edge between two nodes
+ElectricityFlowSystem flowSystem =
+    World.GetOrCreateSystemManaged&lt;ElectricityFlowSystem&gt;();
+
+Entity newEdge = ElectricityGraphUtils.CreateFlowEdge(
+    EntityManager,
+    flowSystem.edgeArchetype,
+    startNode,           // Entity: start flow node
+    endNode,             // Entity: end flow node
+    FlowDirection.Both,  // Allow flow in both directions
+    1000                 // Capacity
+);</code></pre>
+
+    <h3>Patch PowerPlantAISystem for Custom Production</h3>
+
+    <pre><code class="language-csharp">[HarmonyPatch(typeof(PowerPlantAISystem), "OnUpdate")]
+public static class CustomProductionPatch
+{
+    public static void Postfix(PowerPlantAISystem __instance)
+    {
+        // After the system updates, you can read/modify
+        // ElectricityProducer components on specific entities.
+        // Example: double solar output at night for a "moonlight panel" mod
+    }
+}</code></pre>
+
+    <!-- ============================================================ -->
+    <h2>Configuration</h2>
+
+    <h3>Prefab Data Structs</h3>
+
+    <table>
+      <tr><th>Struct</th><th>Key Fields</th><th>Purpose</th></tr>
+      <tr>
+        <td><code>PowerPlantData</code></td>
+        <td><code>m_ElectricityProduction</code> (int)</td>
+        <td>Base electricity output for conventional plants</td>
+      </tr>
+      <tr>
+        <td><code>BatteryData</code></td>
+        <td><code>m_Capacity</code> (int), <code>m_PowerOutput</code> (int)</td>
+        <td>Storage capacity (in electricity-hours) and max charge/discharge rate</td>
+      </tr>
+      <tr>
+        <td><code>WindPoweredData</code></td>
+        <td><code>m_Production</code> (int), <code>m_MaximumWind</code> (float)</td>
+        <td>Max output and wind speed for 100% production</td>
+      </tr>
+      <tr>
+        <td><code>SolarPoweredData</code></td>
+        <td><code>m_Production</code> (int)</td>
+        <td>Max output at full sunlight</td>
+      </tr>
+      <tr>
+        <td><code>ElectricityConnectionData</code></td>
+        <td><code>m_Capacity</code> (int), <code>m_Direction</code>, <code>m_Voltage</code></td>
+        <td>Connection point on buildings/nets. Voltage: Low (0) or High (1)</td>
+      </tr>
+    </table>
+
+    <h3>ElectricityParameterData (Singleton)</h3>
+
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_TemperatureConsumptionMultiplier</code></td><td><code>AnimationCurve1</code></td><td>Maps temperature to consumption multiplier</td></tr>
+      <tr><td><code>m_CloudinessSolarPenalty</code></td><td><code>float</code></td><td>Solar output reduction from cloud cover (0-1)</td></tr>
+      <tr><td><code>m_InitialBatteryCharge</code></td><td><code>float</code></td><td>Starting charge fraction for new batteries</td></tr>
+    </table>
+
+    <h3>Key Constants</h3>
+
+    <table>
+      <tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+      <tr><td><code>kUpdateInterval</code></td><td>128</td><td>Frames per electricity cycle</td></tr>
+      <tr><td><code>kUpdatesPerDay</code></td><td>2048</td><td>Electricity updates per game day</td></tr>
+      <tr><td><code>kUpdatesPerHour</code></td><td>85</td><td>Electricity updates per game hour</td></tr>
+      <tr><td><code>kMaxEdgeCapacity</code></td><td>1073741823</td><td>Max capacity for internal edges (effectively unlimited)</td></tr>
+      <tr><td><code>kAlertCooldown</code></td><td>2</td><td>Frames of unmet demand before warning appears</td></tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <h2>Patch Points</h2>
+
+    <table>
+      <tr><th>Method</th><th>Use Case</th><th>Notes</th></tr>
+      <tr>
+        <td><code>PowerPlantAISystem.OnUpdate</code></td>
+        <td>Custom production logic, weather effects, new renewable types</td>
+        <td>Runs at frame offset 0. Burst jobs inside -- patch the managed OnUpdate method.</td>
+      </tr>
+      <tr>
+        <td><code>BatteryAISystem.OnUpdate</code></td>
+        <td>Custom charge/discharge curves, degradation mechanics</td>
+        <td>Runs at frame offset 0. Modifies charge/discharge edge capacities.</td>
+      </tr>
+      <tr>
+        <td><code>AdjustElectricityConsumptionSystem.OnUpdate</code></td>
+        <td>Consumption multipliers, time-of-day pricing, custom demand</td>
+        <td>Uses temperature curve and fee multiplier. Patch to inject custom multipliers.</td>
+      </tr>
+      <tr>
+        <td><code>DispatchElectricitySystem.OnUpdate</code></td>
+        <td>Priority consumers, blackout mechanics, custom distribution</td>
+        <td>Runs at frame 126. Sets Connected flag and building efficiency.</td>
+      </tr>
+      <tr>
+        <td><code>ElectricityBuildingGraphSystem.OnUpdate</code></td>
+        <td>Custom connection types, wireless power</td>
+        <td>Creates/updates graph topology when buildings change.</td>
+      </tr>
+      <tr>
+        <td><code>ElectricityGraphUtils.CreateFlowEdge</code> (static)</td>
+        <td>Custom capacity rules, logging edge creation</td>
+        <td>Multiple overloads (EntityManager, EntityCommandBuffer, ParallelWriter).</td>
+      </tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <h2>Open Questions</h2>
+
+    <ul>
+      <li><strong>Flow solver algorithm:</strong> The <code>ElectricityFlowJob</code> uses a max-flow algorithm with layered labeling (height 20) inside <code>Game.Simulation.Flow</code>. The exact algorithm variant (Dinic's, push-relabel, etc.) and convergence guarantees within 124 frames need further investigation.</li>
+      <li><strong>Trade node mechanics:</strong> <code>ElectricityTradeSystem</code> handles import/export via <code>TradeNode</code> components on outside connections. The pricing model and capacity limits for inter-city trade are not fully documented.</li>
+      <li><strong>Valve node purpose:</strong> <code>ElectricityValveConnection</code> creates an intermediate node between marker and building nodes. Whether this serves purely as a capacity limiter or also as a disconnection point needs clarification.</li>
+      <li><strong>Low-voltage vs high-voltage paths:</strong> <code>ElectricityConnection.Voltage</code> distinguishes Low and High. Buildings without direct <code>ElectricityBuildingConnection</code> get power proportionally from road edges -- this appears to be the low-voltage distribution path, but the exact routing rules need confirmation.</li>
+      <li><strong>Emergency generator thresholds:</strong> <code>EmergencyGeneratorData.m_ActivationThreshold</code> (Bounds1) controls when generators kick in. Typical values from game prefabs are not yet extracted.</li>
+    </ul>
+
+    <!-- ============================================================ -->
+    <footer>
+      <p>Source: Decompiled from <code>Game.dll</code> using ilspycmd v9.1. Types: ElectricityConsumer, ElectricityProducer, Battery, ElectricityFlowEdge, ElectricityFlowNode, ElectricityBuildingConnection, ElectricityNodeConnection, ElectricityValveConnection, ElectricityFlowSystem, PowerPlantAISystem, BatteryAISystem, AdjustElectricityConsumptionSystem, DispatchElectricitySystem, ElectricityBuildingGraphSystem, ElectricityGraphUtils, PowerPlantData, BatteryData, WindPoweredData, SolarPoweredData, ElectricityParameterData, ElectricityConnectionData.</p>
+    </footer>
+
+    </main>
+  </div>
+</body>
+</html>

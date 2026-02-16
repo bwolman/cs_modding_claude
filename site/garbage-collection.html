@@ -1,0 +1,562 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Garbage Collection System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html" class="active">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Garbage Collection System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 handle garbage accumulation at buildings,
+      dispatch garbage trucks, collect garbage along routes, and process it at landfills
+      and incinerators?
+    </p>
+    <p>
+      <strong>Verdict:</strong> The garbage system is a four-stage ECS pipeline:
+      (1) <code>GarbageAccumulationSystem</code> adds garbage to buildings 16 times per
+      game day based on consumption rates, education, and modifiers;
+      (2) buildings exceeding the request threshold create <code>GarbageCollectionRequest</code>
+      entities;
+      (3) <code>GarbageCollectorDispatchSystem</code> pathfinds and assigns trucks;
+      (4) <code>GarbageTruckAISystem</code> drives routes collecting from all buildings along
+      sidewalks, then unloads at the facility where
+      <code>GarbageFacilityAISystem</code> processes garbage and produces resources.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> The garbage infoview UI system, prefab initialization
+      pipeline, and detailed inter-facility transfer dispatch logic.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <h3>Stage 1: Garbage Accumulation</h3>
+
+  <p>
+    <code>GarbageAccumulationSystem</code> runs <strong>16 times per game day</strong>
+    (update interval = <code>262144 / (16 * 16) = 1024</code> frames). Each tick, every
+    building with a <code>GarbageProducer</code> component gains garbage based on its
+    <code>ConsumptionData.m_GarbageAccumulation</code> value.
+  </p>
+
+  <p>The accumulation formula considers multiple factors:</p>
+
+  <pre><code class="language-csharp">// Simplified from GarbageAccumulationSystem.GetGarbageAccumulation()
+float baseRate = consumption.m_GarbageAccumulation;
+
+// Education and building level reduce the rate
+float adjustedRate;
+if (citizenCount &gt; 0)
+{
+    adjustedRate = max(0, baseRate
+        - (buildingLevel * BuildingLevelBalance
+        + avgEducation * EducationBalance))
+        * citizenCount;
+}
+else
+{
+    adjustedRate = baseRate - buildingLevel * BuildingLevelBalance;
+}
+
+// Homeless citizens produce extra garbage
+adjustedRate += HomelessGarbageProduce * homelessCount;
+
+// District and city modifiers
+ApplyModifier(ref adjustedRate, districtModifiers, DistrictModifierType.GarbageProduction);
+if (isIndustrial &amp;&amp; !isOffice)
+    ApplyModifier(ref adjustedRate, cityModifiers, CityModifierType.IndustrialGarbage);
+
+// Per-tick amount (divided by 16 updates/day, rounded randomly)
+int garbagePerTick = RoundToIntRandom(adjustedRate / kUpdatesPerDay);</code></pre>
+
+  <p>
+    Garbage is capped at <code>GarbageParameterData.m_MaxGarbageAccumulation</code>. When
+    garbage exceeds the warning limit, building efficiency decreases linearly:
+  </p>
+
+  <pre><code class="language-csharp">// Efficiency penalty from garbage
+float factor = saturate(
+    (garbage - WarningGarbageLimit) /
+    (MaxGarbageAccumulation - WarningGarbageLimit));
+float efficiency = 1.0f - GarbagePenalty * factor;</code></pre>
+
+  <h3>Stage 2: Collection Request Creation</h3>
+
+  <p>
+    When a building's garbage exceeds <code>m_RequestGarbageLimit</code>, the accumulation
+    system creates a <code>GarbageCollectionRequest</code> entity:
+  </p>
+
+  <pre><code class="language-csharp">// From GarbageAccumulationSystem.RequestCollectionIfNeeded()
+if (garbage.m_Garbage &gt; m_GarbageParameters.m_RequestGarbageLimit
+    &amp;&amp; !validExistingRequest)
+{
+    garbage.m_CollectionRequest = Entity.Null;
+    garbage.m_DispatchIndex = 0;
+    Entity e = CommandBuffer.CreateEntity(m_CollectionRequestArchetype);
+    CommandBuffer.SetComponent(e, new GarbageCollectionRequest(
+        entity, garbage.m_Garbage, flags));
+    CommandBuffer.SetComponent(e, new RequestGroup(32u));
+}</code></pre>
+
+  <p>
+    Industrial zone buildings set the <code>IndustrialWaste</code> flag. When garbage
+    exceeds <code>m_WarningGarbageLimit</code>, a notification icon is added to the building.
+  </p>
+
+  <h3>Stage 3: Dispatch</h3>
+
+  <p>
+    <code>GarbageCollectorDispatchSystem</code> runs every <strong>16 frames</strong> and
+    follows the standard CS2 service dispatch pattern:
+  </p>
+
+  <ol>
+    <li>Validate the request: target building still has garbage above the request limit.</li>
+    <li>Pathfind from <code>SetupTargetType.GarbageCollector</code> (any available truck/facility)
+        to the target building location.</li>
+    <li>On success, enqueue a <code>VehicleDispatch</code> adding the request to the source
+        facility's <code>ServiceDispatch</code> buffer.</li>
+    <li>On failure, increment <code>m_DispatchIndex</code> and retry on the next cycle.</li>
+  </ol>
+
+  <p>
+    Both facilities and trucks can also create <strong>reverse requests</strong>
+    (<code>ServiceRequestFlags.Reversed</code>) to proactively seek out buildings needing
+    collection. This pathfinds from the truck/facility to a
+    <code>SetupTargetType.GarbageCollectorRequest</code>.
+  </p>
+
+  <h3>Stage 4: Collection and Processing</h3>
+
+  <p>
+    <code>GarbageTruckAISystem</code> is the most complex system (~1500 lines). Key behaviors:
+  </p>
+
+  <ul>
+    <li>
+      <strong>Route-based collection:</strong> Trucks do not just go to the target building.
+      They collect from <em>all buildings along their driving route</em> that have sidewalks.
+      For each road segment, the system finds connected buildings via
+      <code>ConnectedBuilding</code> buffers and collects if garbage exceeds
+      <code>m_CollectionGarbageLimit</code>.
+    </li>
+    <li>
+      <strong>Waypoint stops:</strong> Path elements marked with <code>CarLaneFlags.Waypoint</code>
+      indicate collection stops. The truck verifies garbage presence before stopping via
+      <code>CheckGarbagePresence()</code>.
+    </li>
+    <li>
+      <strong>Capacity management:</strong> When
+      <code>m_Garbage &gt;= GarbageTruckData.m_GarbageCapacity</code> or the truck is disabled,
+      it returns to the depot. The <code>EstimatedFull</code> flag prevents accepting new
+      dispatches when the estimated load would exceed capacity.
+    </li>
+    <li>
+      <strong>Unloading:</strong> At the facility, garbage is unloaded at
+      <code>GarbageTruckData.m_UnloadRate</code> per game-second. The garbage is added to
+      the facility's <code>Resource.Garbage</code> economy buffer.
+    </li>
+    <li>
+      <strong>Industrial waste:</strong> Trucks from industrial-waste-only facilities
+      (<code>GarbageTruckFlags.IndustrialWasteOnly</code>) only collect from industrial zone
+      buildings.
+    </li>
+  </ul>
+
+  <p>
+    <code>GarbageFacilityAISystem</code> runs every <strong>256 frames</strong> and handles
+    the facility side:
+  </p>
+
+  <ul>
+    <li>
+      <strong>Processing:</strong> Garbage is consumed at <code>ProcessingSpeed / 1024</code>
+      units per tick, scaled by building efficiency and a fill-level factor:
+      <code>0.1 + garbageAmount * 1.8 / garbageCapacity</code>.
+    </li>
+    <li>
+      <strong>Resource production:</strong> Incinerators produce resources (e.g., electricity)
+      via <code>ResourceProductionData</code> buffers proportional to the processing rate.
+    </li>
+    <li>
+      <strong>Landfill storage areas:</strong> Facilities with <code>SubArea</code> storage
+      distribute garbage between internal and area storage to maintain processing reserves.
+    </li>
+    <li>
+      <strong>Inter-facility transfers:</strong> Facilities create
+      <code>GarbageTransferRequest</code> entities to send or receive garbage via delivery
+      trucks, enabling garbage flow from landfills to incinerators.
+    </li>
+    <li>
+      <strong>Fleet management:</strong> Vehicles are enabled/disabled based on available
+      capacity and space. Excess parked vehicles are deleted.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>GarbageAccumulationSystem, GarbageCollectorDispatchSystem, GarbageTruckAISystem, GarbageFacilityAISystem, GarbageTransferDispatchSystem, GarbageCollectionRequest, GarbageTransferRequest, GarbagePathfindSetup</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>GarbageProducer, GarbageFacility, GarbageProducerFlags, GarbageFacilityFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Vehicles</td>
+        <td>GarbageTruck, GarbageTruckFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>GarbageParameterData, GarbageFacilityData, GarbageTruckData, GarbagePoweredData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>GarbageProducer (Game.Buildings)</h3>
+
+  <p>Attached to every building that produces garbage.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_CollectionRequest</td><td>Entity</td><td>Reference to active collection request entity</td></tr>
+      <tr><td>m_Garbage</td><td>int</td><td>Current accumulated garbage amount</td></tr>
+      <tr><td>m_Flags</td><td>GarbageProducerFlags</td><td>Warning state (GarbagePilingUpWarning)</td></tr>
+      <tr><td>m_DispatchIndex</td><td>byte</td><td>Dispatch tracking index</td></tr>
+    </tbody>
+  </table>
+
+  <h3>GarbageCollectionRequest (Game.Simulation)</h3>
+
+  <p>Service request entity created when a building needs garbage pickup.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Target</td><td>Entity</td><td>The building requesting collection</td></tr>
+      <tr><td>m_Priority</td><td>int</td><td>Priority (set to current garbage amount)</td></tr>
+      <tr><td>m_Flags</td><td>GarbageCollectionRequestFlags</td><td>IndustrialWaste flag for industrial zones</td></tr>
+      <tr><td>m_DispatchIndex</td><td>byte</td><td>Incremented on each dispatch attempt</td></tr>
+    </tbody>
+  </table>
+
+  <h3>GarbageFacility (Game.Buildings)</h3>
+
+  <p>Runtime component on landfills and incinerators.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_GarbageDeliverRequest</td><td>Entity</td><td>Active transfer request (deliver to other facility)</td></tr>
+      <tr><td>m_GarbageReceiveRequest</td><td>Entity</td><td>Active transfer request (receive from other facility)</td></tr>
+      <tr><td>m_TargetRequest</td><td>Entity</td><td>Active reverse collection request</td></tr>
+      <tr><td>m_Flags</td><td>GarbageFacilityFlags</td><td>Availability flags</td></tr>
+      <tr><td>m_AcceptGarbagePriority</td><td>float</td><td>Priority for accepting incoming garbage</td></tr>
+      <tr><td>m_DeliverGarbagePriority</td><td>float</td><td>Priority for sending garbage to other facilities</td></tr>
+      <tr><td>m_ProcessingRate</td><td>int</td><td>Current processing rate (calculated each tick)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>GarbageTruck (Game.Vehicles)</h3>
+
+  <p>Vehicle component for garbage collection trucks.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TargetRequest</td><td>Entity</td><td>Active reverse request (truck seeking work)</td></tr>
+      <tr><td>m_State</td><td>GarbageTruckFlags</td><td>State flags (Returning, Unloading, Disabled, etc.)</td></tr>
+      <tr><td>m_RequestCount</td><td>int</td><td>Number of queued service dispatch requests</td></tr>
+      <tr><td>m_Garbage</td><td>int</td><td>Current garbage load</td></tr>
+      <tr><td>m_EstimatedGarbage</td><td>int</td><td>Estimated garbage from pre-planned route</td></tr>
+      <tr><td>m_PathElementTime</td><td>float</td><td>Average time per path element</td></tr>
+    </tbody>
+  </table>
+
+  <h3>GarbageTruckFlags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Returning</td><td>1</td><td>Truck is heading back to its facility</td></tr>
+      <tr><td>IndustrialWasteOnly</td><td>2</td><td>Only collects from industrial zones</td></tr>
+      <tr><td>Unloading</td><td>4</td><td>Currently unloading at facility</td></tr>
+      <tr><td>Disabled</td><td>8</td><td>Truck disabled (facility over capacity)</td></tr>
+      <tr><td>EstimatedFull</td><td>16</td><td>Estimated load would exceed capacity</td></tr>
+      <tr><td>ClearChecked</td><td>32</td><td>Another truck collected from same lane, re-check</td></tr>
+    </tbody>
+  </table>
+
+  <h3>GarbageParameterData (Game.Prefabs)</h3>
+
+  <p>Global singleton with garbage system tuning parameters.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_CollectionGarbageLimit</td><td>int</td><td>Minimum garbage for a truck to collect from a building</td></tr>
+      <tr><td>m_RequestGarbageLimit</td><td>int</td><td>Garbage threshold to create a collection request</td></tr>
+      <tr><td>m_WarningGarbageLimit</td><td>int</td><td>Garbage threshold for "piling up" warning</td></tr>
+      <tr><td>m_MaxGarbageAccumulation</td><td>int</td><td>Hard cap on garbage per building</td></tr>
+      <tr><td>m_BuildingLevelBalance</td><td>float</td><td>Building level reduction factor</td></tr>
+      <tr><td>m_EducationBalance</td><td>float</td><td>Education reduction factor</td></tr>
+      <tr><td>m_HomelessGarbageProduce</td><td>int</td><td>Extra garbage per homeless citizen</td></tr>
+      <tr><td>m_HappinessEffectBaseline</td><td>int</td><td>Baseline for happiness effect</td></tr>
+      <tr><td>m_HappinessEffectStep</td><td>int</td><td>Step size for happiness effect</td></tr>
+    </tbody>
+  </table>
+
+  <h3>GarbageFacilityData (Game.Prefabs)</h3>
+
+  <p>Prefab data for garbage processing facilities. Supports <code>ICombineData</code> for upgrade stacking.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_GarbageCapacity</td><td>int</td><td>Maximum garbage storage</td></tr>
+      <tr><td>m_VehicleCapacity</td><td>int</td><td>Number of garbage trucks</td></tr>
+      <tr><td>m_TransportCapacity</td><td>int</td><td>Number of delivery trucks for transfers</td></tr>
+      <tr><td>m_ProcessingSpeed</td><td>int</td><td>Base processing speed (units per 1024 ticks)</td></tr>
+      <tr><td>m_IndustrialWasteOnly</td><td>bool</td><td>Only handles industrial waste</td></tr>
+      <tr><td>m_LongTermStorage</td><td>bool</td><td>Landfill mode (shows "full" warning)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+Buildings with GarbageProducer
+     |
+     v
+GarbageAccumulationSystem (16x/day)
+     |-- Adds garbage per tick based on consumption, education, modifiers
+     |-- Caps at m_MaxGarbageAccumulation
+     |-- Creates GarbageCollectionRequest when garbage &gt; m_RequestGarbageLimit
+     |-- Adds warning icon when garbage &gt; m_WarningGarbageLimit
+     |-- Updates building efficiency factor
+     |
+     v
+GarbageCollectionRequest entities (ServiceRequest + RequestGroup(32))
+     |
+     v
+GarbageCollectorDispatchSystem (every 16 frames)
+     |-- Validates requests (target still needs collection)
+     |-- Pathfinds: GarbageCollector source -&gt; target building
+     |-- Dispatches to facility ServiceDispatch buffer
+     |
+     v
+GarbageFacilityAISystem (every 256 frames)
+     |-- Processes stored garbage (ResourceProduction)
+     |-- Spawns/activates garbage trucks for dispatched requests
+     |-- Creates GarbageTransferRequests for inter-facility transfer
+     |-- Manages vehicle fleet (enable/disable based on capacity)
+     |
+     v
+GarbageTruckAISystem (every 16 frames)
+     |-- Drives route, collecting from buildings along sidewalks
+     |-- Collects when building garbage &gt; m_CollectionGarbageLimit
+     |-- Returns to depot when full or disabled
+     |-- Unloads garbage at facility (adds to Resource.Garbage)
+     |-- Requests new targets when idle (reverse requests)
+     |
+     v
+Facility receives garbage -&gt; processes -&gt; produces resources
+     |
+     v
+GarbageTransferDispatchSystem
+     |-- Matches transfer requests between facilities
+     |-- Delivery trucks move garbage between landfills and incinerators
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Modding Implications</h2>
+
+  <h3>Adjusting Garbage Rates</h3>
+
+  <ul>
+    <li>Modify <code>ConsumptionData.m_GarbageAccumulation</code> on building prefabs to change per-building rates.</li>
+    <li>Use district modifiers (<code>DistrictModifierType.GarbageProduction</code>) for area-wide adjustments.</li>
+    <li>Use city modifiers (<code>CityModifierType.IndustrialGarbage</code>) for industrial-specific adjustments.</li>
+    <li>Harmony-patch <code>GarbageAccumulationSystem.GetGarbageAccumulation()</code> for custom formulas.</li>
+  </ul>
+
+  <h3>Custom Collection Behavior</h3>
+
+  <ul>
+    <li>Trucks collect from all buildings along their route, not just the targeted one. This is route-based, not building-based.</li>
+    <li>The collection threshold (<code>m_CollectionGarbageLimit</code>) determines the minimum garbage needed for pickup.</li>
+    <li>Industrial waste is flag-based -- set <code>GarbageCollectionRequestFlags.IndustrialWaste</code> and <code>GarbageTruckFlags.IndustrialWasteOnly</code>.</li>
+  </ul>
+
+  <h3>Facility Customization</h3>
+
+  <ul>
+    <li><code>GarbageFacilityData</code> implements <code>ICombineData</code> -- building upgrades additively stack capacity, vehicle count, and processing speed.</li>
+    <li><code>m_LongTermStorage = true</code> distinguishes landfills (storage with "full" warning) from incinerators (processing with resource production).</li>
+    <li>Processing speed scales with both building efficiency and current fill level, meaning nearly-empty facilities process slower.</li>
+  </ul>
+
+  <h3>Key Threshold Chain</h3>
+
+  <table>
+    <thead>
+      <tr><th>Threshold</th><th>Parameter</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Collection minimum</td>
+        <td>m_CollectionGarbageLimit</td>
+        <td>Truck will only pick up from a building if garbage exceeds this</td>
+      </tr>
+      <tr>
+        <td>Request creation</td>
+        <td>m_RequestGarbageLimit</td>
+        <td>Building creates a GarbageCollectionRequest service entity</td>
+      </tr>
+      <tr>
+        <td>Warning icon</td>
+        <td>m_WarningGarbageLimit</td>
+        <td>Notification icon appears; efficiency penalty starts</td>
+      </tr>
+      <tr>
+        <td>Hard cap</td>
+        <td>m_MaxGarbageAccumulation</td>
+        <td>Garbage stops accumulating; maximum efficiency penalty</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Default parameter values:</strong> The exact default values for
+      <code>GarbageParameterData</code> fields are set in prefab data (not hardcoded) and
+      would need to be read at runtime or extracted from game prefab assets.
+    </li>
+    <li>
+      <strong>Inter-facility transfer dispatch:</strong> <code>GarbageTransferDispatchSystem</code>
+      handles matching transfer requests between facilities but was not fully traced.
+    </li>
+    <li>
+      <strong>Waste-to-energy integration:</strong> <code>GarbagePoweredData</code> suggests
+      some facilities can be powered by garbage, but the exact integration was not fully traced.
+    </li>
+    <li>
+      <strong>Service district filtering:</strong> Trucks respect service district boundaries
+      via <code>AreaUtils.CheckServiceDistrict()</code>, but the exact district assignment
+      mechanism was not explored.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.GarbageAccumulationSystem, Game.Simulation.GarbageCollectorDispatchSystem, Game.Simulation.GarbageTruckAISystem, Game.Simulation.GarbageFacilityAISystem</li>
+    <li>Components: Game.Buildings.GarbageProducer, Game.Buildings.GarbageFacility, Game.Vehicles.GarbageTruck, Game.Simulation.GarbageCollectionRequest</li>
+    <li>Prefab data: Game.Prefabs.GarbageParameterData, Game.Prefabs.GarbageFacilityData, Game.Prefabs.GarbageTruckData</li>
+    <li>Flags: Game.Buildings.GarbageProducerFlags, Game.Buildings.GarbageFacilityFlags, Game.Vehicles.GarbageTruckFlags, Game.Simulation.GarbageCollectionRequestFlags</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- GarbageAccumulationSystem, GarbageCollectorDispatchSystem, GarbageTruckAISystem, GarbageFacilityAISystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

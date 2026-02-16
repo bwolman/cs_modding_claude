@@ -472,10 +472,16 @@ The AccidentSiteSystem only sets `RequirePolice` when `severity > 0` (from `Invo
 **Approach A**: Custom system that runs after `AccidentSiteSystem` and sets `RequirePolice` on all `AccidentSite` entities with `TrafficAccident` flag:
 
 ```csharp
+using Game.Common;
+using Game.Events;
+using Game.Prefabs;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
 public partial class ForcePoliceToAccidentsSystem : GameSystemBase
 {
     private EntityQuery m_AccidentQuery;
-    private EntityArchetype m_PoliceRequestArchetype;
 
     protected override void OnCreate()
     {
@@ -484,10 +490,6 @@ public partial class ForcePoliceToAccidentsSystem : GameSystemBase
             ComponentType.ReadWrite<AccidentSite>(),
             ComponentType.Exclude<Deleted>(),
             ComponentType.Exclude<Temp>());
-        m_PoliceRequestArchetype = EntityManager.CreateArchetype(
-            ComponentType.ReadWrite<ServiceRequest>(),
-            ComponentType.ReadWrite<PoliceEmergencyRequest>(),
-            ComponentType.ReadWrite<RequestGroup>());
         RequireForUpdate(m_AccidentQuery);
     }
 
@@ -506,10 +508,11 @@ public partial class ForcePoliceToAccidentsSystem : GameSystemBase
                 EntityManager.SetComponentData(entities[i], site);
 
                 // Create police request if none exists
-                Entity request = EntityManager.CreateEntity(m_PoliceRequestArchetype);
-                EntityManager.SetComponentData(request, new PoliceEmergencyRequest(
+                Entity request = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(request, new ServiceRequest());
+                EntityManager.AddComponentData(request, new PoliceEmergencyRequest(
                     entities[i], entities[i], 1f, PolicePurpose.Emergency));
-                EntityManager.SetComponentData(request, new RequestGroup(4u));
+                EntityManager.AddComponentData(request, new RequestGroup(4u));
             }
         }
         entities.Dispose();
@@ -524,6 +527,10 @@ Fire engines only respond to `FireRescueRequest` entities, and those require `On
 **Approach**: Add `RescueTarget` component to accident site entities, then create a `FireRescueRequest`. The `FireRescueDispatchSystem` will validate the target via `RescueTarget` and dispatch a fire engine:
 
 ```csharp
+using Game.Buildings;
+using Game.Simulation;
+using Unity.Entities;
+
 // Add RescueTarget to accident entity so FireRescueDispatchSystem accepts it
 if (!EntityManager.HasComponent<RescueTarget>(accidentEntity))
 {
@@ -531,10 +538,11 @@ if (!EntityManager.HasComponent<RescueTarget>(accidentEntity))
 }
 
 // Create fire rescue request for that entity
-Entity request = EntityManager.CreateEntity(m_FireRescueRequestArchetype);
-EntityManager.SetComponentData(request, new FireRescueRequest(
+Entity request = EntityManager.CreateEntity();
+EntityManager.AddComponentData(request, new ServiceRequest());
+EntityManager.AddComponentData(request, new FireRescueRequest(
     accidentEntity, 1f, FireRescueRequestType.Disaster));
-EntityManager.SetComponentData(request, new RequestGroup(4u));
+EntityManager.AddComponentData(request, new RequestGroup(4u));
 ```
 
 ### How to dispatch an emergency vehicle programmatically (no event needed)

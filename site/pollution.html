@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pollution Systems</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html" class="active">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Pollution Systems</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 model air, ground, and noise pollution?
+      How is pollution produced, how does it spread, how does it decay, and what effects
+      does it have on citizens, land value, and groundwater?
+    </p>
+    <p>
+      <strong>Verdict:</strong> All three pollution types use independent 256&times;256
+      <code>CellMapSystem&lt;T&gt;</code> grids covering the full 14,336-unit map. Buildings
+      and roads are the main sources. Air pollution drifts with wind and diffuses to neighbors;
+      ground pollution only fades in place; noise pollution is fully recalculated each tick
+      from a double buffer. A mod can read or write any grid directly via
+      <code>GetMap()</code> -- no Harmony patches needed for basic manipulation.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Water pollution (the A channel in the GPU water simulation)
+      is covered in the <a href="water-system.html">Water System</a> topic. Detailed citizen
+      health impact calculations are only touched where they connect to the pollution trigger system.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    CS2 maintains <strong>three independent pollution grid maps</strong>, each stored as a
+    <code>CellMapSystem&lt;T&gt;</code> with 256&times;256 cells. The grid covers
+    <code>kMapSize = 14,336</code> world units, giving a cell size of approximately 56 world
+    units. All three maps store pollution as <code>short</code> values (0 to 32,767) and
+    update <strong>128 times per game day</strong>.
+  </p>
+
+  <h3>Air Pollution</h3>
+
+  <p>
+    <code>AirPollutionSystem</code> extends <code>CellMapSystem&lt;AirPollution&gt;</code>.
+    Each tick, the <code>AirPollutionMoveJob</code> performs two passes:
+  </p>
+
+  <ol>
+    <li>
+      <strong>Wind advection:</strong> For each cell, sample pollution at the position offset
+      by <code>m_WindAdvectionSpeed * windVector</code>. This shifts the entire pollution cloud
+      downwind using bilinear interpolation.
+    </li>
+    <li>
+      <strong>Diffusion + decay:</strong> Each cell receives ~12.5% (<code>value &gt;&gt; 3</code>)
+      from each of its four cardinal neighbors, loses a matching amount of its own value
+      (<code>value &gt;&gt; 1</code>), and decays by
+      <code>m_AirFade / kUpdatesPerDay</code> per tick.
+    </li>
+  </ol>
+
+  <pre><code class="language-csharp">// Air pollution spread (simplified from AirPollutionMoveJob.Execute)
+int pollution2 = nativeArray[num].m_Pollution;
+pollution2 += ((k &gt; 0) ? (nativeArray[num - 1].m_Pollution &gt;&gt; kSpread) : 0);
+pollution2 += ((k &lt; kTextureSize - 1) ? (nativeArray[num + 1].m_Pollution &gt;&gt; kSpread) : 0);
+pollution2 += ((j &gt; 0) ? (nativeArray[num - kTextureSize].m_Pollution &gt;&gt; kSpread) : 0);
+pollution2 += ((j &lt; kTextureSize - 1) ? (nativeArray[num + kTextureSize].m_Pollution &gt;&gt; kSpread) : 0);
+pollution2 -= (nativeArray[num].m_Pollution &gt;&gt; kSpread - 2)
+            + MathUtils.RoundToIntRandom(ref random, value);
+pollution2 = math.clamp(pollution2, 0, 32767);</code></pre>
+
+  <h3>Ground Pollution</h3>
+
+  <p>
+    <code>GroundPollutionSystem</code> is the simplest of the three. It does <strong>not spread
+    spatially</strong> -- each tick, every cell with a positive value is reduced by
+    <code>m_GroundFade / kUpdatesPerDay</code> (with randomized rounding). Ground pollution
+    only increases when <code>BuildingPollutionAddSystem</code> actively deposits it.
+  </p>
+
+  <p>
+    Ground pollution has a secondary effect: <code>GroundWaterPollutionSystem</code> reads the
+    ground pollution map every 128 frames and increases <code>GroundWater.m_Polluted</code>
+    by <code>groundPollution / 200</code>, capped at the total water amount. This means
+    industrial zones can contaminate drinking water.
+  </p>
+
+  <h3>Noise Pollution</h3>
+
+  <p>
+    <code>NoisePollutionSystem</code> uses a <strong>double-buffered</strong> approach that
+    differs fundamentally from the other two types. The <code>NoisePollution</code> struct
+    has two fields:
+  </p>
+
+  <ul>
+    <li><code>m_PollutionTemp</code> -- temporary accumulator written by source systems</li>
+    <li><code>m_Pollution</code> -- the final smoothed value read by consumers</li>
+  </ul>
+
+  <p>Each tick, two jobs run in sequence:</p>
+
+  <ol>
+    <li>
+      <strong>NoisePollutionSwapJob:</strong> Computes <code>m_Pollution</code> from
+      <code>m_PollutionTemp</code> using an 8-neighbor weighted average: center at 1/4,
+      cardinal neighbors at 1/8, diagonal neighbors at 1/16.
+    </li>
+    <li>
+      <strong>NoisePollutionClearJob:</strong> Resets <code>m_PollutionTemp</code> to zero.
+    </li>
+  </ol>
+
+  <p>
+    This means noise pollution is <strong>recalculated from scratch every tick</strong>. Unlike
+    air and ground pollution, it does not accumulate over time. If a noise source is removed,
+    noise pollution drops to zero on the next tick.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Pollution Sources</h2>
+
+  <h3>Buildings (BuildingPollutionAddSystem)</h3>
+
+  <p>
+    The primary pollution emitter. This system iterates all building entities and computes
+    pollution from each building's <code>PollutionData</code> prefab component, applying
+    a chain of modifiers:
+  </p>
+
+  <ol>
+    <li>Base values from <code>PollutionData</code> (ground, air, noise)</li>
+    <li>Multiplied by building efficiency</li>
+    <li>
+      Scaled by renter count if <code>m_ScaleWithRenters</code> is true:
+      <code>5 * renterCount / (level + 0.5 * avgEducation)</code>
+    </li>
+    <li>
+      City modifiers applied to industrial zones:
+      <code>CityModifierType.IndustrialGroundPollution</code>,
+      <code>CityModifierType.IndustrialAirPollution</code>
+    </li>
+    <li>
+      <code>PollutionModifierData</code> from installed upgrades:
+      <code>pollution *= max(0, 1 + modifier)</code>
+    </li>
+    <li>
+      <code>PollutionEmitModifier</code> runtime component:
+      <code>pollution += modifier * pollution</code>
+    </li>
+  </ol>
+
+  <p>Special cases:</p>
+  <ul>
+    <li>
+      <strong>Abandoned buildings</strong> emit noise proportional to lot size:
+      <code>5 * lotArea * m_AbandonedNoisePollutionMultiplier</code>
+    </li>
+    <li>
+      <strong>Homeless citizens</strong> in parks/abandoned buildings add
+      <code>m_HomelessNoisePollution</code> per person
+    </li>
+    <li>
+      <strong>Destroyed buildings</strong> emit no pollution at all
+    </li>
+  </ul>
+
+  <p>
+    Pollution is distributed across grid cells using a distance-weighted kernel. The weight
+    function is <code>1 / max(20, distance^exponent)</code>, cached in a 256-entry lookup
+    table. Configurable per type via <code>m_GroundRadius</code>, <code>m_AirRadius</code>,
+    <code>m_NoiseRadius</code>.
+  </p>
+
+  <h3>Roads and Networks (NetPollutionSystem)</h3>
+
+  <p>
+    Road segments accumulate traffic pollution in a <code>Game.Net.Pollution</code> component
+    (a <code>float2</code> with noise and air factors). The <code>NetPollutionSystem</code>
+    reads the smoothed <code>m_Accumulation</code> values, multiplies by
+    <code>NetPollutionData.m_Factors</code>, and writes to the air and noise grids.
+  </p>
+
+  <p>Road upgrades modify noise output:</p>
+
+  <table>
+    <thead>
+      <tr><th>Upgrade</th><th>Both Sides</th><th>Left Only</th><th>Right Only</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Sound Barrier</td>
+        <td>0% left, 50% center, 0% right</td>
+        <td>0% left, 50% center, 150% right</td>
+        <td>150% left, 50% center, 0% right</td>
+      </tr>
+      <tr>
+        <td>Primary Beautification</td>
+        <td>50% all</td>
+        <td>50% left, 75% center, 100% right</td>
+        <td>100% left, 75% center, 50% right</td>
+      </tr>
+      <tr>
+        <td>Secondary Beautification</td>
+        <td>50% all</td>
+        <td>50% left, 75% center, 100% right</td>
+        <td>100% left, 75% center, 50% right</td>
+      </tr>
+      <tr>
+        <td>Middle Beautification</td>
+        <td colspan="3">87.5% left, 50% center, 87.5% right</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Tunnels</strong> skip pollution entirely. For road edges (curves), pollution is
+    applied at multiple sample points along the bezier to ensure even coverage.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>AirPollutionSystem, GroundPollutionSystem, NoisePollutionSystem, BuildingPollutionAddSystem, NetPollutionSystem, ObjectPolluteSystem, PollutionTriggerSystem, GroundWaterPollutionSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>AirPollution (struct), GroundPollution (struct), NoisePollution (struct)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>PollutionData, PollutionParameterData, PollutionModifierData, NetPollutionData, Pollution (ComponentBase)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>PollutionEmitModifier</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Net</td>
+        <td>Pollution (per-edge/node traffic pollution)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>PollutionData (Game.Prefabs)</h3>
+
+  <p>Prefab component defining a building's base pollution emission rates.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_GroundPollution</td><td>float</td><td>Base ground pollution per day</td></tr>
+      <tr><td>m_AirPollution</td><td>float</td><td>Base air pollution per day</td></tr>
+      <tr><td>m_NoisePollution</td><td>float</td><td>Base noise pollution per day</td></tr>
+      <tr><td>m_ScaleWithRenters</td><td>bool</td><td>If true, pollution scales with renter count and education</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PollutionParameterData (Game.Prefabs)</h3>
+
+  <p>Singleton component controlling all global pollution parameters.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_GroundMultiplier</td><td>float</td><td>Global ground pollution emission multiplier</td></tr>
+      <tr><td>m_AirMultiplier</td><td>float</td><td>Global air pollution emission multiplier</td></tr>
+      <tr><td>m_NoiseMultiplier</td><td>float</td><td>Global noise pollution emission multiplier</td></tr>
+      <tr><td>m_GroundRadius</td><td>float</td><td>Spread radius for building ground pollution</td></tr>
+      <tr><td>m_AirRadius</td><td>float</td><td>Spread radius for building air pollution</td></tr>
+      <tr><td>m_NoiseRadius</td><td>float</td><td>Spread radius for building noise pollution</td></tr>
+      <tr><td>m_WindAdvectionSpeed</td><td>float</td><td>How much wind moves air pollution per tick</td></tr>
+      <tr><td>m_AirFade</td><td>short</td><td>Air pollution decay per day</td></tr>
+      <tr><td>m_GroundFade</td><td>short</td><td>Ground pollution decay per day</td></tr>
+      <tr><td>m_DistanceExponent</td><td>float</td><td>Exponent for distance-weighted pollution spread</td></tr>
+      <tr><td>m_AbandonedNoisePollutionMultiplier</td><td>float</td><td>Noise multiplier for abandoned buildings</td></tr>
+      <tr><td>m_HomelessNoisePollution</td><td>int</td><td>Noise pollution per homeless citizen</td></tr>
+      <tr><td>m_GroundPollutionLandValueDivisor</td><td>int</td><td>Divisor for ground pollution's land value impact</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PollutionModifierData (Game.Prefabs)</h3>
+
+  <p>Upgrade component that modifies a building's pollution. Multiple upgrades combine additively,
+     then applied as: <code>pollution *= max(0, 1 + sumOfModifiers)</code>.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_GroundPollutionMultiplier</td><td>float</td><td>Additive offset (e.g., -0.5 = 50% reduction)</td></tr>
+      <tr><td>m_AirPollutionMultiplier</td><td>float</td><td>Additive offset</td></tr>
+      <tr><td>m_NoisePollutionMultiplier</td><td>float</td><td>Additive offset</td></tr>
+    </tbody>
+  </table>
+
+  <h3>NoisePollution (Game.Simulation)</h3>
+
+  <p>Double-buffered noise cell struct.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Pollution</td><td>short</td><td>Final smoothed value (read by consumers)</td></tr>
+      <tr><td>m_PollutionTemp</td><td>short</td><td>Temporary accumulator (written by sources, cleared each tick)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Key Constants</h3>
+
+  <table>
+    <thead>
+      <tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>kTextureSize</td><td>256</td><td>Grid resolution for all three pollution types</td></tr>
+      <tr><td>kMapSize</td><td>14,336</td><td>World units covered by the grid</td></tr>
+      <tr><td>Cell size</td><td>~56</td><td>World units per grid cell</td></tr>
+      <tr><td>kUpdatesPerDay</td><td>128</td><td>Grid update frequency per game day</td></tr>
+      <tr><td>kSpread (air)</td><td>3</td><td>Right-shift for neighbor diffusion (~12.5%)</td></tr>
+      <tr><td>Max pollution</td><td>32,767</td><td>Maximum value per cell (short max)</td></tr>
+      <tr><td>Frames per day</td><td>262,144</td><td>Total simulation frames per game day</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+Pollution Sources
+=================
+
+Buildings (BuildingPollutionAddSystem)
+  |-- PollutionData from prefab (ground, air, noise base values)
+  |-- * efficiency
+  |-- * renter scaling (if m_ScaleWithRenters)
+  |-- * CityModifier (industrial zones only)
+  |-- * PollutionModifierData from upgrades
+  |-- * PollutionEmitModifier runtime component
+  |
+  v
+Enqueue PollutionItem { amount, position }
+  |
+  v
+ApplyBuildingPollutionJob&lt;T&gt;
+  |-- Distance-weighted kernel: 1/max(20, dist^exponent)
+  |-- Distributes across cells within radius
+  |
+  v
+Roads (NetPollutionSystem)                   Plants (ObjectPolluteSystem)
+  |-- Game.Net.Pollution accumulation          |-- Reads ground + air maps
+  |-- * NetPollutionData.m_Factors             |-- Updates Plant.m_Pollution
+  |-- Sound barriers / beautification          |   (affected, not source)
+  |-- Tunnels skipped                          |
+  |                                            v
+  v                                          Plant health
++-----------------------+
+| Grid Maps (256x256)   |
++-----------------------+
+| AirPollution          |--&gt; Wind advection + 4-neighbor diffusion + fade
+| GroundPollution       |--&gt; Fade only (no spatial spread)
+| NoisePollution        |--&gt; Double-buffer swap + clear (recalculated each tick)
++-----------------------+
+  |              |              |
+  v              v              v
+Effects:     Groundwater    Notifications
+- Happiness  contamination  (when limits
+- Land value (pollution/200) exceeded)
+- Triggers
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read Pollution at a World Position</h3>
+
+  <pre><code class="language-csharp">public short GetAirPollutionAt(AirPollutionSystem airSystem, float3 worldPosition)
+{
+    JobHandle deps;
+    NativeArray&lt;AirPollution&gt; map = airSystem.GetMap(readOnly: true, out deps);
+    deps.Complete();
+    AirPollution value = AirPollutionSystem.GetPollution(worldPosition, map);
+    airSystem.AddReader(Dependency);
+    return value.m_Pollution;
+}
+
+public short GetGroundPollutionAt(GroundPollutionSystem groundSystem, float3 worldPosition)
+{
+    JobHandle deps;
+    NativeArray&lt;GroundPollution&gt; map = groundSystem.GetMap(readOnly: true, out deps);
+    deps.Complete();
+    GroundPollution value = GroundPollutionSystem.GetPollution(worldPosition, map);
+    groundSystem.AddReader(Dependency);
+    return value.m_Pollution;
+}
+
+public short GetNoisePollutionAt(NoisePollutionSystem noiseSystem, float3 worldPosition)
+{
+    JobHandle deps;
+    NativeArray&lt;NoisePollution&gt; map = noiseSystem.GetMap(readOnly: true, out deps);
+    deps.Complete();
+    NoisePollution value = NoisePollutionSystem.GetPollution(worldPosition, map);
+    noiseSystem.AddReader(Dependency);
+    return value.m_Pollution;
+}</code></pre>
+
+  <h3>Reduce Ground Pollution in a Radius</h3>
+
+  <p>
+    A custom <code>GameSystemBase</code> that clears ground pollution within a configurable
+    radius. This runs as a Burst job for performance.
+  </p>
+
+  <pre><code class="language-csharp">[BurstCompile]
+private struct ReduceGroundPollutionJob : IJob
+{
+    public NativeArray&lt;GroundPollution&gt; m_Map;
+    public float2 m_Center;       // world XZ position
+    public float m_RadiusSq;      // squared radius for fast comparison
+    public float m_Reduction;     // 0.0 to 1.0
+
+    public void Execute()
+    {
+        for (int i = 0; i &lt; m_Map.Length; i++)
+        {
+            float3 cellCenter = GroundPollutionSystem.GetCellCenter(i);
+            float distSq = math.lengthsq(cellCenter.xz - m_Center);
+            if (distSq &lt; m_RadiusSq)
+            {
+                GroundPollution gp = m_Map[i];
+                gp.m_Pollution = (short)(gp.m_Pollution * (1f - m_Reduction));
+                m_Map[i] = gp;
+            }
+        }
+    }
+}
+
+// In your system's OnUpdate:
+protected override void OnUpdate()
+{
+    JobHandle deps;
+    NativeArray&lt;GroundPollution&gt; map =
+        m_GroundPollutionSystem.GetMap(readOnly: false, out deps);
+
+    var job = new ReduceGroundPollutionJob
+    {
+        m_Map = map,
+        m_Center = _targetPosition.xz,
+        m_RadiusSq = _radius * _radius,
+        m_Reduction = 0.5f  // 50% reduction
+    };
+
+    Dependency = job.Schedule(JobHandle.CombineDependencies(Dependency, deps));
+    m_GroundPollutionSystem.AddWriter(Dependency);
+}</code></pre>
+
+  <h3>Add Noise Pollution at a Position</h3>
+
+  <p>
+    Because noise pollution is recalculated from scratch each tick (double-buffered),
+    adding noise requires writing to <code>m_PollutionTemp</code>, not <code>m_Pollution</code>.
+    The system will smooth and swap it into <code>m_Pollution</code> on the next tick.
+  </p>
+
+  <pre><code class="language-csharp">// Write to m_PollutionTemp -- NoisePollutionSystem will smooth it
+public void AddNoiseAt(NoisePollutionSystem noiseSystem, float3 worldPosition, short amount)
+{
+    JobHandle deps;
+    NativeArray&lt;NoisePollution&gt; map = noiseSystem.GetMap(readOnly: false, out deps);
+    deps.Complete();
+
+    int2 cell = CellMapSystem&lt;NoisePollution&gt;.GetCell(
+        worldPosition, CellMapSystem&lt;NoisePollution&gt;.kMapSize, 256);
+
+    if (math.all((cell &gt;= 0) &amp; (cell &lt; 256)))
+    {
+        int index = cell.x + 256 * cell.y;
+        NoisePollution np = map[index];
+        np.Add(amount);  // writes to m_PollutionTemp
+        map[index] = np;
+    }
+
+    noiseSystem.AddWriter(Dependency);
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Downstream Effects</h2>
+
+  <h3>Groundwater Contamination</h3>
+
+  <p>
+    <code>GroundWaterPollutionSystem</code> reads the ground pollution map every 128 frames
+    and increases each groundwater cell's <code>m_Polluted</code> field:
+  </p>
+
+  <pre><code class="language-csharp">// From GroundWaterPollutionSystem.PolluteGroundWaterJob
+GroundPollution pollution = GroundPollutionSystem.GetPollution(
+    GroundWaterSystem.GetCellCenter(i), m_PollutionMap);
+if (pollution.m_Pollution &gt; 0)
+{
+    value.m_Polluted = (short)math.min(
+        value.m_Amount,
+        value.m_Polluted + pollution.m_Pollution / 200);
+}</code></pre>
+
+  <h3>Plant Damage</h3>
+
+  <p>
+    <code>ObjectPolluteSystem</code> updates <code>Plant.m_Pollution</code> based on
+    ground and air pollution at the plant's position. Plants accumulate pollution and
+    recover based on <code>m_PlantFade</code>:
+  </p>
+
+  <pre><code class="language-csharp">value.m_Pollution = math.saturate(
+    value.m_Pollution + (
+        m_PollutionParameters.m_PlantGroundMultiplier * (float)pollution.m_Pollution
+      + m_PollutionParameters.m_PlantAirMultiplier * (float)pollution2.m_Pollution
+      - m_PollutionParameters.m_PlantFade
+    ) / (float)kUpdatesPerDay
+);</code></pre>
+
+  <h3>Citizen Happiness and Triggers</h3>
+
+  <p>
+    <code>PollutionTriggerSystem</code> calculates the average air pollution happiness
+    impact across all households (via <code>CitizenHappinessSystem.GetAirPollutionBonuses</code>)
+    and sends a <code>TriggerType.AverageAirPollution</code> action for milestone and
+    objective tracking.
+  </p>
+
+  <h3>Land Value</h3>
+
+  <p>
+    The <code>m_GroundPollutionLandValueDivisor</code> field in
+    <code>PollutionParameterData</code> controls how ground pollution reduces land value.
+    Higher ground pollution values lead to lower land value in the affected cells.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Default parameter values:</strong> The exact runtime values of
+      <code>PollutionParameterData</code> fields (multipliers, radii, fade rates) are set
+      by prefab data and are not hardcoded. In-game testing or prefab extraction is needed
+      to determine defaults.
+    </li>
+    <li>
+      <strong>Health impact details:</strong> The
+      <code>CitizenHappinessSystem.GetAirPollutionBonuses</code> method determines how
+      air pollution translates to happiness penalties. The full logic was not decompiled
+      in this research pass.
+    </li>
+    <li>
+      <strong>Land value integration:</strong> How
+      <code>m_GroundPollutionLandValueDivisor</code> integrates with the land value
+      calculation system needs further investigation.
+    </li>
+    <li>
+      <strong>Fertility impact:</strong> The <code>m_FertilityGroundMultiplier</code>
+      parameter suggests ground pollution affects soil fertility, but the consuming
+      system was not traced.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.AirPollutionSystem, Game.Simulation.GroundPollutionSystem, Game.Simulation.NoisePollutionSystem, Game.Simulation.BuildingPollutionAddSystem, Game.Simulation.NetPollutionSystem, Game.Simulation.ObjectPolluteSystem, Game.Simulation.PollutionTriggerSystem, Game.Simulation.GroundWaterPollutionSystem</li>
+    <li>Component structs: Game.Simulation.AirPollution, Game.Simulation.GroundPollution, Game.Simulation.NoisePollution, Game.Net.Pollution</li>
+    <li>Prefab types: Game.Prefabs.PollutionData, Game.Prefabs.PollutionParameterData, Game.Prefabs.PollutionModifierData, Game.Prefabs.NetPollutionData, Game.Prefabs.Pollution</li>
+    <li>Runtime components: Game.Buildings.PollutionEmitModifier</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- AirPollutionSystem, GroundPollutionSystem, NoisePollutionSystem, BuildingPollutionAddSystem, NetPollutionSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

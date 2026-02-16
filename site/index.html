@@ -25,6 +25,26 @@
     <a href="water-system.html">Water System</a>
     <a href="emergency-dispatch.html">Emergency Dispatch</a>
 
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
     <h3>Tools &amp; Input</h3>
     <a href="tool-activation.html">Tool Activation</a>
     <a href="tool-raycast.html">Tool Raycast</a>
@@ -124,6 +144,154 @@
           <span class="tag">Game.Simulation</span>
           <span class="tag">Game.Events</span>
           <span class="tag">ServiceRequest</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>Infrastructure</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="electricity-grid.html">Electricity Grid</a></h3>
+        <p>How electricity flows through the building/road graph. Max-flow solver on a 128-frame cycle, power plants, batteries, and the consumer fulfillment pipeline.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">ElectricityFlowSystem</span>
+          <span class="tag">PowerPlantAISystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="road-network.html">Road &amp; Network Building</a></h3>
+        <p>How NetToolSystem creates road segments, nodes, and lanes. The Edge/Node/Curve component model, 7 drawing modes, and the temp-to-permanent entity pipeline.</p>
+        <div class="tags">
+          <span class="tag">Game.Net</span>
+          <span class="tag">Game.Tools</span>
+          <span class="tag">NetToolSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="zoning.html">Zoning</a></h3>
+        <p>How zone blocks attach to roads and buildings spawn on them. The Block/Cell grid model, CellCheckSystem vacancy detection, and ZoneSpawnSystem building selection scoring.</p>
+        <div class="tags">
+          <span class="tag">Game.Zones</span>
+          <span class="tag">ZoneSpawnSystem</span>
+          <span class="tag">BlockSystem</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>Economy &amp; Population</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="citizens-households.html">Citizens &amp; Households</a></h3>
+        <p>The full citizen lifecycle from birth to death. AgingSystem thresholds, happiness factors, immigration/emigration, job seeking, and the two-entity citizen/household model.</p>
+        <div class="tags">
+          <span class="tag">Game.Citizens</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">AgingSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="economy-budget.html">Economy &amp; Budget</a></h3>
+        <p>City finances: tax collection, service fees, loans, and trade. The BudgetApplySystem pipeline that sums 14 income and 15 expense categories every tick.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">TaxSystem</span>
+          <span class="tag">BudgetSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="demand-systems.html">Demand Systems</a></h3>
+        <p>What drives residential, commercial, and industrial demand. Three independent systems with 19 demand factors, staggered updates, and DemandParameterData tuning.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">ResidentialDemandSystem</span>
+          <span class="tag">DemandFactor</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>City Services</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="garbage-collection.html">Garbage Collection</a></h3>
+        <p>The four-stage garbage pipeline: accumulation on buildings, collection request creation, truck dispatch via pathfinding, and facility processing (landfill/incineration).</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">Game.Buildings</span>
+          <span class="tag">GarbageTruckAISystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="education.html">Education</a></h3>
+        <p>The enrollment-to-graduation pipeline. School seeking, daily commute scheduling, graduation probability formulas, and the economic dropout decision model.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">Game.Citizens</span>
+          <span class="tag">GraduationSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="public-transit.html">Public Transit</a></h3>
+        <p>Transport line management: the Route entity hierarchy, vehicle dispatch from depots, queue-based boarding, day/night scheduling, and 14 transit types.</p>
+        <div class="tags">
+          <span class="tag">Game.Routes</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">TransportLineSystem</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>Environment</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="weather-climate.html">Weather &amp; Climate</a></h3>
+        <p>Seasonal climate cycles, weather phenomena spawning, lightning strikes, building damage, snow accumulation, and wind simulation. All climate properties are OverridableProperty (mod-friendly).</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">ClimateSystem</span>
+          <span class="tag">WeatherPhenomenonSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="pollution.html">Pollution</a></h3>
+        <p>Three independent 256x256 pollution grids: air (wind-driven advection), ground (fade-only, contaminates groundwater), and noise (recalculated each tick). Grid-based spread and effects.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">AirPollutionSystem</span>
+          <span class="tag">CellMapSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="terrain-resources.html">Terrain &amp; Resources</a></h3>
+        <p>GPU heightmap terrain, Perlin noise resource distribution (fertility, ore, oil, fish), tree growth lifecycle, and terrain attractiveness scoring for land value.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">TerrainSystem</span>
+          <span class="tag">NaturalResourceSystem</span>
         </div>
       </div>
 

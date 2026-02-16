@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Road &amp; Network Building - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="top-bar">
+    <a href="index.html" class="site-title">CS2 Modding Research</a>
+    <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+  </div>
+
+  <div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="road-network.html" class="active">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+    <main class="content">
+    <h1>Road &amp; Network Building</h1>
+
+    <div class="scope">
+      <p><strong>Goal:</strong> Understand how CS2 creates road segments, nodes, and lanes via <code>NetToolSystem</code> -- the full pipeline from player click to persistent ECS entities -- and how mods can create, modify, and query road networks.</p>
+      <p><strong>Use cases:</strong> Programmatic road creation, custom road tools, network topology queries, road modification mods, lane editors.</p>
+      <p><strong>Not covered:</strong> Pathfinding algorithms, traffic simulation, vehicle movement along lanes. This focuses on the network data structures and the building pipeline.</p>
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>How It Works</h2>
+
+    <p>CS2's road network uses a <strong>graph-based ECS model</strong>. Roads are a directed graph of <strong>Nodes</strong> (intersections/endpoints) connected by <strong>Edges</strong> (road segments). Each edge carries a <code>Curve</code> (Bezier spline) defining its shape, a <code>Composition</code> linking to prefab data for visual/functional properties, and a dynamic buffer of <strong>SubLanes</strong> representing individual traffic lanes, sidewalks, and utility conduits.</p>
+
+    <p>The player-facing tool (<code>NetToolSystem</code>) does not create final entities directly. Instead, it creates temporary <code>NetCourse</code> entities -- Bezier curves with start/end positions. These pass through a multi-stage pipeline before becoming permanent simulation entities.</p>
+
+    <h3>The Building Pipeline</h3>
+
+    <div class="diagram"><pre>Player clicks in world
+        |
+        v
+NetToolSystem.OnUpdate()
+  - Collects ControlPoint from raycast
+  - Snaps to existing geometry (nodes, edges, grid)
+  - Creates NetCourse temp entities with Bezier curves
+        |
+        v
+GenerateEdgesSystem / GenerateNodesSystem
+  - Converts NetCourse into temp Edge + Node entities
+  - Maps CoursePos to nodes (reuses existing or creates new)
+  - Splits existing edges if new node placed mid-edge
+        |
+        v
+GeometrySystem
+  - Computes EdgeGeometry (left/right bezier segments, bounds)
+  - Computes NodeGeometry (bounds, flatness, offset)
+        |
+        v
+CompositionSelectSystem
+  - Selects composition prefabs based on flags and context
+        |
+        v
+LaneSystem
+  - Creates Lane entities from NetCompositionLane prefab data
+  - Attaches Curve to each lane
+  - Populates SubLane buffer on parent edge
+        |
+        v
+(Preview shown to player as transparent ghost)
+        |
+        v
+Player confirms (Apply action)
+        |
+        v
+ApplyNetSystem
+  - Patches temp entity references to permanent entities
+  - Updates ConnectedEdge buffers on nodes
+  - Removes Temp component -- entities become permanent</pre></div>
+
+    <h3>NetToolSystem Modes</h3>
+
+    <p>The tool supports seven drawing modes, each controlling how many control points the player places:</p>
+
+    <table>
+      <tr><th>Mode</th><th>Control Points</th><th>Description</th></tr>
+      <tr><td><code>Straight</code></td><td>2</td><td>Straight line between two points</td></tr>
+      <tr><td><code>SimpleCurve</code></td><td>3</td><td>Bezier curve with one midpoint</td></tr>
+      <tr><td><code>ComplexCurve</code></td><td>4</td><td>Bezier curve with two midpoints</td></tr>
+      <tr><td><code>Continuous</code></td><td>3</td><td>Chain of curves, each continuing from the last</td></tr>
+      <tr><td><code>Grid</code></td><td>3</td><td>Grid of parallel and perpendicular roads</td></tr>
+      <tr><td><code>Replace</code></td><td>1</td><td>Upgrade/replace existing road segments</td></tr>
+      <tr><td><code>Point</code></td><td>1</td><td>Place a single node (editor mode only)</td></tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <h2>Key Components</h2>
+
+    <h3>Edge</h3>
+    <p>The fundamental road segment. Connects two <code>Node</code> entities. Every edge also carries <code>Curve</code>, <code>Composition</code>, <code>EdgeGeometry</code>, and <code>DynamicBuffer&lt;SubLane&gt;</code>.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Start</code></td><td><code>Entity</code></td><td>Start node entity</td></tr>
+      <tr><td><code>m_End</code></td><td><code>Entity</code></td><td>End node entity</td></tr>
+    </table>
+
+    <h3>Node</h3>
+    <p>An intersection or endpoint where edges meet. Has <code>DynamicBuffer&lt;ConnectedEdge&gt;</code> (capacity 4) listing all connected edges.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Position</code></td><td><code>float3</code></td><td>World-space position</td></tr>
+      <tr><td><code>m_Rotation</code></td><td><code>quaternion</code></td><td>Orientation of the node</td></tr>
+    </table>
+
+    <h3>Curve</h3>
+    <p>Defines the shape of an edge or lane as a cubic Bezier spline. Present on both edges and individual lanes.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Bezier</code></td><td><code>Bezier4x3</code></td><td>Cubic Bezier curve (4 control points in 3D)</td></tr>
+      <tr><td><code>m_Length</code></td><td><code>float</code></td><td>Cached arc length (recomputed on deserialization)</td></tr>
+    </table>
+
+    <h3>Composition</h3>
+    <p>Links an edge to its composition prefab entities, which define lane layout, visual appearance, and flags.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Edge</code></td><td><code>Entity</code></td><td>Composition prefab for the edge section</td></tr>
+      <tr><td><code>m_StartNode</code></td><td><code>Entity</code></td><td>Composition prefab for the start node</td></tr>
+      <tr><td><code>m_EndNode</code></td><td><code>Entity</code></td><td>Composition prefab for the end node</td></tr>
+    </table>
+
+    <h3>Lane</h3>
+    <p>A single traffic lane, sidewalk, or utility conduit within an edge. Has its own <code>Curve</code> component.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_StartNode</code></td><td><code>PathNode</code></td><td>Pathfinding start node</td></tr>
+      <tr><td><code>m_MiddleNode</code></td><td><code>PathNode</code></td><td>Pathfinding middle node</td></tr>
+      <tr><td><code>m_EndNode</code></td><td><code>PathNode</code></td><td>Pathfinding end node</td></tr>
+    </table>
+
+    <h3>SubLane</h3>
+    <p>Buffer element on edges listing child lane entities.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_SubLane</code></td><td><code>Entity</code></td><td>The lane entity</td></tr>
+      <tr><td><code>m_PathMethods</code></td><td><code>PathMethod</code></td><td>Which pathfinding methods can use this lane</td></tr>
+    </table>
+
+    <h3>ConnectedEdge</h3>
+    <p>Buffer element on nodes listing connected edges. Internal buffer capacity of 4 (typical intersection).</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Edge</code></td><td><code>Entity</code></td><td>The connected edge entity</td></tr>
+    </table>
+
+    <h3>Elevation</h3>
+    <p>Tracks the elevation offset of an edge relative to terrain.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Elevation</code></td><td><code>float2</code></td><td>Elevation at start (x) and end (y) of the edge</td></tr>
+    </table>
+
+    <h3>EdgeGeometry / NodeGeometry</h3>
+    <p><code>EdgeGeometry</code> contains left/right <code>Segment</code> Bezier curves and a bounding box. <code>NodeGeometry</code> contains bounds, flatness, and offset. Both are computed by <code>GeometrySystem</code>.</p>
+
+    <h3>Upgraded</h3>
+    <p>Marks an edge that has been upgraded (added lanes, changed surface). Contains <code>CompositionFlags</code> describing the upgrade.</p>
+
+    <!-- ============================================================ -->
+    <h2>Data Flow</h2>
+
+    <h3>Network Graph Structure</h3>
+
+    <div class="diagram"><pre>Node (intersection)
+  |-- DynamicBuffer&lt;ConnectedEdge&gt;  [capacity 4]
+  |       |-- Edge entity A
+  |       |-- Edge entity B
+  |       |-- Edge entity C
+  |       +-- Edge entity D
+  |
+  +-- NodeGeometry (bounds, flatness)
+
+Edge (road segment)
+  |-- Edge.m_Start  --&gt;  Node entity (start)
+  |-- Edge.m_End    --&gt;  Node entity (end)
+  |-- Curve              (Bezier4x3 shape)
+  |-- Composition         (links to prefab compositions)
+  |-- Elevation           (float2: start/end offsets)
+  |-- EdgeGeometry        (left/right segments, bounds)
+  |-- DynamicBuffer&lt;SubLane&gt;
+  |       |-- Lane entity 1 (car lane)
+  |       |-- Lane entity 2 (car lane)
+  |       |-- Lane entity 3 (sidewalk)
+  |       +-- Lane entity N (utility conduit)
+  |
+  +-- DynamicBuffer&lt;ConnectedNode&gt; (intermediate splits)
+
+Lane (single traffic lane / sidewalk / utility)
+  |-- Lane       (PathNode start/middle/end)
+  |-- Curve      (Bezier4x3 shape)
+  +-- PrefabRef  (lane prefab entity)</pre></div>
+
+    <h3>Layer System</h3>
+
+    <p>Each network type belongs to one or more <code>Layer</code> flags. This controls which networks can connect to each other:</p>
+
+    <table>
+      <tr><th>Layer</th><th>Value</th><th>Description</th></tr>
+      <tr><td><code>Road</code></td><td>1</td><td>Standard roads</td></tr>
+      <tr><td><code>TrainTrack</code></td><td>0x40</td><td>Railway tracks</td></tr>
+      <tr><td><code>Pathway</code></td><td>0x80</td><td>Pedestrian paths</td></tr>
+      <tr><td><code>TramTrack</code></td><td>0x400</td><td>Tram tracks</td></tr>
+      <tr><td><code>SubwayTrack</code></td><td>0x800</td><td>Subway tracks</td></tr>
+      <tr><td><code>PowerlineLow</code></td><td>2</td><td>Low-voltage power lines</td></tr>
+      <tr><td><code>PowerlineHigh</code></td><td>4</td><td>High-voltage power lines</td></tr>
+      <tr><td><code>WaterPipe</code></td><td>8</td><td>Water pipes</td></tr>
+      <tr><td><code>SewagePipe</code></td><td>0x10</td><td>Sewage pipes</td></tr>
+      <tr><td><code>Waterway</code></td><td>0x100</td><td>Ship waterways</td></tr>
+      <tr><td><code>Fence</code></td><td>0x1000</td><td>Fences</td></tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <h2>Examples</h2>
+
+    <h3>Read All Road Edges</h3>
+    <p>Query all permanent edge entities and log their start/end positions and lengths.</p>
+
+<pre><code class="language-csharp">public partial class NetworkReaderSystem : GameSystemBase
+{
+    private EntityQuery _edgeQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _edgeQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Edge&gt;(),
+            ComponentType.ReadOnly&lt;Curve&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var edges = _edgeQuery.ToComponentDataArray&lt;Edge&gt;(Allocator.Temp);
+        var curves = _edgeQuery.ToComponentDataArray&lt;Curve&gt;(Allocator.Temp);
+        var entities = _edgeQuery.ToEntityArray(Allocator.Temp);
+
+        try
+        {
+            for (int i = 0; i &lt; edges.Length; i++)
+            {
+                Edge edge = edges[i];
+                Curve curve = curves[i];
+                Node startNode = EntityManager.GetComponentData&lt;Node&gt;(edge.m_Start);
+                Node endNode = EntityManager.GetComponentData&lt;Node&gt;(edge.m_End);
+
+                Log.Info($"Edge {entities[i]}: " +
+                    $"{startNode.m_Position} -&gt; {endNode.m_Position}, " +
+                    $"length={curve.m_Length:F1}");
+            }
+        }
+        finally
+        {
+            edges.Dispose();
+            curves.Dispose();
+            entities.Dispose();
+        }
+    }
+}</code></pre>
+
+    <h3>Find All Edges Connected to a Node</h3>
+    <p>Walk the <code>ConnectedEdge</code> buffer on a node to enumerate its connections.</p>
+
+<pre><code class="language-csharp">public void LogConnectedEdges(Entity nodeEntity)
+{
+    if (!EntityManager.TryGetBuffer&lt;ConnectedEdge&gt;(nodeEntity, true, out var edges))
+        return;
+
+    Node node = EntityManager.GetComponentData&lt;Node&gt;(nodeEntity);
+    Log.Info($"Node at {node.m_Position} has {edges.Length} connected edges:");
+
+    for (int i = 0; i &lt; edges.Length; i++)
+    {
+        Entity edgeEntity = edges[i].m_Edge;
+        Curve curve = EntityManager.GetComponentData&lt;Curve&gt;(edgeEntity);
+        Log.Info($"  Edge {edgeEntity}: length={curve.m_Length:F1}");
+    }
+}</code></pre>
+
+    <h3>Query Lanes on a Road Segment</h3>
+    <p>Walk the <code>SubLane</code> buffer on an edge to enumerate its lanes.</p>
+
+<pre><code class="language-csharp">public void LogLanes(Entity edgeEntity)
+{
+    if (!EntityManager.TryGetBuffer&lt;SubLane&gt;(edgeEntity, true, out var subLanes))
+        return;
+
+    for (int i = 0; i &lt; subLanes.Length; i++)
+    {
+        Entity laneEntity = subLanes[i].m_SubLane;
+        Curve curve = EntityManager.GetComponentData&lt;Curve&gt;(laneEntity);
+        PrefabRef prefabRef = EntityManager.GetComponentData&lt;PrefabRef&gt;(laneEntity);
+        Log.Info($"  Lane {i}: prefab={prefabRef.m_Prefab}, " +
+            $"length={curve.m_Length:F1}");
+    }
+}</code></pre>
+
+    <h3>Modify Road Elevation</h3>
+    <p>Change the elevation of an existing road segment. Mark as <code>Updated</code> so geometry and lanes are recalculated.</p>
+
+<pre><code class="language-csharp">public void SetEdgeElevation(Entity edgeEntity, float startElev, float endElev)
+{
+    var newElevation = new Elevation(new float2(startElev, endElev));
+
+    if (EntityManager.HasComponent&lt;Elevation&gt;(edgeEntity))
+        EntityManager.SetComponentData(edgeEntity, newElevation);
+    else
+        EntityManager.AddComponentData(edgeEntity, newElevation);
+
+    // Mark as updated so GeometrySystem and LaneSystem recalculate
+    if (!EntityManager.HasComponent&lt;Updated&gt;(edgeEntity))
+        EntityManager.AddComponent&lt;Updated&gt;(edgeEntity);
+}</code></pre>
+
+    <h3>Check Road Composition Flags</h3>
+    <p>Read composition data to determine if a road is elevated, has traffic lights, etc.</p>
+
+<pre><code class="language-csharp">public bool IsElevated(Entity edgeEntity)
+{
+    Composition comp = EntityManager.GetComponentData&lt;Composition&gt;(edgeEntity);
+    NetCompositionData compData =
+        EntityManager.GetComponentData&lt;NetCompositionData&gt;(comp.m_Edge);
+    return (compData.m_Flags.m_General &amp;
+        CompositionFlags.General.Elevated) != 0;
+}
+
+public bool HasTrafficLights(Entity nodeEntity)
+{
+    if (!EntityManager.TryGetBuffer&lt;ConnectedEdge&gt;(
+            nodeEntity, true, out var edges))
+        return false;
+
+    for (int i = 0; i &lt; edges.Length; i++)
+    {
+        Composition comp =
+            EntityManager.GetComponentData&lt;Composition&gt;(edges[i].m_Edge);
+        Edge edge =
+            EntityManager.GetComponentData&lt;Edge&gt;(edges[i].m_Edge);
+
+        Entity nodeComp = (edge.m_Start == nodeEntity)
+            ? comp.m_StartNode : comp.m_EndNode;
+        NetCompositionData compData =
+            EntityManager.GetComponentData&lt;NetCompositionData&gt;(nodeComp);
+
+        if ((compData.m_Flags.m_General &amp;
+                CompositionFlags.General.TrafficLights) != 0)
+            return true;
+    }
+    return false;
+}</code></pre>
+
+    <!-- ============================================================ -->
+    <h2>Configuration</h2>
+
+    <h3>CompositionFlags</h3>
+
+    <p>Roads use <code>CompositionFlags</code> to describe their properties. This struct contains two flag enums:</p>
+
+    <p><strong>General flags</strong> (apply to whole edge or node):</p>
+    <table>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+      <tr><td><code>Elevated</code></td><td>0x10000</td><td>Road is elevated (bridge)</td></tr>
+      <tr><td><code>Tunnel</code></td><td>0x20000</td><td>Road is in a tunnel</td></tr>
+      <tr><td><code>Roundabout</code></td><td>0x40</td><td>Node is part of a roundabout</td></tr>
+      <tr><td><code>TrafficLights</code></td><td>0x400</td><td>Node has traffic lights</td></tr>
+      <tr><td><code>LevelCrossing</code></td><td>0x80</td><td>Railroad level crossing</td></tr>
+      <tr><td><code>Crosswalk</code></td><td>0x100</td><td>Has crosswalk at node</td></tr>
+      <tr><td><code>DeadEnd</code></td><td>0x10</td><td>Dead-end node</td></tr>
+      <tr><td><code>Intersection</code></td><td>0x20</td><td>Multi-edge intersection</td></tr>
+      <tr><td><code>Lighting</code></td><td>0x10000000</td><td>Has street lighting</td></tr>
+      <tr><td><code>Pavement</code></td><td>0x2000000</td><td>Paved surface</td></tr>
+      <tr><td><code>Gravel</code></td><td>0x4000000</td><td>Gravel surface</td></tr>
+      <tr><td><code>Tiles</code></td><td>0x8000000</td><td>Tiled surface</td></tr>
+    </table>
+
+    <p><strong>Side flags</strong> (apply to left or right side of edge):</p>
+    <table>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+      <tr><td><code>Sidewalk</code></td><td>0x10000</td><td>Has sidewalk</td></tr>
+      <tr><td><code>WideSidewalk</code></td><td>0x20000</td><td>Wide sidewalk variant</td></tr>
+      <tr><td><code>ParkingSpaces</code></td><td>0x40000</td><td>Has parking spaces</td></tr>
+      <tr><td><code>SoundBarrier</code></td><td>0x80000</td><td>Sound barrier installed</td></tr>
+      <tr><td><code>Raised</code></td><td>1</td><td>Raised edge (curb)</td></tr>
+      <tr><td><code>Lowered</code></td><td>2</td><td>Lowered edge</td></tr>
+      <tr><td><code>ForbidLeftTurn</code></td><td>0x1000000</td><td>Left turn forbidden</td></tr>
+      <tr><td><code>ForbidRightTurn</code></td><td>0x2000000</td><td>Right turn forbidden</td></tr>
+      <tr><td><code>ForbidStraight</code></td><td>0x10000000</td><td>Straight movement forbidden</td></tr>
+    </table>
+
+    <h3>NetToolSystem Properties</h3>
+
+    <p>The tool exposes these configurable properties (useful for UI bindings or programmatic control):</p>
+
+    <table>
+      <tr><th>Property</th><th>Type</th><th>Default</th><th>Description</th></tr>
+      <tr><td><code>mode</code></td><td><code>Mode</code></td><td>Straight</td><td>Drawing mode (Straight, SimpleCurve, etc.)</td></tr>
+      <tr><td><code>elevation</code></td><td><code>float</code></td><td>0</td><td>Height offset from terrain</td></tr>
+      <tr><td><code>elevationStep</code></td><td><code>float</code></td><td>10</td><td>Increment for elevation changes</td></tr>
+      <tr><td><code>parallelCount</code></td><td><code>int</code></td><td>0</td><td>Number of parallel roads</td></tr>
+      <tr><td><code>parallelOffset</code></td><td><code>float</code></td><td>8</td><td>Distance between parallel roads</td></tr>
+      <tr><td><code>underground</code></td><td><code>bool</code></td><td>false</td><td>Whether building underground</td></tr>
+    </table>
+
+    <!-- ============================================================ -->
+    <h2>Patch Points</h2>
+
+    <h3>Recommended: ECS Queries (No Patches Needed)</h3>
+    <p>For reading and modifying network data, standard ECS queries are sufficient. All network components (<code>Edge</code>, <code>Node</code>, <code>Curve</code>, <code>Lane</code>, etc.) are regular <code>IComponentData</code> and <code>IBufferElementData</code>. After modifying geometry, add <code>Updated</code> to trigger recalculation by <code>GeometrySystem</code> and <code>LaneSystem</code>.</p>
+
+    <h3>Harmony: NetToolSystem.OnUpdate()</h3>
+    <p>Intercept tool actions during road placement:</p>
+    <ul>
+      <li><strong>Prefix</strong> -- block or redirect road placement actions</li>
+      <li><strong>Postfix</strong> -- add custom behavior after tool updates (e.g., custom snap logic)</li>
+    </ul>
+    <p>Risk: Central to <em>all</em> network building. Breaking this disables road, rail, pipe, and power line tools entirely.</p>
+
+    <h3>Harmony: ApplyNetSystem.OnUpdate()</h3>
+    <p>Intercept road creation at the moment of confirmation:</p>
+    <ul>
+      <li><strong>Prefix</strong> -- prevent certain placements from being applied</li>
+      <li><strong>Postfix</strong> -- add components or modify newly created entities</li>
+    </ul>
+    <p>This runs only when the user confirms, making it ideal for post-creation modifications.</p>
+
+    <h3>Harmony: LaneSystem.OnUpdate()</h3>
+    <p>Modify lane generation:</p>
+    <ul>
+      <li><strong>Prefix/Postfix</strong> -- change lane layout, add custom lanes, modify properties</li>
+    </ul>
+    <p>Risk: Affects pathfinding and traffic for all roads.</p>
+
+    <h3>Direct Component Manipulation</h3>
+    <p>You can modify network entities directly via <code>EntityManager</code>. After changes, mark the entity as <code>Updated</code> so dependent systems recalculate:</p>
+
+<pre><code class="language-csharp">EntityManager.SetComponentData(edgeEntity, new Curve { m_Bezier = newBezier });
+EntityManager.AddComponent&lt;Updated&gt;(edgeEntity);</code></pre>
+
+    <!-- ============================================================ -->
+    <h2>Open Questions</h2>
+
+    <ul>
+      <li>How does <code>NetToolSystem</code> handle Grid mode internally? The grid generation from 3 control points was not fully traced.</li>
+      <li>What is the full lifecycle of <code>Temp</code> entities? The <code>TempFlags</code> (Delete, Replace, Combine, Cancel) state machine needs more investigation.</li>
+      <li>How does edge splitting work when a new node is placed on an existing edge mid-segment? The split logic in <code>GenerateEdgesSystem</code> is complex.</li>
+      <li>How are <code>Aggregate</code> entities used? They group connected edges of the same type but the rules need investigation.</li>
+      <li>How do parallel roads (from <code>parallelCount</code>) interact with the generation pipeline?</li>
+    </ul>
+
+    <footer>
+      <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-15.</p>
+      <div class="attribution-footer">
+        <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+      </div>
+    </footer>
+    </main>
+
+  </div>
+</body>
+</html>

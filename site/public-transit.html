@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Public Transit Systems</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="road-network.html">Road Network</a>
+    <a href="zoning.html">Zoning</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html" class="active">Public Transit</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Public Transit Systems</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 manage public transit lines -- line creation,
+      stop management, vehicle dispatch, passenger boarding, and scheduling?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Public transit is built on a Route entity hierarchy. A transport
+      line is an ECS entity with <code>Route</code> + <code>TransportLine</code> components,
+      linked to child Waypoint and Segment entities. The <code>TransportLineSystem</code>
+      calculates vehicle counts from line duration and interval, dispatches vehicles from depots
+      via <code>TransportVehicleDispatchSystem</code>, and manages boarding via
+      <code>TransportBoardingHelpers</code>. Lines support Day/Night scheduling, ticket pricing,
+      and all transit modes (bus, train, tram, metro, ship, airplane, etc.).
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Pathfinding internals, rendering, and the UI transportation
+      overview panel. Cargo transport is included where it shares infrastructure with passenger
+      transport.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Entity Hierarchy</h2>
+
+  <p>
+    A transport line is modeled as a tree of ECS entities. The root is the Route entity
+    (the "line" itself), which owns child Waypoint and Segment entities through buffer elements.
+  </p>
+
+  <div class="diagram">
+<pre>
+Route Entity (the "line")
+  Components: Route, TransportLine, RouteNumber, Color, PrefabRef
+  Buffers: RouteWaypoint[], RouteSegment[], RouteVehicle[],
+           VehicleModel[], DispatchedRequest[], RouteModifier[], Policy[]
+  |
+  +-- Waypoint Entities (one per stop/node on the line)
+  |     Components: Waypoint (index), Connected (-&gt; TransportStop),
+  |                 VehicleTiming, BoardingVehicle, WaitingPassengers,
+  |                 AccessLane, RouteLane
+  |
+  +-- Segment Entities (one per segment between consecutive waypoints)
+  |     Components: Segment (index), RouteInfo, PathInformation
+  |     Buffers: PathElement[], PathTargets[]
+  |
+  +-- Vehicle Entities (assigned to line via RouteVehicle buffer)
+        Components: PublicTransport (or CargoTransport), CurrentRoute,
+                    PrefabRef, Odometer, etc.
+</pre>
+  </div>
+
+  <p>
+    The <code>TransportLinePrefab</code> class defines which components are added to each
+    entity type via <code>GetArchetypeComponents()</code>. For example, waypoints that have
+    a <code>Connected</code> component (linking to a physical stop) also get
+    <code>VehicleTiming</code>, and passenger lines add <code>WaitingPassengers</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <h3>Line Update Cycle</h3>
+
+  <p>
+    <code>TransportLineSystem</code> runs every 256 frames. For each transport line entity,
+    the <code>TransportLineTickJob</code> performs the following:
+  </p>
+
+  <ol>
+    <li>Apply <code>RouteModifier</code> values for vehicle interval and ticket price</li>
+    <li>Determine if line is active based on Day/Night options and building activity</li>
+    <li>Refresh segment durations from <code>PathInformation</code> and <code>VehicleTiming</code></li>
+    <li>Calculate target vehicle count: <code>round(lineDuration / vehicleInterval)</code>, minimum 1</li>
+    <li>Calculate actual vehicle interval: <code>lineDuration / vehicleCount</code></li>
+    <li>Check existing vehicles -- abandon those with wrong model, cancel abandon if more are needed</li>
+    <li>If not enough vehicles, create <code>TransportVehicleRequest</code> entities</li>
+    <li>Show notification icon if vehicles cannot be dispatched</li>
+  </ol>
+
+  <pre><code class="language-csharp">public static int CalculateVehicleCount(float vehicleInterval, float lineDuration)
+{
+    return math.max(1, (int)math.round(lineDuration / math.max(1f, vehicleInterval)));
+}
+
+public static float CalculateVehicleInterval(float lineDuration, int vehicleCount)
+{
+    return lineDuration / (float)math.max(1, vehicleCount);
+}</code></pre>
+
+  <h3>Day/Night Scheduling</h3>
+
+  <p>
+    Lines can be configured for Day-only, Night-only, or always-active operation via
+    <code>RouteOption</code> flags stored in <code>Route.m_OptionMask</code>:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Option</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Day</td><td>Active when <code>normalizedTime &gt;= 0.25</code> and <code>&lt; 11/12</code> (~6:00-22:00)</td></tr>
+      <tr><td>Night</td><td>Active outside daytime hours</td></tr>
+      <tr><td>Inactive</td><td>Line completely disabled</td></tr>
+      <tr><td>PaidTicket</td><td>Passengers pay a ticket price (set via RouteModifier)</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Additionally, a line is deactivated if all buildings connected to its stops are inactive
+    (checked via <code>BuildingUtils.CheckOption(building, BuildingOption.Inactive)</code>).
+  </p>
+
+  <h3>Vehicle Dispatch</h3>
+
+  <p>
+    When <code>TransportLineSystem</code> determines that a line needs more vehicles, it creates
+    a <code>TransportVehicleRequest</code> entity. The <code>TransportVehicleDispatchSystem</code>
+    picks this up and:
+  </p>
+
+  <ol>
+    <li>Finds a suitable depot (<code>TransportDepot</code> with available vehicles)</li>
+    <li>Pathfinds from depot to the first stop on the line</li>
+    <li>Dispatches a vehicle from the depot</li>
+    <li>The vehicle gets a <code>CurrentRoute</code> component pointing to the line entity</li>
+    <li>The vehicle is added to the line's <code>RouteVehicle</code> buffer</li>
+  </ol>
+
+  <p>
+    If dispatch fails repeatedly (<code>ServiceRequest.m_FailCount &gt;= 2</code>), the system
+    sets <code>TransportLineFlags.NotEnoughVehicles</code> and shows a notification icon.
+  </p>
+
+  <h3>Vehicle Count Management</h3>
+
+  <p>
+    The system dynamically adjusts vehicle count by comparing the target count
+    (from line duration / interval) with the actual count of vehicles on the route:
+  </p>
+
+  <ul>
+    <li><strong>Too few continuing vehicles:</strong> Cancel <code>AbandonRoute</code> flag on existing vehicles (nearest first)</li>
+    <li><strong>Too many continuing vehicles:</strong> Set <code>AbandonRoute</code> flag on excess vehicles (furthest from start first, by odometer distance)</li>
+    <li><strong>Wrong vehicle model:</strong> Vehicle is flagged for <code>AbandonRoute</code> even if count is correct</li>
+  </ul>
+
+  <h3>Boarding Process</h3>
+
+  <p>
+    <code>TransportBoardingHelpers</code> manages the boarding lifecycle through a queue-based
+    system. Vehicle AI systems (e.g. <code>TransportCarAISystem</code>) enqueue boarding events:
+  </p>
+
+  <div class="diagram">
+<pre>
+Vehicle arrives at waypoint
+    |
+    v
+Vehicle AI System (e.g. TransportCarAISystem)
+    |-- BeginTesting(vehicle, route, stop, waypoint)
+    |   (Check if stop is reachable without committing)
+    |-- EndTesting
+    |
+    |-- BeginBoarding(vehicle, route, stop, waypoint,
+    |                  currentStation, nextStation, refuel)
+    |   |-- Set BoardingVehicle.m_Vehicle on stop
+    |   |-- Calculate departure frame from interval + unbunching
+    |   |-- Set PublicTransportFlags.Boarding on vehicle
+    |   |-- Unload cargo at current station
+    |   |-- Start loading cargo for next station
+    |
+    |   [Passengers board/alight during boarding window]
+    |   [Departure frame reached]
+    |
+    |-- EndBoarding(vehicle, route, stop, ...)
+        |-- Clear BoardingVehicle on stop
+        |-- Clear Boarding/Refueling flags on vehicle
+        |-- Vehicle continues to next waypoint
+</pre>
+  </div>
+
+  <p>
+    Only one vehicle can board at a stop at a time -- if
+    <code>BoardingVehicle.m_Vehicle</code> is already set and that vehicle is still boarding,
+    subsequent arrivals must wait. The departure frame is calculated by
+    <code>RouteUtils.CalculateDepartureFrame</code> using the line's vehicle interval,
+    unbunching factor, stop duration, and the last departure time from
+    <code>VehicleTiming</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Routes</td>
+        <td>Route, TransportLine, TransportStop, Waypoint, Segment, RouteWaypoint, RouteSegment, RouteVehicle, Connected, CurrentRoute, VehicleTiming, BoardingVehicle, RouteInfo, RouteNumber, Color, VehicleModel, DispatchedRequest</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>TransportLineSystem, TransportStopSystem, TransportVehicleDispatchSystem, TransportBoardingHelpers, TransportDepotAISystem, TransportCarAISystem, TransportTrainAISystem, TransportAircraftAISystem, TransportWatercraftAISystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Vehicles</td>
+        <td>PublicTransport, PublicTransportFlags, CargoTransport, CargoTransportFlags, PassengerTransport</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>TransportLinePrefab, TransportType, TransportStop, TransportStation, TransportDepot, PublicTransport, CargoTransport, PublicTransportPurpose</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Route (Game.Routes)</h3>
+
+  <p>The base component for any route entity.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Flags</td><td>RouteFlags</td><td>Flags: Complete = 1</td></tr>
+      <tr><td>m_OptionMask</td><td>uint</td><td>Bitmask of RouteOption values (Day, Night, Inactive, PaidTicket)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TransportLine (Game.Routes)</h3>
+
+  <p>Added to route entities that are transport lines.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_VehicleRequest</td><td>Entity</td><td>Current pending vehicle request entity</td></tr>
+      <tr><td>m_VehicleInterval</td><td>float</td><td>Calculated interval between vehicles (seconds)</td></tr>
+      <tr><td>m_UnbunchingFactor</td><td>float</td><td>Factor controlling vehicle spacing smoothing</td></tr>
+      <tr><td>m_Flags</td><td>TransportLineFlags</td><td>RequireVehicles (0x1), NotEnoughVehicles (0x2)</td></tr>
+      <tr><td>m_TicketPrice</td><td>ushort</td><td>Current ticket price (if PaidTicket option enabled)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TransportStop (Game.Routes)</h3>
+
+  <p>Attached to stop entities connected to waypoints via <code>Connected</code>.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_AccessRestriction</td><td>Entity</td><td>Access restriction entity</td></tr>
+      <tr><td>m_ComfortFactor</td><td>float</td><td>Stop comfort (0-1), affects passenger satisfaction</td></tr>
+      <tr><td>m_LoadingFactor</td><td>float</td><td>Loading speed multiplier (&gt;= 0)</td></tr>
+      <tr><td>m_Flags</td><td>StopFlags</td><td>Active = 1, AllowEnter = 2</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PublicTransport (Game.Vehicles)</h3>
+
+  <p>Runtime state for a public transport vehicle.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TargetRequest</td><td>Entity</td><td>Current dispatch request being handled</td></tr>
+      <tr><td>m_State</td><td>PublicTransportFlags</td><td>State flags (Returning, EnRoute, Boarding, etc.)</td></tr>
+      <tr><td>m_DepartureFrame</td><td>uint</td><td>Simulation frame when vehicle should depart</td></tr>
+      <tr><td>m_RequestCount</td><td>int</td><td>Number of pending requests</td></tr>
+      <tr><td>m_PathElementTime</td><td>float</td><td>Time along current path element</td></tr>
+      <tr><td>m_MaxBoardingDistance</td><td>float</td><td>Max distance from stop at which boarding occurred</td></tr>
+      <tr><td>m_MinWaitingDistance</td><td>float</td><td>Min distance to next waiting passenger</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PublicTransportFlags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Returning</td><td>0x1</td><td>Vehicle returning to depot</td></tr>
+      <tr><td>EnRoute</td><td>0x2</td><td>Vehicle traveling along route</td></tr>
+      <tr><td>Boarding</td><td>0x4</td><td>Vehicle at stop, loading passengers</td></tr>
+      <tr><td>Arriving</td><td>0x8</td><td>Vehicle approaching a stop</td></tr>
+      <tr><td>Launched</td><td>0x10</td><td>Vehicle has been launched (aircraft)</td></tr>
+      <tr><td>RequiresMaintenance</td><td>0x80</td><td>Vehicle needs maintenance</td></tr>
+      <tr><td>Refueling</td><td>0x100</td><td>Vehicle refueling at stop</td></tr>
+      <tr><td>AbandonRoute</td><td>0x200</td><td>Vehicle flagged to leave route</td></tr>
+      <tr><td>Testing</td><td>0x800</td><td>Vehicle testing a stop</td></tr>
+      <tr><td>RequireStop</td><td>0x1000</td><td>Vehicle requires a stop</td></tr>
+      <tr><td>DummyTraffic</td><td>0x2000</td><td>Non-real traffic vehicle</td></tr>
+      <tr><td>Disabled</td><td>0x10000</td><td>Vehicle disabled</td></tr>
+      <tr><td>Full</td><td>0x20000</td><td>Vehicle at capacity</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TransportType (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Type</th><th>Notes</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>Bus</td><td>Road-based</td></tr>
+      <tr><td>1</td><td>Train</td><td>Track-based</td></tr>
+      <tr><td>2</td><td>Taxi</td><td>On-demand dispatch</td></tr>
+      <tr><td>3</td><td>Tram</td><td>Road/track hybrid</td></tr>
+      <tr><td>4</td><td>Ship</td><td>Watercraft</td></tr>
+      <tr><td>5</td><td>Post</td><td>Mail delivery</td></tr>
+      <tr><td>6</td><td>Helicopter</td><td>Air-based</td></tr>
+      <tr><td>7</td><td>Airplane</td><td>Air-based</td></tr>
+      <tr><td>8</td><td>Subway</td><td>Underground track</td></tr>
+      <tr><td>9</td><td>Rocket</td><td>Special</td></tr>
+      <tr><td>10</td><td>Work</td><td>Worker routes</td></tr>
+      <tr><td>11</td><td>Ferry</td><td>Water-based</td></tr>
+      <tr><td>12</td><td>Bicycle</td><td>Bike routes</td></tr>
+      <tr><td>13</td><td>Car</td><td>Private car routes</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+TransportLineSystem.OnUpdate() [every 256 frames]
+    |
+    +-- TransportLineTickJob (per line, parallel)
+    |   +-- Apply RouteModifiers (VehicleInterval, TicketPrice)
+    |   +-- Check Day/Night/Inactive/Building activity
+    |   +-- RefreshLineSegments:
+    |   |     For each segment: read PathInformation.m_Duration
+    |   |     For each stop: read VehicleTiming.m_AverageTravelTime
+    |   |     Compute total lineDuration
+    |   +-- vehicleCount = round(lineDuration / vehicleInterval)
+    |   +-- CheckVehicles: count total/continuing, remove stale
+    |   +-- AbandonVehicles or CancelAbandon to match target
+    |   +-- RequestNewVehicle -&gt; creates TransportVehicleRequest
+    |
+    +-- VehicleActionJob (sequential)
+        +-- Process AbandonRoute / CancelAbandon on vehicles
+
+TransportVehicleDispatchSystem
+    |-- Picks up TransportVehicleRequest entities
+    |-- Finds depot with available vehicles
+    |-- Pathfinds depot -&gt; first stop
+    |-- Dispatches vehicle (CurrentRoute = line entity)
+    |-- Vehicle added to line's RouteVehicle[] buffer
+
+Vehicle AI Systems (TransportCarAI, TransportTrainAI, etc.)
+    |-- Follow PathElement sequences along route segments
+    |-- At each waypoint with Connected stop:
+    |     BeginTesting / EndTesting
+    |     BeginBoarding / EndBoarding
+    |-- Depart when m_DepartureFrame is reached
+    |-- If AbandonRoute flag set: return to depot
+
+TransportStopSystem [every 256 frames]
+    |-- Update ComfortFactor and LoadingFactor per stop
+    |-- Apply TransportStation building bonuses
+    |-- Toggle Active flag based on station state
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>TransportLinePrefab Fields</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TransportType</td><td>--</td><td>Transit mode (Bus, Train, Tram, etc.)</td></tr>
+      <tr><td>m_DefaultVehicleInterval</td><td>15</td><td>Default seconds between vehicles</td></tr>
+      <tr><td>m_DefaultUnbunchingFactor</td><td>0.75</td><td>Spacing smoothing factor</td></tr>
+      <tr><td>m_StopDuration</td><td>1</td><td>Default boarding time at stops (seconds)</td></tr>
+      <tr><td>m_AccessConnectionType</td><td>Pedestrian</td><td>How passengers reach stops</td></tr>
+      <tr><td>m_RouteConnectionType</td><td>Road</td><td>What infrastructure the route uses</td></tr>
+      <tr><td>m_PassengerTransport</td><td>true</td><td>Whether line carries passengers</td></tr>
+      <tr><td>m_CargoTransport</td><td>false</td><td>Whether line carries cargo</td></tr>
+      <tr><td>m_SizeClass</td><td>Large</td><td>Vehicle size class for road routing</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Stop Configuration</h3>
+
+  <p>
+    Stop properties come from two sources: the <code>TransportStopData</code> prefab and the
+    parent <code>TransportStation</code> building:
+  </p>
+
+  <pre><code class="language-csharp">// Final comfort = saturate(prefabComfort + (1 - prefabComfort) * stationComfort)
+// Final loading = max(0, prefabLoading * stationLoading)
+float num = math.saturate(transportStopData.m_ComfortFactor);
+float num2 = math.max(0f, 1f + transportStopData.m_LoadingFactor);
+if (transportStation != Entity.Null)
+{
+    num = math.saturate(num + (1f - num) * transportStation2.m_ComfortFactor);
+    num2 = math.max(0f, num2 * transportStation2.m_LoadingFactor);
+}</code></pre>
+
+  <h3>Route Modifiers</h3>
+
+  <table>
+    <thead>
+      <tr><th>Modifier</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>VehicleInterval</td><td>Adjusts the target interval between vehicles on the line</td></tr>
+      <tr><td>TicketPrice</td><td>Sets the ticket price (only when PaidTicket option is enabled)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Passenger pathfinding through transit:</strong> How do passengers choose which
+      line to ride? They likely pathfind through the transit network using the
+      <code>PathfindPrefab</code> on <code>TransportLinePrefab</code>. The exact cost model
+      (waiting time, comfort, transfers) needs further decompilation of the pathfind system.
+    </li>
+    <li>
+      <strong>Unbunching algorithm:</strong> The unbunching factor affects departure frame
+      calculation in <code>RouteUtils.CalculateDepartureFrame</code>. The exact formula and
+      how it prevents vehicle bunching needs further investigation.
+    </li>
+    <li>
+      <strong>Vehicle return to depot:</strong> When <code>AbandonRoute</code> is set, the
+      vehicle AI systems handle returning to depot. The exact depot selection and pathfinding
+      logic lives in the per-vehicle-type AI systems.
+    </li>
+    <li>
+      <strong>Ticket revenue flow:</strong> The <code>m_TicketPrice</code> is set on
+      <code>TransportLine</code> via <code>RouteModifier</code>, but how revenue flows into
+      the city economy needs tracing through the economy system.
+    </li>
+    <li>
+      <strong>WaitingPassengers component:</strong> Added to passenger transport waypoints.
+      How this buffer is populated and consumed during boarding needs further decompilation.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Routes.Route, Game.Routes.TransportLine, Game.Routes.TransportStop, Game.Routes.Waypoint, Game.Routes.Segment, Game.Routes.RouteWaypoint, Game.Routes.RouteSegment, Game.Routes.RouteVehicle, Game.Routes.Connected, Game.Routes.CurrentRoute, Game.Routes.VehicleTiming, Game.Routes.BoardingVehicle, Game.Routes.RouteInfo</li>
+    <li>Systems: Game.Simulation.TransportLineSystem, Game.Simulation.TransportStopSystem, Game.Simulation.TransportVehicleDispatchSystem, Game.Simulation.TransportBoardingHelpers</li>
+    <li>Vehicle components: Game.Vehicles.PublicTransport, Game.Vehicles.PublicTransportFlags</li>
+    <li>Prefab types: Game.Prefabs.TransportLinePrefab, Game.Prefabs.TransportType, Game.Prefabs.TransportStop</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- TransportLineSystem, TransportStopSystem, TransportVehicleDispatchSystem, TransportBoardingHelpers.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

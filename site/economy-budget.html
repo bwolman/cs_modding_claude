@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Economy &amp; Budget System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="road-network.html">Road Network</a>
+    <a href="zoning.html">Zoning</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html" class="active">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Economy &amp; Budget System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 handle the city economy? How are taxes collected,
+      service fees charged, loans managed, and how does money flow from income sources through
+      to the player's balance?
+    </p>
+    <p>
+      <strong>Verdict:</strong> The economy runs through a pipeline of ECS systems:
+      <code>TaxSystem</code> collects from <code>TaxPayer</code> entities,
+      <code>ServiceFeeSystem</code> charges for healthcare/education/utilities,
+      <code>CityServiceBudgetSystem</code> aggregates 14 income and 15 expense categories,
+      and <code>BudgetApplySystem</code> applies the net result to <code>PlayerMoney</code>
+      on the City entity 1024 times per game day. Loans are managed through
+      <code>LoanSystem</code> with interest rates that scale with creditworthiness.
+      Trade flows through <code>TradeSystem</code> via outside connection storage companies.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Company-level profitability AI, demand systems, and
+      detailed resource production chains. Those are separate research topics.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The city budget is driven by a pipeline of Burst-compiled ECS systems. Each system runs at
+    a different frequency (measured in updates per game day, where one game day = 262,144
+    simulation frames). The final result is a per-tick adjustment to <code>PlayerMoney</code>
+    on the City entity.
+  </p>
+
+  <h3>The Budget Pipeline</h3>
+
+  <div class="diagram">
+<pre>
+TaxSystem (32x/day)
+  Iterates TaxPayer entities (households + companies)
+  tax = round(0.01 * m_AverageTaxRate * m_UntaxedIncome)
+  Deducts tax from entity's Resources buffer
+  Records to CityStatistics
+      |
+ServiceFeeSystem (128x/day)
+  Queries buildings with ServiceFeeCollector + Patient/Student
+  Charges healthcare fees per patient, education fees per student
+  Deducts from household's Resources buffer
+  Accumulates FeeEvents (internal / export / import)
+      |
+TradeSystem (periodic)
+  Manages resource flow through outside connections
+  Updates trade balances per resource type
+  Tracks import/export volumes and costs
+      |
+      v
+CityServiceBudgetSystem
+  Aggregates all sources into:
+    NativeArray&lt;int&gt; m_Income[14]    -- 14 income categories
+    NativeArray&lt;int&gt; m_Expenses[15]  -- 15 expense categories
+      |
+      v
+BudgetApplySystem (1024x/day)
+  net = sum(income) - sum(expenses)
+  PlayerMoney.Add(net / 1024)
+      |
+      v
+PlayerMoney on City entity
+  m_Money clamped to +/- 2,000,000,000
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Tax Collection</h2>
+
+  <p>
+    The <code>TaxSystem</code> implements <code>ITaxSystem</code> and runs 32 times per game day.
+    It queries three separate entity groups: residential (households), commercial (companies),
+    and industrial (companies). Each entity that has a <code>TaxPayer</code> component accumulates
+    income in <code>m_UntaxedIncome</code> as it earns money from its activities.
+  </p>
+
+  <p>When the system updates, for each matching entity:</p>
+
+  <pre><code class="language-csharp">// From TaxSystem.PayTaxJob
+int tax = GetTax(taxPayer);
+// GetTax: return (int)math.round(0.01f * (float)payer.m_AverageTaxRate * (float)payer.m_UntaxedIncome);
+int paid = (int)math.round(m_PaidMultiplier * (float)tax);
+EconomyUtils.AddResources(Resource.Money, -paid, resources);
+taxPayer.m_UntaxedIncome = 0;
+taxPayer.m_AverageTaxPaid = tax * kUpdatesPerDay;</code></pre>
+
+  <p>Tax categorization:</p>
+  <ul>
+    <li><strong>Residential:</strong> Categorized by highest worker education level in the household</li>
+    <li><strong>Commercial:</strong> Categorized by output resource of the company prefab</li>
+    <li><strong>Industrial:</strong> Same as commercial, but if the output resource has zero weight
+      (weightless = office product), it is reclassified as <code>IncomeSource.TaxOffice</code></li>
+  </ul>
+
+  <h3>Tax Rate Structure</h3>
+
+  <p>
+    Tax rates are stored as a <code>TaxRates</code> buffer (92 entries) on the City entity,
+    indexed by the <code>TaxRate</code> enum:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Index Range</th><th>Purpose</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>Main</td><td>Base tax rate for all sectors</td></tr>
+      <tr><td>1</td><td>ResidentialOffset</td><td>Offset added for residential</td></tr>
+      <tr><td>2</td><td>CommercialOffset</td><td>Offset added for commercial</td></tr>
+      <tr><td>3</td><td>IndustrialOffset</td><td>Offset added for industrial</td></tr>
+      <tr><td>4</td><td>OfficeOffset</td><td>Offset added for office</td></tr>
+      <tr><td>5-9</td><td>EducationZeroOffset+</td><td>Per-education-level offsets</td></tr>
+      <tr><td>10-50</td><td>CommercialResourceZeroOffset+</td><td>Per-resource offsets for commercial</td></tr>
+      <tr><td>51-91</td><td>IndustrialResourceZeroOffset+</td><td>Per-resource offsets for industrial</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The effective tax rate for an entity is: <code>Main + AreaOffset + ResourceOffset</code>.
+    The <code>TaxSystem.TaxRate</code> setter enforces limits from <code>TaxParameterData</code>
+    and re-validates all area rates when the main rate changes.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Service Fees</h2>
+
+  <p>
+    <code>ServiceFeeSystem</code> runs 128 times per game day. It queries buildings that have
+    the <code>ServiceFeeCollector</code> tag plus <code>Patient</code> or <code>Student</code>
+    buffers. For each patient, it charges a healthcare fee; for each student, it charges an
+    education fee based on their level.
+  </p>
+
+  <pre><code class="language-csharp">// From ServiceFeeSystem.PayFeeJob
+float num = GetFee(resource, fees) / 128f;  // divide by updates per day
+float amount = 1f / 128f;                    // fractional usage count
+EconomyUtils.AddResources(Resource.Money, (int)(0f - math.round(num)), bufferData);
+m_FeeEvents.Enqueue(new FeeEvent {
+    m_Resource = resource,
+    m_Amount = amount,
+    m_Cost = num,
+    m_Outside = false
+});</code></pre>
+
+  <h3>Default Service Fees</h3>
+
+  <table>
+    <thead>
+      <tr><th>Service</th><th>PlayerResource</th><th>Default Fee</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Basic Education</td><td>BasicEducation</td><td>100</td></tr>
+      <tr><td>Secondary Education</td><td>SecondaryEducation</td><td>200</td></tr>
+      <tr><td>Higher Education</td><td>HigherEducation</td><td>300</td></tr>
+      <tr><td>Healthcare</td><td>Healthcare</td><td>100</td></tr>
+      <tr><td>Garbage</td><td>Garbage</td><td>0.1</td></tr>
+      <tr><td>Electricity</td><td>Electricity</td><td>0.2</td></tr>
+      <tr><td>Water</td><td>Water</td><td>0.1</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Electricity and water fees have additional gameplay effects: they adjust consumption
+    multipliers (via <code>AdjustElectricityConsumptionSystem</code> /
+    <code>AdjustWaterConsumptionSystem</code>) and affect citizen happiness. Other service
+    fees only affect cost.
+  </p>
+
+  <p>
+    Collected fees are categorized as internal (local citizens), export (outside connections
+    buying services), or import (city buying from outside). The <code>FeeToCityJob</code>
+    aggregates these into <code>CollectedCityServiceFeeData</code> buffers used by the
+    budget system.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Loans</h2>
+
+  <p>
+    The loan system has two parts: <code>LoanSystem</code> (Game.Tools) handles player actions
+    (take/repay loans), while <code>LoanUpdateSystem</code> (Game.Simulation) checks for
+    unpaid loan triggers.
+  </p>
+
+  <h3>Taking a Loan</h3>
+
+  <pre><code class="language-csharp">// LoanSystem.ChangeLoan enqueues a LoanAction
+// LoanActionJob.Execute:
+PlayerMoney value = m_Money[m_City];
+value.Add(item.m_Amount - m_Loans[m_City].m_Amount);  // difference is added to money
+m_Money[m_City] = value;
+m_Loans[m_City] = new Loan {
+    m_Amount = item.m_Amount,
+    m_LastModified = m_SimulationFrameIndex
+};</code></pre>
+
+  <p>
+    The loan amount is clamped between <code>max(0, currentLoan - availableMoney)</code>
+    (cannot repay more than you have) and <code>Creditworthiness</code> (maximum borrow limit).
+  </p>
+
+  <h3>Interest Calculation</h3>
+
+  <pre><code class="language-csharp">// LoanSystem.GetTargetInterest
+float value = 100f * math.lerp(
+    interestRange.x,   // min interest rate
+    interestRange.y,   // max interest rate
+    math.saturate((float)loanAmount / math.max(1f, creditworthiness))
+);
+CityUtils.ApplyModifier(ref value, cityEffects, CityModifierType.LoanInterest);
+return math.max(0f, 0.01f * value);</code></pre>
+
+  <p>
+    Interest rate scales linearly from min to max based on loan-to-creditworthiness ratio.
+    City modifiers (e.g. from policies or buildings) can further adjust it. The daily payment
+    is <code>amount * dailyInterestRate</code> and appears as <code>ExpenseSource.LoanInterest</code>.
+  </p>
+
+  <p>
+    If a loan goes unpaid for 262,144 frames (~1 game day) and the player has positive money,
+    <code>LoanUpdateSystem</code> fires a <code>TriggerType.UnpaidLoan</code> trigger.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Trade</h2>
+
+  <p>
+    <code>TradeSystem</code> manages resource imports and exports through outside connection
+    entities. Each outside connection has a <code>StorageCompanyData</code> that defines which
+    resources it can trade, and a storage limit.
+  </p>
+
+  <p>Key mechanics:</p>
+  <ul>
+    <li><strong>Trade balance decay:</strong> Each update, balances decay by
+      <code>balance *= (1 - kRefreshRate)</code>, preventing permanent accumulation</li>
+    <li><strong>Cost calculation:</strong> Trade costs are computed per transport type
+      (Road, Rail, Water, Air) based on resource weight and distance. Each resource + transport
+      type combination has separate buy/sell costs cached in a flat array.</li>
+    <li><strong>Storage rebalancing:</strong> Outside connection companies target 50% of their
+      storage capacity. If below, they import; if above, they export. The rate scales with
+      how far from the target they are.</li>
+    <li><strong>Trade statistics:</strong> Net imports/exports are recorded to
+      <code>StatisticType.Trade</code> per resource, which feeds into
+      <code>BudgetSystem.GetTrade()</code></li>
+  </ul>
+
+  <p>
+    Mail resources (<code>OutgoingMail</code>) are zeroed out rather than traded.
+    Garbage has special handling via <code>GarbageFacilityData</code> for capacity.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>BudgetSystem, BudgetApplySystem, CityServiceBudgetSystem, TaxSystem, LoanUpdateSystem, ServiceFeeSystem, TradeSystem, Loan, Creditworthiness</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Tools</td>
+        <td>LoanSystem, LoanAction, LoanInfo</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.City</td>
+        <td>PlayerMoney, ServiceFee, TaxRates, TaxRate, IncomeSource (14), ExpenseSource (15), PlayerResource (13)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Agents</td>
+        <td>TaxPayer (on households and companies)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Economy</td>
+        <td>EconomyUtils, Resources buffer, Resource flags, TradeCost</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>EconomyParameterData, TaxParameterData, ServiceFeeParameterData, OutsideTradeParameterData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>PlayerMoney (Game.City)</h3>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Money</td><td>int</td><td>Current balance, clamped to +/- 2,000,000,000</td></tr>
+      <tr><td>m_Unlimited</td><td>bool</td><td>Sandbox mode: always reports max money</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TaxPayer (Game.Agents)</h3>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_UntaxedIncome</td><td>int</td><td>Accumulated income since last tax payment</td></tr>
+      <tr><td>m_AverageTaxRate</td><td>int</td><td>Tax rate percentage (10 = 10%)</td></tr>
+      <tr><td>m_AverageTaxPaid</td><td>int</td><td>Last tax amount * 32 (updates per day)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Loan (Game.Simulation)</h3>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Amount</td><td>int</td><td>Current loan principal</td></tr>
+      <tr><td>m_LastModified</td><td>uint</td><td>Frame when loan was last changed</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ServiceFee (Game.City)</h3>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>PlayerResource</td><td>Service type (Electricity, Healthcare, etc.)</td></tr>
+      <tr><td>m_Fee</td><td>float</td><td>Fee per unit of service consumed</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Key Constants</h2>
+
+  <table>
+    <thead>
+      <tr><th>Constant</th><th>Value</th><th>System</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>kUpdatesPerDay</td><td>32</td><td>TaxSystem</td><td>Tax collection frequency per game day</td></tr>
+      <tr><td>kUpdatesPerDay</td><td>128</td><td>ServiceFeeSystem</td><td>Fee collection frequency per game day</td></tr>
+      <tr><td>kUpdatesPerDay</td><td>1024</td><td>BudgetApplySystem</td><td>Budget application frequency per game day</td></tr>
+      <tr><td>kUpdatesPerDay</td><td>32</td><td>LoanUpdateSystem</td><td>Loan interest check frequency</td></tr>
+      <tr><td>kMaxMoney</td><td>2,000,000,000</td><td>PlayerMoney</td><td>Maximum money balance</td></tr>
+      <tr><td>kCompanyUpdatesPerDay</td><td>256</td><td>EconomyUtils</td><td>Company economy update frequency</td></tr>
+      <tr><td>Frames per day</td><td>262,144</td><td>SimulationSystem</td><td>Total simulation frames in one game day</td></tr>
+      <tr><td>TaxRate.Count</td><td>92</td><td>TaxSystem</td><td>Total tax rate entries in buffer</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Income &amp; Expense Categories</h2>
+
+  <h3>Income Sources (14)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Enum</th><th>Description</th><th>Origin System</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>TaxResidential</td><td>Household income tax</td><td>TaxSystem</td></tr>
+      <tr><td>TaxCommercial</td><td>Commercial company tax</td><td>TaxSystem</td></tr>
+      <tr><td>TaxIndustrial</td><td>Industrial company tax</td><td>TaxSystem</td></tr>
+      <tr><td>TaxOffice</td><td>Office company tax (auto-classified)</td><td>TaxSystem</td></tr>
+      <tr><td>FeeHealthcare</td><td>Healthcare service fees</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>FeeElectricity</td><td>Electricity service fees</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>FeeEducation</td><td>Education service fees (3 levels)</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>FeeGarbage</td><td>Garbage collection fees</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>FeeWater</td><td>Water service fees</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>FeeParking</td><td>Parking fees</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>FeePublicTransport</td><td>Public transport fees</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>GovernmentSubsidy</td><td>Monthly government subsidy</td><td>CityServiceBudgetSystem</td></tr>
+      <tr><td>ExportElectricity</td><td>Electricity export revenue</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>ExportWater</td><td>Water export revenue</td><td>ServiceFeeSystem</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Expense Sources (15)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Enum</th><th>Description</th><th>Origin System</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>ServiceUpkeep</td><td>All service building maintenance</td><td>CityServiceBudgetSystem</td></tr>
+      <tr><td>LoanInterest</td><td>Daily loan interest payment</td><td>LoanUpdateSystem</td></tr>
+      <tr><td>SubsidyResidential</td><td>Negative residential tax (subsidy)</td><td>TaxSystem</td></tr>
+      <tr><td>SubsidyCommercial</td><td>Negative commercial tax (subsidy)</td><td>TaxSystem</td></tr>
+      <tr><td>SubsidyIndustrial</td><td>Negative industrial tax (subsidy)</td><td>TaxSystem</td></tr>
+      <tr><td>SubsidyOffice</td><td>Negative office tax (subsidy)</td><td>TaxSystem</td></tr>
+      <tr><td>ImportElectricity</td><td>Electricity import cost</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>ImportWater</td><td>Water import cost</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>ExportSewage</td><td>Sewage export cost</td><td>ServiceFeeSystem</td></tr>
+      <tr><td>ImportPoliceService</td><td>Imported police service</td><td>CityServiceBudgetSystem</td></tr>
+      <tr><td>ImportAmbulanceService</td><td>Imported ambulance service</td><td>CityServiceBudgetSystem</td></tr>
+      <tr><td>ImportHearseService</td><td>Imported hearse service</td><td>CityServiceBudgetSystem</td></tr>
+      <tr><td>ImportFireEngineService</td><td>Imported fire engine service</td><td>CityServiceBudgetSystem</td></tr>
+      <tr><td>ImportGarbageService</td><td>Imported garbage service</td><td>CityServiceBudgetSystem</td></tr>
+      <tr><td>MapTileUpkeep</td><td>Map tile unlock maintenance</td><td>CityServiceBudgetSystem</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read Player Money</h3>
+
+  <pre><code class="language-csharp">// In a GameSystemBase, get the current money balance
+CitySystem citySystem = World.GetOrCreateSystemManaged&lt;CitySystem&gt;();
+PlayerMoney money = EntityManager.GetComponentData&lt;PlayerMoney&gt;(citySystem.City);
+int balance = money.money;  // returns 2 billion if m_Unlimited is true</code></pre>
+
+  <h3>Read and Modify Tax Rates</h3>
+
+  <pre><code class="language-csharp">// Get the tax system interface
+ITaxSystem taxSystem = World.GetOrCreateSystemManaged&lt;TaxSystem&gt;();
+
+// Read the main tax rate
+int mainRate = taxSystem.TaxRate;
+
+// Set a new main rate (clamped by TaxParameterData limits)
+taxSystem.TaxRate = 12;
+
+// Or directly access the TaxRates buffer on the City entity
+CitySystem citySystem = World.GetOrCreateSystemManaged&lt;CitySystem&gt;();
+DynamicBuffer&lt;TaxRates&gt; rates = EntityManager.GetBuffer&lt;TaxRates&gt;(citySystem.City);
+// Index 0 = main rate, 1 = residential offset, 2 = commercial offset, etc.
+int residentialRate = rates[(int)TaxRate.Main].m_TaxRate
+                    + rates[(int)TaxRate.ResidentialOffset].m_TaxRate;</code></pre>
+
+  <h3>Adjust a Service Fee</h3>
+
+  <pre><code class="language-csharp">// Read and modify service fees on the City entity
+CitySystem citySystem = World.GetOrCreateSystemManaged&lt;CitySystem&gt;();
+DynamicBuffer&lt;ServiceFee&gt; fees = EntityManager.GetBuffer&lt;ServiceFee&gt;(citySystem.City);
+
+// Use the static helper
+ServiceFeeSystem.SetFee(PlayerResource.Electricity, fees, 0.5f);
+
+// Or read the current fee
+float currentFee;
+if (ServiceFeeSystem.TryGetFee(PlayerResource.Healthcare, fees, out currentFee))
+{
+    // currentFee is the per-unit healthcare charge
+}</code></pre>
+
+  <h3>Take or Repay a Loan</h3>
+
+  <pre><code class="language-csharp">// Get the loan system
+ILoanSystem loanSystem = World.GetOrCreateSystemManaged&lt;LoanSystem&gt;();
+
+// Check current loan info
+LoanInfo current = loanSystem.CurrentLoan;
+// current.m_Amount, current.m_DailyInterestRate, current.m_DailyPayment
+
+// Check creditworthiness (max borrow amount)
+int maxBorrow = loanSystem.Creditworthiness;
+
+// Request a loan offer for a specific amount
+LoanInfo offer = loanSystem.RequestLoanOffer(500000);
+
+// Take the loan (or change to a different amount)
+loanSystem.ChangeLoan(500000);
+
+// Repay fully
+loanSystem.ChangeLoan(0);</code></pre>
+
+  <h3>Read Trade Balance for a Resource</h3>
+
+  <pre><code class="language-csharp">// BudgetSystem tracks trade volumes per resource
+BudgetSystem budgetSystem = World.GetOrCreateSystemManaged&lt;BudgetSystem&gt;();
+
+// Get net trade for a resource (positive = net export, negative = net import)
+int tradeVolume = budgetSystem.GetTrade(Resource.Electronics);
+int tradeWorth = budgetSystem.GetTradeWorth(Resource.Electronics);
+int totalTradeWorth = budgetSystem.GetTotalTradeWorth();</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Tax rate limits:</strong> The exact min/max values come from
+      <code>TaxParameterData.m_TotalTaxLimits</code> which is loaded from the
+      <code>TaxParameterPrefab</code>. The actual values require in-game inspection
+      of the prefab data.
+    </li>
+    <li>
+      <strong>Creditworthiness calculation:</strong> How <code>Creditworthiness.m_Amount</code>
+      is computed is not covered here -- it likely depends on city population, land value,
+      and economic statistics.
+    </li>
+    <li>
+      <strong>Service budget slider effect:</strong> <code>CityServiceBudgetSystem</code>
+      uses a per-service budget percentage that scales upkeep costs, but the exact formula
+      for how it affects service quality requires further decompilation of the individual
+      service AI systems.
+    </li>
+    <li>
+      <strong>Trade cost formula details:</strong> <code>TradeSystem.CalculateTradeCost()</code>
+      was not fully decompiled. The cost depends on resource weight, distance, transport type,
+      trade balance, and city modifiers.
+    </li>
+    <li>
+      <strong>Government subsidy timing:</strong> The monthly subsidy amount and conditions
+      are set by <code>EconomyParameterData</code> but the exact trigger conditions need
+      further investigation.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.BudgetSystem, Game.Simulation.BudgetApplySystem, Game.Simulation.CityServiceBudgetSystem, Game.Simulation.TaxSystem, Game.Simulation.LoanUpdateSystem, Game.Simulation.ServiceFeeSystem, Game.Simulation.TradeSystem</li>
+    <li>Components: Game.City.PlayerMoney, Game.City.ServiceFee, Game.City.TaxRates, Game.Agents.TaxPayer, Game.Simulation.Loan, Game.Simulation.Creditworthiness</li>
+    <li>Enums: Game.City.IncomeSource, Game.City.ExpenseSource, Game.City.PlayerResource, Game.City.TaxRate, Game.Simulation.TaxAreaType</li>
+    <li>Tools: Game.Tools.LoanSystem, Game.Tools.LoanInfo</li>
+    <li>Utilities: Game.Economy.EconomyUtils</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- BudgetSystem, TaxSystem, ServiceFeeSystem, LoanSystem, TradeSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

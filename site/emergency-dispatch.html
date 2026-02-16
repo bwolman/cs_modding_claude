@@ -421,10 +421,16 @@
     accident sites have the <code>RequirePolice</code> flag set, creating requests as needed.
   </p>
 
-  <pre><code class="language-csharp">public partial class ForcePoliceToAccidentsSystem : GameSystemBase
+  <pre><code class="language-csharp">using Game.Common;
+using Game.Events;
+using Game.Prefabs;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
+public partial class ForcePoliceToAccidentsSystem : GameSystemBase
 {
     private EntityQuery m_AccidentQuery;
-    private EntityArchetype m_PoliceRequestArchetype;
     private ComponentLookup&lt;PoliceEmergencyRequest&gt; m_PoliceRequestLookup;
 
     protected override void OnCreate()
@@ -434,10 +440,6 @@
             ComponentType.ReadWrite&lt;AccidentSite&gt;(),
             ComponentType.Exclude&lt;Deleted&gt;(),
             ComponentType.Exclude&lt;Temp&gt;());
-        m_PoliceRequestArchetype = EntityManager.CreateArchetype(
-            ComponentType.ReadWrite&lt;ServiceRequest&gt;(),
-            ComponentType.ReadWrite&lt;PoliceEmergencyRequest&gt;(),
-            ComponentType.ReadWrite&lt;RequestGroup&gt;());
         m_PoliceRequestLookup = GetComponentLookup&lt;PoliceEmergencyRequest&gt;(true);
         RequireForUpdate(m_AccidentQuery);
     }
@@ -461,11 +463,12 @@
             // Create police request if none exists
             if (!m_PoliceRequestLookup.HasComponent(site.m_PoliceRequest))
             {
-                Entity request = EntityManager.CreateEntity(m_PoliceRequestArchetype);
-                EntityManager.SetComponentData(request,
+                Entity request = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(request, new ServiceRequest());
+                EntityManager.AddComponentData(request,
                     new PoliceEmergencyRequest(entities[i], entities[i], 1f,
                         PolicePurpose.Emergency));
-                EntityManager.SetComponentData(request, new RequestGroup(4u));
+                EntityManager.AddComponentData(request, new RequestGroup(4u));
             }
         }
         entities.Dispose();
@@ -480,10 +483,16 @@
     <code>FireRescueRequest</code>.
   </p>
 
-  <pre><code class="language-csharp">public partial class FireToAccidentsSystem : GameSystemBase
+  <pre><code class="language-csharp">using Game.Buildings;
+using Game.Common;
+using Game.Events;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
+public partial class FireToAccidentsSystem : GameSystemBase
 {
     private EntityQuery m_AccidentQuery;
-    private EntityArchetype m_FireRequestArchetype;
 
     protected override void OnCreate()
     {
@@ -492,10 +501,6 @@
             ComponentType.ReadOnly&lt;AccidentSite&gt;(),
             ComponentType.Exclude&lt;RescueTarget&gt;(),
             ComponentType.Exclude&lt;Deleted&gt;());
-        m_FireRequestArchetype = EntityManager.CreateArchetype(
-            ComponentType.ReadWrite&lt;ServiceRequest&gt;(),
-            ComponentType.ReadWrite&lt;FireRescueRequest&gt;(),
-            ComponentType.ReadWrite&lt;RequestGroup&gt;());
         RequireForUpdate(m_AccidentQuery);
     }
 
@@ -513,11 +518,12 @@
                 new RescueTarget(Entity.Null));
 
             // Create fire rescue request
-            Entity request = EntityManager.CreateEntity(m_FireRequestArchetype);
-            EntityManager.SetComponentData(request,
+            Entity request = EntityManager.CreateEntity();
+            EntityManager.AddComponentData(request, new ServiceRequest());
+            EntityManager.AddComponentData(request,
                 new FireRescueRequest(entities[i], 1f,
                     FireRescueRequestType.Disaster));
-            EntityManager.SetComponentData(request, new RequestGroup(4u));
+            EntityManager.AddComponentData(request, new RequestGroup(4u));
         }
         entities.Dispose();
     }
@@ -531,7 +537,11 @@
     the request entity.
   </p>
 
-  <pre><code class="language-csharp">/// &lt;summary&gt;
+  <pre><code class="language-csharp">using Game.Citizens;
+using Game.Simulation;
+using Unity.Entities;
+
+/// &lt;summary&gt;
 /// Create an ambulance request for a citizen that already has HealthProblem
 /// with RequireTransport flag. Call from a system's OnUpdate.
 /// &lt;/summary&gt;
@@ -546,20 +556,15 @@ private void DispatchAmbulanceTo(Entity citizen)
     if (EntityManager.HasComponent&lt;HealthcareRequest&gt;(problem.m_HealthcareRequest))
         return;
 
-    var archetype = EntityManager.CreateArchetype(
-        ComponentType.ReadWrite&lt;ServiceRequest&gt;(),
-        ComponentType.ReadWrite&lt;HealthcareRequest&gt;(),
-        ComponentType.ReadWrite&lt;RequestGroup&gt;());
-
-    Entity request = EntityManager.CreateEntity(archetype);
-
     HealthcareRequestType type = (problem.m_Flags &amp; HealthProblemFlags.Dead) != 0
         ? HealthcareRequestType.Hearse
         : HealthcareRequestType.Ambulance;
 
-    EntityManager.SetComponentData(request,
+    Entity request = EntityManager.CreateEntity();
+    EntityManager.AddComponentData(request, new ServiceRequest());
+    EntityManager.AddComponentData(request,
         new HealthcareRequest(citizen, type));
-    EntityManager.SetComponentData(request, new RequestGroup(16u));
+    EntityManager.AddComponentData(request, new RequestGroup(16u));
 }</code></pre>
 
   <!-- ============================================================ -->

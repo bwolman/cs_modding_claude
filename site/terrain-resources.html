@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terrain &amp; Natural Resources - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="top-bar">
+    <a href="index.html" class="site-title">CS2 Modding Research</a>
+    <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+  </div>
+
+  <div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html" class="active">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+    <main class="content">
+    <h1>Terrain &amp; Natural Resources</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 represent terrain heightmaps, distribute natural
+      resources (oil, ore, fertile land, fish), simulate tree growth, and compute terrain-based
+      attractiveness bonuses?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Terrain heights are stored as a GPU-side heightmap with a CPU-accessible
+      <code>NativeArray&lt;ushort&gt;</code>. Natural resources use a 256x256 cell map where each cell
+      tracks base and used amounts for four resource types. Trees follow a lifecycle state machine
+      (child to dead, then respawn). Terrain attractiveness is a derived 128x128 map combining
+      forest proximity, shore proximity, and elevation bonuses.
+    </p>
+    <p>
+      <strong>Not covered:</strong> Water surface simulation (see <a href="water-system.html">Water System</a>),
+      groundwater, economic resource consumption by industry, terrain rendering shaders.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Terrain Heightmap</h2>
+
+  <p>
+    The terrain is managed by <code>TerrainSystem</code>, a large system that handles heightmap
+    storage, GPU texture management, terrain modification from buildings/roads/areas, and
+    serialization. The core data structure for CPU-side height sampling is
+    <code>TerrainHeightData</code>:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>heights</code></td><td><code>NativeArray&lt;ushort&gt;</code></td><td>Full-resolution heightmap (playable area)</td></tr>
+      <tr><td><code>downscaledHeights</code></td><td><code>NativeArray&lt;ushort&gt;</code></td><td>Backdrop heightmap (4x lower resolution)</td></tr>
+      <tr><td><code>resolution</code></td><td><code>int3</code></td><td>Heightmap dimensions (x, 1, z)</td></tr>
+      <tr><td><code>scale</code></td><td><code>float3</code></td><td>World-to-heightmap scale factors</td></tr>
+      <tr><td><code>offset</code></td><td><code>float3</code></td><td>World-to-heightmap translation offset</td></tr>
+      <tr><td><code>hasBackdrop</code></td><td><code>bool</code></td><td>Whether backdrop data exists for out-of-bounds sampling</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The playable area spans 14,336 world units per axis (same as the water system). The
+    <code>kDownScaledHeightmapScale</code> is 4, meaning the backdrop heightmap is 4x coarser.
+    Heights are stored as <code>ushort</code> values and converted to world-space using
+    <code>heightScaleOffset</code> (scale in x, vertical offset in y).
+  </p>
+
+  <h3>Sampling Terrain Height</h3>
+
+  <p>
+    <code>TerrainUtils.SampleHeight()</code> performs bilinear interpolation across the four
+    nearest heightmap texels. For positions outside the playable area, it automatically falls
+    back to the downscaled backdrop heightmap. An overload also computes the surface normal.
+  </p>
+
+  <pre><code>// Get height data from TerrainSystem
+TerrainHeightData heightData = terrainSystem.GetHeightData();
+
+// Sample height at a world position (bilinear interpolated)
+float height = TerrainUtils.SampleHeight(ref heightData, worldPosition);
+
+// Sample height with surface normal
+float3 normal;
+float height = TerrainUtils.SampleHeight(ref heightData, worldPosition, out normal);</code></pre>
+
+  <p>
+    The coordinate transform pipeline is:
+  </p>
+  <ol>
+    <li><code>ToHeightmapSpace()</code>: <code>(worldPos + offset) * scale</code> -- converts world to texel coordinates</li>
+    <li>Bilinear interpolation of the four surrounding <code>ushort</code> height values</li>
+    <li><code>ToWorldSpace()</code>: <code>texelHeight / scale.y - offset.y</code> -- converts back to world height</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Natural Resource System</h2>
+
+  <p>
+    Natural resources are managed by <code>NaturalResourceSystem</code>, which extends
+    <code>CellMapSystem&lt;NaturalResourceCell&gt;</code>. The resource map is a flat 256x256
+    grid covering the entire map area.
+  </p>
+
+  <h3>Resource Types</h3>
+
+  <p>Each cell contains four resource amounts:</p>
+
+  <table>
+    <thead>
+      <tr><th>Resource</th><th>Field</th><th>Renewable?</th><th>Affected By</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Fertility</td><td><code>m_Fertility</code></td><td>Yes (slow)</td><td>Ground pollution degrades; regenerates at 25/tick</td></tr>
+      <tr><td>Ore</td><td><code>m_Ore</code></td><td>No*</td><td>Only consumed by extractors; refill via game mode settings</td></tr>
+      <tr><td>Oil</td><td><code>m_Oil</code></td><td>No*</td><td>Only consumed by extractors; refill via game mode settings</td></tr>
+      <tr><td>Fish</td><td><code>m_Fish</code></td><td>Yes</td><td>Tracks water depth (&gt;2 units); degraded by water + noise pollution</td></tr>
+    </tbody>
+  </table>
+
+  <p>* Ore and oil can optionally refill when <code>GameModeNaturalResourcesAdjustSystem</code> is enabled.</p>
+
+  <h3>NaturalResourceAmount</h3>
+
+  <p>Each resource type is represented by a simple struct with two <code>ushort</code> fields:</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_Base</code></td><td><code>ushort</code></td><td>Maximum/initial amount. Normal range 0-10000; up to 65535 with game mode boost.</td></tr>
+      <tr><td><code>m_Used</code></td><td><code>ushort</code></td><td>Consumed or degraded amount. Available = m_Base - m_Used.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Initial Distribution (Perlin Noise)</h3>
+
+  <p>
+    When a new game starts, <code>NaturalResourceSystem.SetDefaults()</code> generates resource
+    distribution using Perlin noise. Each resource type uses a different frequency to create
+    distinct deposit patterns:
+  </p>
+
+  <pre><code>// Frequency multipliers: fertility=6.1, ore=13.9, oil=10.7
+float3 freq = new float3(6.1f, 13.9f, 10.7f);
+
+// Noise is biased by subtracting thresholds, then clamped to [0, 10000]
+// Fertility threshold: 0.4 (more common)
+// Ore threshold:       0.7 (rarer)
+// Oil threshold:       0.7 (rarer)
+float4 = (noise - new float3(0.4f, 0.7f, 0.7f)) * new float3(5f, 10f, 10f);
+float4 = 10000f * math.saturate(float4);</code></pre>
+
+  <p>
+    This means fertility is widespread (anything above 0.4 noise value produces some fertility),
+    while ore and oil only appear where noise exceeds 0.7, making them concentrated in smaller
+    deposit areas with higher maximum values.
+  </p>
+
+  <h3>Regeneration Logic</h3>
+
+  <p>
+    The <code>RegenerateNaturalResourcesJob</code> runs ~32 times per game day (every 8192
+    simulation frames). For each cell:
+  </p>
+
+  <ul>
+    <li>
+      <strong>Fertility:</strong> <code>m_Used = clamp(m_Used - 25 + pollutionDamage, 0, m_Base)</code>.
+      Regenerates at 25 per tick but ground pollution continuously adds to the used amount
+      (scaled by <code>PollutionParameterData.m_FertilityGroundMultiplier / 32</code>).
+    </li>
+    <li>
+      <strong>Fish:</strong> Base amount is recalculated from water depth each tick
+      (<code>min(10000, waterDepth * 300 / cellArea)</code>). Pollution from both water surface
+      and noise contributes to a pollution floor. Fish regenerate at 25/tick toward this floor
+      (or increase to match it if pollution rises).
+    </li>
+    <li>
+      <strong>Ore/Oil:</strong> Not touched by the regeneration job. Only the optional
+      <code>GameModeNaturalResourcesAdjustSystem</code> refills these.
+    </li>
+  </ul>
+
+  <h3>Resource Lookup (Bilinear Interpolation)</h3>
+
+  <p>
+    Static methods provide bilinear-interpolated resource values at any world position:
+  </p>
+
+  <pre><code>// Get the resource cell map
+JobHandle deps;
+CellMapData&lt;NaturalResourceCell&gt; data = naturalResourceSystem.GetData(readOnly: true, out deps);
+
+// Query individual resources at a world position
+NaturalResourceAmount fertility = NaturalResourceSystem.GetFertilityAmount(position, data.m_Buffer);
+NaturalResourceAmount ore = NaturalResourceSystem.GetOreAmount(position, data.m_Buffer);
+NaturalResourceAmount oil = NaturalResourceSystem.GetOilAmount(position, data.m_Buffer);
+NaturalResourceAmount fish = NaturalResourceSystem.GetFishAmount(position, data.m_Buffer);
+
+// Available amount = m_Base - m_Used
+int availableFertility = fertility.m_Base - fertility.m_Used;</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Game Mode Resource Adjustment</h2>
+
+  <p>
+    <code>GameModeNaturalResourcesAdjustSystem</code> provides optional resource management
+    controlled by <code>ModeSettingData</code>:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Feature</th><th>When</th><th>Settings</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Initial boost</td>
+        <td>New game only</td>
+        <td><code>m_InitialNaturalResourceBoostMultiplier</code> -- multiplies all base resource values (also boosts groundwater)</td>
+      </tr>
+      <tr>
+        <td>Ore refill</td>
+        <td>128 updates/day</td>
+        <td><code>m_PercentOreRefillAmountPerDay</code> -- percentage of base restored per day</td>
+      </tr>
+      <tr>
+        <td>Oil refill</td>
+        <td>128 updates/day</td>
+        <td><code>m_PercentOilRefillAmountPerDay</code> -- percentage of base restored per day</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    Note: The boost job caps values at <code>ushort.MaxValue</code> (65535), not the usual
+    10000 maximum. This means boosted games can have resource values well above the normal
+    range.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Tree Growth System</h2>
+
+  <p>
+    Trees are entities with a <code>Tree</code> component (in <code>Game.Objects</code>)
+    that tracks lifecycle state and growth progress. The <code>TreeGrowthSystem</code>
+    advances all trees through a state machine 32 times per game day.
+  </p>
+
+  <h3>Tree Component</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_State</code></td><td><code>TreeState</code> (byte flags)</td><td>Current lifecycle stage</td></tr>
+      <tr><td><code>m_Growth</code></td><td><code>byte</code></td><td>Progress within current stage (0-255; transitions at 256)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TreeState Flags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Child</td><td>0x00 (no flags)</td><td>Initial/seedling stage</td></tr>
+      <tr><td>Teen</td><td>0x01</td><td>Young tree, growing</td></tr>
+      <tr><td>Adult</td><td>0x02</td><td>Mature tree</td></tr>
+      <tr><td>Elderly</td><td>0x04</td><td>Aging tree</td></tr>
+      <tr><td>Dead</td><td>0x08</td><td>Dead, waiting to decompose</td></tr>
+      <tr><td>Stump</td><td>0x10</td><td>Cut stump</td></tr>
+      <tr><td>Collected</td><td>0x20</td><td>Wood has been harvested</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Growth Lifecycle</h3>
+
+  <p>
+    Each tick, the system adds a random increment to <code>m_Growth</code>. The random range
+    is determined by a tick speed constant -- higher values mean slower growth because the
+    random value is divided by 256 (<code>random.NextInt(SPEED) &gt;&gt; 8</code>). When growth
+    reaches 256, the tree transitions to the next stage and growth resets to 0.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Stage</th><th>Tick Speed</th><th>Max Increment/Tick</th><th>Relative Duration</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Child</td><td>1280</td><td>~5</td><td>Baseline</td></tr>
+      <tr><td>Teen</td><td>938</td><td>~3.7</td><td>~73% of child</td></tr>
+      <tr><td>Adult</td><td>548</td><td>~2.1</td><td>~43% of child</td></tr>
+      <tr><td>Elderly</td><td>548</td><td>~2.1</td><td>~43% of child</td></tr>
+      <tr><td>Dead</td><td>2304</td><td>~9</td><td>~180% of child (slowest to clear)</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    After the Dead stage, the tree resets to Child (all state flags cleared, growth = 0) and
+    the cycle repeats indefinitely. Damaged trees slowly heal (damage decreases by up to 0.031
+    per tick). Destroyed trees increment a <code>m_Cleared</code> counter until it reaches 1.0,
+    then also reset to Child.
+  </p>
+
+  <p>
+    Each tree species has a <code>TreeData</code> prefab component with a single field:
+    <code>m_WoodAmount</code> (float), which determines how much wood the tree produces when
+    harvested by forestry extractors.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Terrain Attractiveness</h2>
+
+  <p>
+    <code>TerrainAttractivenessSystem</code> computes a 128x128 cell map of attractiveness
+    bonuses derived from terrain features. This feeds into land value and building desirability.
+    The map updates 16 times per game day.
+  </p>
+
+  <h3>TerrainAttractiveness</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_ForestBonus</code></td><td><code>float</code></td><td>Proximity to forested areas (0.0 - 1.0)</td></tr>
+      <tr><td><code>m_ShoreBonus</code></td><td><code>float</code></td><td>Proximity to water bodies with depth &gt; 2 units (0.0 - 1.0)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Computation Pipeline</h3>
+
+  <p>The system runs two jobs in sequence:</p>
+
+  <ol>
+    <li>
+      <strong>Prepare job:</strong> For each cell, samples three values:
+      water depth (from <code>WaterSystem</code>), terrain height (from <code>TerrainSystem</code>),
+      and forest ambience (from <code>ZoneAmbienceSystem</code>).
+    </li>
+    <li>
+      <strong>Attractiveness job:</strong> For each cell, scans all neighbors within the configured
+      distance radius. Forest bonus uses linear distance falloff weighted by zone ambience; shore
+      bonus is binary (water depth &gt; 2 units) with linear distance falloff. Takes the maximum
+      value found across all neighbors.
+    </li>
+  </ol>
+
+  <h3>Final Attractiveness Score</h3>
+
+  <p>
+    The total attractiveness at a position combines three factors:
+  </p>
+
+  <pre><code>float attractiveness =
+    parameters.m_ForestEffect * attractiveness.m_ForestBonus
+  + parameters.m_ShoreEffect * attractiveness.m_ShoreBonus
+  + math.min(parameters.m_HeightBonus.z,
+      math.max(0, terrainHeight - parameters.m_HeightBonus.x) * parameters.m_HeightBonus.y);</code></pre>
+
+  <p>
+    Where <code>m_HeightBonus</code> is a float3: x = minimum height threshold, y = bonus per
+    meter above threshold, z = maximum height bonus cap.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Systems Summary</h2>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Update Rate</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>TerrainSystem</code></td><td>Every frame</td><td>Heightmap management, GPU textures, terrain modification from buildings/roads</td></tr>
+      <tr><td><code>NaturalResourceSystem</code></td><td>~32/day</td><td>Regenerates fertility/fish, manages resource cell map</td></tr>
+      <tr><td><code>TreeGrowthSystem</code></td><td>~32/day</td><td>Advances tree lifecycle stages</td></tr>
+      <tr><td><code>TerrainAttractivenessSystem</code></td><td>~16/day</td><td>Computes forest/shore/height attractiveness bonuses</td></tr>
+      <tr><td><code>GameModeNaturalResourcesAdjustSystem</code></td><td>~128/day</td><td>Optional: initial boost + ore/oil refill</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Modding Implications</h2>
+
+  <h3>Reading Terrain Height</h3>
+  <p>
+    Call <code>TerrainSystem.GetHeightData()</code> to obtain <code>TerrainHeightData</code>,
+    then use <code>TerrainUtils.SampleHeight(ref data, worldPos)</code>. This is safe to call
+    from Burst jobs. Remember to add a CPU height reader dependency via
+    <code>TerrainSystem.AddCPUHeightReader(jobHandle)</code>.
+  </p>
+
+  <h3>Reading Natural Resources</h3>
+  <p>
+    Get the cell map via <code>NaturalResourceSystem.GetData(readOnly: true, out deps)</code>,
+    then use the static lookup methods (<code>GetFertilityAmount</code>, <code>GetOreAmount</code>,
+    <code>GetOilAmount</code>, <code>GetFishAmount</code>). These return interpolated values
+    at any world position.
+  </p>
+
+  <h3>Modifying Natural Resources</h3>
+  <p>
+    Access the map with <code>GetData(readOnly: false, out deps)</code> and write directly
+    to <code>CellMapData&lt;NaturalResourceCell&gt;.m_Buffer</code>. Call
+    <code>AddWriter(jobHandle)</code> after your job to maintain thread safety. Each cell is
+    indexed as <code>x + 256 * z</code>.
+  </p>
+
+  <h3>Tree Growth Control</h3>
+  <p>
+    To speed up or slow down tree growth, either patch the tick speed constants in
+    <code>TreeGrowthSystem</code> via Harmony, or directly modify <code>Tree</code> components
+    on tree entities. Setting <code>m_Growth</code> to 255 will force a transition on the next
+    tick. The <code>TreeState</code> flags can be directly set to skip stages.
+  </p>
+
+  <h3>Terrain Attractiveness</h3>
+  <p>
+    Read via <code>TerrainAttractivenessSystem.GetData()</code> or use the static
+    <code>EvaluateAttractiveness()</code> method. This value influences land value for
+    residential buildings. Custom attractiveness factors would require patching the
+    <code>TerrainAttractivenessJob</code>.
+  </p>
+
+  <!-- ============================================================ -->
+
+  <footer>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

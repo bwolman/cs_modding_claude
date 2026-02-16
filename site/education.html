@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Education System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="road-network.html">Road Network</a>
+    <a href="zoning.html">Zoning</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html" class="active">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Education System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does the CS2 education pipeline work -- from citizens
+      seeking schools, through enrollment and daily attendance, to graduation or dropout? How
+      do education levels affect citizens and their job eligibility?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Education is handled by four main ECS systems that form a
+      clear pipeline: <code>FindSchoolSystem</code> (enrollment via pathfinding),
+      <code>StudentSystem</code> (daily commute and study scheduling),
+      <code>SchoolAISystem</code> (school building statistics), and
+      <code>GraduationSystem</code> (graduation probability checks and dropout logic).
+      Citizens make rational economic decisions about staying in school based on projected
+      lifetime earnings. Modders can patch the static graduation/dropout probability methods
+      or modify <code>SchoolData</code> prefabs at runtime.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> School building placement, zoning, district education
+      policies, and the water/sewage/power needs of school buildings. The economic wage
+      system is covered only where it directly influences dropout decisions.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The education system follows a pipeline of four ECS systems. A citizen who needs education
+    goes through: seeking a school, enrolling, attending daily, and eventually graduating (or
+    dropping out).
+  </p>
+
+  <h3>Education Levels</h3>
+
+  <p>
+    Every citizen has an education level stored in the <code>Citizen</code> component, accessed
+    via <code>GetEducationLevel()</code> and <code>SetEducationLevel()</code>:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Level</th><th>CitizenEducationLevel</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>Uneducated</td><td>No education completed</td></tr>
+      <tr><td>1</td><td>PoorlyEducated</td><td>Elementary school graduate</td></tr>
+      <tr><td>2</td><td>Educated</td><td>High school graduate</td></tr>
+      <tr><td>3</td><td>WellEducated</td><td>College graduate</td></tr>
+      <tr><td>4</td><td>HighlyEducated</td><td>University graduate</td></tr>
+    </tbody>
+  </table>
+
+  <p>Schools operate at specific tiers defined by <code>SchoolLevel</code>:</p>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>SchoolLevel</th><th>Educates to Level</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>Elementary</td><td>1 (PoorlyEducated)</td></tr>
+      <tr><td>2</td><td>HighSchool</td><td>2 (Educated)</td></tr>
+      <tr><td>3</td><td>College</td><td>3 (WellEducated)</td></tr>
+      <tr><td>4</td><td>University</td><td>4 (HighlyEducated)</td></tr>
+      <tr><td>5</td><td>Outside</td><td>External education</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Components</h2>
+
+  <h3>Student (Game.Citizens)</h3>
+
+  <p>Attached to a citizen entity when they are enrolled in a school.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_School</td><td>Entity</td><td>The school building entity the student attends</td></tr>
+      <tr><td>m_LastCommuteTime</td><td>float</td><td>Duration of the last commute to school (affects dropout probability)</td></tr>
+      <tr><td>m_Level</td><td>byte</td><td>Education level being pursued (255 = use school's default)</td></tr>
+    </tbody>
+  </table>
+
+  <pre><code>public struct Student : IComponentData, IQueryTypeParameter, ISerializable
+{
+    public Entity m_School;
+    public float m_LastCommuteTime;
+    public byte m_Level;
+}</code></pre>
+
+  <h3>School (Game.Buildings)</h3>
+
+  <p>Attached to a school building entity. Tracks runtime statistics.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_AverageGraduationTime</td><td>float</td><td>Average estimated time to graduation across current students</td></tr>
+      <tr><td>m_AverageFailProbability</td><td>float</td><td>Average dropout/failure probability across current students</td></tr>
+      <tr><td>m_StudentWellbeing</td><td>sbyte</td><td>Wellbeing bonus for students (scaled by efficiency, range -100 to 100)</td></tr>
+      <tr><td>m_StudentHealth</td><td>sbyte</td><td>Health bonus for students (scaled by efficiency, range -100 to 100)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>SchoolData (Game.Prefabs)</h3>
+
+  <p>
+    Prefab data defining a school's static characteristics. Implements
+    <code>ICombineData&lt;SchoolData&gt;</code> so upgrades can stack capacity and modifiers.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_StudentCapacity</td><td>int</td><td>Maximum number of students</td></tr>
+      <tr><td>m_GraduationModifier</td><td>float</td><td>Additive modifier to graduation probability</td></tr>
+      <tr><td>m_EducationLevel</td><td>byte</td><td>Education level this school teaches (1-4)</td></tr>
+      <tr><td>m_StudentWellbeing</td><td>sbyte</td><td>Base wellbeing bonus for attending students</td></tr>
+      <tr><td>m_StudentHealth</td><td>sbyte</td><td>Base health bonus for attending students</td></tr>
+    </tbody>
+  </table>
+
+  <h3>SchoolSeeker (Game.Citizens)</h3>
+
+  <p>Tag component on a pathfinding request entity when a citizen is looking for a school.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Level</td><td>int</td><td>The education level the citizen is seeking</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Pipeline: Enrollment (FindSchoolSystem)</h2>
+
+  <p>
+    <strong>Update interval:</strong> Every 16 simulation frames.
+  </p>
+
+  <p>
+    Handles enrollment in two phases. First, <code>FindSchoolJob</code> enqueues a pathfinding
+    request for each <code>SchoolSeeker</code> entity. The destination type is
+    <code>SetupTargetType.SchoolSeekerTo</code> with the desired school level. Children cannot
+    use vehicles for pathfinding; adults can.
+  </p>
+
+  <p>
+    Second, <code>StartStudyingJob</code> processes completed pathfinding results:
+  </p>
+
+  <ul>
+    <li>Checks the destination school has capacity (<code>dynamicBuffer.Length &lt; studentCapacity</code>)</li>
+    <li>Adds the citizen to the school's <code>Student</code> buffer</li>
+    <li>Attaches a <code>Student</code> component to the citizen entity</li>
+    <li>If the citizen was employed, removes them from their workplace and removes the <code>Worker</code> component</li>
+    <li>Resets the citizen's failed education count to 0</li>
+    <li>Fires <code>TriggerType.CitizenStartedSchool</code></li>
+    <li>On failure, attaches <code>SchoolSeekerCooldown</code> to prevent immediate retry</li>
+  </ul>
+
+  <pre><code>// Key enrollment logic from StartStudyingJob
+if (dynamicBuffer.Length &lt; studentCapacity)
+{
+    dynamicBuffer.Add(new Game.Buildings.Student
+    {
+        m_Student = owner
+    });
+    m_CommandBuffer.AddComponent(owner, new Game.Citizens.Student
+    {
+        m_School = destination,
+        m_LastCommuteTime = nativeArray2[j].m_Duration,
+        m_Level = (byte)nativeArray4[j].m_Level
+    });
+    // If citizen was employed, remove from workplace
+    if (m_Workers.HasComponent(owner))
+    {
+        Entity workplace = m_Workers[owner].m_Workplace;
+        // ... removes from Employee buffer ...
+        m_CommandBuffer.RemoveComponent&lt;Worker&gt;(owner);
+    }
+    m_TriggerBuffer.Enqueue(new TriggerAction(
+        TriggerType.CitizenStartedSchool, Entity.Null, owner, destination));
+    Citizen value = m_Citizens[owner];
+    value.SetFailedEducationCount(0);
+    m_Citizens[owner] = value;
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Pipeline: Daily Attendance (StudentSystem)</h2>
+
+  <p>
+    <strong>Update interval:</strong> Every 16 simulation frames.
+  </p>
+
+  <p>
+    Contains two jobs that manage the daily school commute:
+  </p>
+
+  <h3>GoToSchoolJob</h3>
+
+  <p>
+    Determines when students should travel to school. The <code>IsTimeToStudy()</code> method:
+  </p>
+
+  <ul>
+    <li>Calculates a per-citizen time offset so not all students depart simultaneously</li>
+    <li>Factors in commute time to determine departure time</li>
+    <li>Study hours follow <code>EconomyParameterData.m_WorkDayStart</code> and <code>m_WorkDayEnd</code> with offset</li>
+    <li>Traffic reduction based on population may skip attendance on some days</li>
+    <li>Creates a <code>TripNeeded</code> with <code>Purpose.GoingToSchool</code></li>
+  </ul>
+
+  <pre><code>public static float2 GetTimeToStudy(Citizen citizen, Student student,
+    ref EconomyParameterData economyParameters)
+{
+    float studyOffset = GetStudyOffset(citizen);
+    float num = 60f * student.m_LastCommuteTime;
+    if (num &lt; 60f) { num = 1800f; }
+    num /= 262144f;
+    return new float2(
+        math.frac(economyParameters.m_WorkDayStart + studyOffset - num),
+        math.frac(economyParameters.m_WorkDayEnd + studyOffset));
+}</code></pre>
+
+  <h3>StudyJob</h3>
+
+  <p>
+    Manages in-progress study sessions. If the school no longer exists, removes the student
+    component. If outside study hours or attending a meeting, removes the
+    <code>TravelPurpose</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Pipeline: School Operations (SchoolAISystem)</h2>
+
+  <p>
+    <strong>Update interval:</strong> Every 256 simulation frames (offset 96).
+  </p>
+
+  <p>
+    Processes each school building via <code>SchoolTickJob</code>. For each student in the
+    school's buffer:
+  </p>
+
+  <ul>
+    <li>If the school's efficiency drops below 0.001, students leave with probability <code>m_InoperableSchoolLeaveProbability</code></li>
+    <li>Otherwise, calculates graduation probability and failure estimates per student</li>
+    <li>Updates the school's <code>m_AverageGraduationTime</code> and <code>m_AverageFailProbability</code></li>
+    <li>Scales <code>m_StudentWellbeing</code> and <code>m_StudentHealth</code> by building efficiency</li>
+    <li>Calculates service usage as <code>students / capacity</code></li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Pipeline: Graduation (GraduationSystem)</h2>
+
+  <p>
+    <strong>Update interval:</strong> Every 16,384 simulation frames.
+  </p>
+
+  <p>
+    The core graduation logic. Each tick, every student has a 50% chance of being evaluated
+    (random coin flip). For those evaluated:
+  </p>
+
+  <h3>Graduation Probability</h3>
+
+  <p>
+    The <code>GetGraduationProbability()</code> static method calculates the chance of
+    graduating based on education level, citizen wellbeing, school modifiers, study willingness
+    (a per-citizen pseudo-random trait), and building efficiency:
+  </p>
+
+  <pre><code>// Graduation probability formula (simplified)
+num = saturate((0.5 + studyWillingness) * wellbeing / 75)
+
+Level 1 (Elementary): smoothstep(0, 1, 0.6 * num + 0.41)
+Level 2 (HighSchool): 0.6 * log(2.6 * num + 1.1)
+Level 3 (College):    (90 * log(1.6 * num + 1)
+                       + collegeModifier.x
+                       + result * collegeModifier.y) / 100
+Level 4 (University): (70 * num
+                       + uniModifier.x
+                       + result * uniModifier.y) / 100
+
+Final = 1 - (1 - result) / efficiency + graduationModifier</code></pre>
+
+  <p>
+    City modifiers <code>CollegeGraduation</code> and <code>UniversityGraduation</code> provide
+    additive (x) and multiplicative (y) bonuses. Building efficiency directly affects the
+    graduation rate -- an inefficient school makes graduation harder.
+  </p>
+
+  <h3>What Happens on Graduation</h3>
+
+  <ul>
+    <li>Sets the citizen's education level to <code>max(currentLevel, schoolLevel)</code></li>
+    <li>For levels &gt; 1 (high school and above), the student leaves the school</li>
+    <li>Elementary students (level 1) graduate but may stay enrolled (auto-progression)</li>
+    <li>Fires <code>TriggerType.CitizenGraduated</code></li>
+  </ul>
+
+  <h3>Dropout Logic (Levels &gt; 2 Only)</h3>
+
+  <p>
+    If a student at college or university level fails the graduation check:
+  </p>
+
+  <ul>
+    <li>Their failed education count is incremented</li>
+    <li>If the count reaches 3, they are forced to leave (<code>TriggerType.CitizenFailedSchool</code>)</li>
+    <li>Otherwise, a dropout probability is calculated and amplified: <code>1 - (1 - dropoutProb)^32</code></li>
+    <li>If they drop out, fires <code>TriggerType.CitizenDroppedOutSchool</code></li>
+  </ul>
+
+  <h3>The Economic Dropout Decision</h3>
+
+  <p>
+    The dropout probability formula implements a rational economic decision. Citizens compare
+    their projected lifetime earnings at their current education level versus the projected
+    earnings if they complete their degree:
+  </p>
+
+  <pre><code>// Dropout probability (simplified)
+remainingAttempts = 4 - failedEducationCount
+failProb = pow(1 - graduationProbability, remainingAttempts)
+timeToGrad = 1 / (graduationProbability * 2)
+schoolCost = timeToGrad * fee - timeToGrad * unemploymentBenefit
+
+remainingWorkDays = elderAgeLimit - currentAge
+earningsNow = wage(min(2, level-1)) * remainingWorkDays
+earningsWithDegree = lerp(wage(level), wage(level-1), failProb)
+                     * (remainingWorkDays - timeToGrad)
+                     - schoolCost
+                     + (0.5 + studyWillingness) * unemploymentBenefit * timeToGrad
+
+if earningsNow &lt; earningsWithDegree:
+    benefit = (earningsWithDegree - earningsNow) / earningsNow
+    dropout = saturate(-0.1 + level/4 - 10*benefit
+                       - wealth/(earningsWithDegree - earningsNow)
+                       + commute/5000)
+else:
+    dropout = 1.0  // Staying in school is not economically rational</code></pre>
+
+  <p>Key factors that increase dropout probability:</p>
+  <ul>
+    <li><strong>Long commute times</strong> -- the <code>commute/5000</code> term</li>
+    <li><strong>High service fees</strong> -- increases the cost of education</li>
+    <li><strong>Older citizens</strong> -- less remaining working life to recoup education investment</li>
+    <li><strong>Low graduation probability</strong> -- higher chance of wasting time in school</li>
+    <li><strong>Previous failures</strong> -- fewer remaining attempts increases expected fail probability</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Education and Job Eligibility</h2>
+
+  <p>
+    Education level directly affects which jobs a citizen can hold.
+    <code>EconomyParameterData.GetWage(level)</code> returns different wage rates per education
+    level. The dropout formula explicitly compares wages at <code>level-1</code> versus
+    <code>level</code>, confirming that higher education unlocks higher-paying positions.
+  </p>
+
+  <p>
+    When a citizen enrolls in school through <code>FindSchoolSystem</code>, they are
+    automatically removed from their current workplace. The system calls
+    <code>RemoveComponent&lt;Worker&gt;(owner)</code> and removes them from the employer's
+    <code>Employee</code> buffer. This means going to school is an exclusive activity -- a
+    citizen cannot work and study simultaneously.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Update Intervals</h2>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Interval (frames)</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>FindSchoolSystem</td><td>16</td><td>Process school-seeking pathfinding</td></tr>
+      <tr><td>StudentSystem</td><td>16</td><td>Schedule daily commute and study sessions</td></tr>
+      <tr><td>SchoolAISystem</td><td>256</td><td>Update school building statistics</td></tr>
+      <tr><td>GraduationSystem</td><td>16,384</td><td>Evaluate students for graduation/dropout</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Modding Entry Points</h2>
+
+  <h3>Adjusting Graduation Rates</h3>
+  <p>
+    <code>GraduationSystem.GetGraduationProbability()</code> is a <code>public static</code>
+    method, making it straightforward to patch with Harmony. Alternatively, modify
+    <code>SchoolData.m_GraduationModifier</code> on prefabs at runtime for a non-patching
+    approach.
+  </p>
+
+  <h3>Changing School Capacity</h3>
+  <p>
+    Modify <code>SchoolData.m_StudentCapacity</code> on school prefabs. The capacity check is
+    a simple comparison in <code>FindSchoolSystem.StartStudyingJob</code>.
+  </p>
+
+  <h3>Altering Dropout Behavior</h3>
+  <p>
+    <code>GraduationSystem.GetDropoutProbability()</code> is also <code>public static</code>.
+    The dropout amplification factor (<code>^32</code>) is hardcoded in the
+    <code>GraduationJob</code>.
+  </p>
+
+  <h3>Forcing Graduation</h3>
+  <p>
+    The <code>GraduationSystem</code> has a public <code>debugFastGraduationLevel</code> field.
+    Setting this via reflection forces all students at a specific level to graduate immediately,
+    bypassing normal probability checks.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>EducationParameterData:</strong> Referenced by <code>SchoolAISystem</code>
+      (field <code>m_InoperableSchoolLeaveProbability</code>) but the type definition is not
+      in Game.dll. It may be in another assembly or generated at runtime.
+    </li>
+    <li>
+      <strong>School selection criteria:</strong> <code>FindSchoolSystem</code> uses
+      <code>SetupTargetType.SchoolSeekerTo</code> for pathfinding, but the exact filtering
+      logic (how the pathfinder picks which school) is in the pathfinding system.
+    </li>
+    <li>
+      <strong>Elementary auto-progression:</strong> After graduating elementary (level 1),
+      students stay enrolled. The mechanism for transitioning them to high school is not in
+      these systems -- it may be in <code>CitizenBehaviorSystem</code> or
+      <code>AgingSystem</code>.
+    </li>
+    <li>
+      <strong>Outside education:</strong> <code>SchoolLevel.Outside</code> (value 5) exists
+      but no system explicitly handles it. It may be used for citizens educated via outside
+      connections.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.SchoolAISystem, Game.Simulation.StudentSystem, Game.Simulation.FindSchoolSystem, Game.Simulation.GraduationSystem</li>
+    <li>Components: Game.Citizens.Student, Game.Buildings.School, Game.Citizens.SchoolSeeker</li>
+    <li>Prefab types: Game.Prefabs.SchoolData, Game.Prefabs.SchoolLevel</li>
+    <li>Enums: Game.Citizens.CitizenEducationLevel</li>
+    <li>UI: Game.UI.InGame.EducationInfoviewUISystem</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- SchoolAISystem, StudentSystem, FindSchoolSystem, GraduationSystem, Student, School, SchoolData.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

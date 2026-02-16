@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Demand Systems</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html" class="active">Demand Systems</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Demand Systems</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 calculate demand for residential, commercial, and
+      industrial/office zones? What factors drive the demand bars and when do new buildings spawn?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Three independent <code>GameSystemBase</code> systems
+      (<code>ResidentialDemandSystem</code>, <code>CommercialDemandSystem</code>,
+      <code>IndustrialDemandSystem</code>) run on a staggered 16-frame interval. Each computes
+      an abstract "company/household demand" score and a "building demand" value (0-100) that
+      <code>ZoneSpawnSystem</code> consumes to decide whether to place new buildings. All systems
+      read from a shared <code>DemandParameterData</code> singleton for tuning parameters.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> The <code>ZoneSpawnSystem</code> that actually places buildings,
+      and the UI panel that displays demand information.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The demand system calculates two distinct values per zone type:
+  </p>
+
+  <ul>
+    <li>
+      <strong>Company/Household Demand:</strong> An abstract score representing how much the city
+      "needs" more of this zone type. Driven by factors like happiness, unemployment, tax rates,
+      and available workplaces. Range: 0-200 for residential, 0-100 for commercial/industrial.
+    </li>
+    <li>
+      <strong>Building Demand:</strong> A 0-100 value that controls whether new buildings actually
+      spawn. Combines abstract demand with free property availability. Even with high household
+      demand, building demand stays low if there are enough empty buildings.
+    </li>
+  </ul>
+
+  <h3>Update Schedule</h3>
+
+  <p>
+    All demand systems share a 16-frame update interval but run at staggered offsets to ensure
+    data dependencies are met:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Offset</th><th>System</th><th>What It Does</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>CountCompanyDataSystem</td><td>Counts companies, production, resource demands</td></tr>
+      <tr><td>4</td><td>CommercialDemandSystem</td><td>Per-resource commercial demand</td></tr>
+      <tr><td>7</td><td>IndustrialDemandSystem</td><td>Industrial / office / storage demand</td></tr>
+      <tr><td>10</td><td>ResidentialDemandSystem</td><td>Per-density residential demand</td></tr>
+      <tr><td>13</td><td>ZoneSpawnSystem</td><td>Consumes building demand to spawn buildings</td></tr>
+    </tbody>
+  </table>
+
+  <h3>The DemandFactor Enum</h3>
+
+  <p>
+    Each system tracks demand factors as arrays of 19 integers, indexed by the
+    <code>DemandFactor</code> enum. These represent individual positive or negative contributions
+    that sum to total demand.
+  </p>
+
+  <pre><code class="language-csharp">public enum DemandFactor
+{
+    StorageLevels,        // 0  - Industrial
+    UneducatedWorkforce,  // 1  - Industrial
+    EducatedWorkforce,    // 2  - Industrial, Office
+    CompanyWealth,        // 3  - (unused)
+    LocalDemand,          // 4  - Commercial, Industrial, Office
+    Unemployment,         // 5  - Residential
+    FreeWorkplaces,       // 6  - Residential
+    Happiness,            // 7  - Residential
+    Homelessness,         // 8  - Residential (high density)
+    TouristDemand,        // 9  - Commercial (lodging)
+    LocalInputs,          // 10 - (unused)
+    Taxes,                // 11 - All sectors
+    Students,             // 12 - Residential (med/high density)
+    EmptyBuildings,       // 13 - All sectors
+    EmptyZones,           // 14 - (unused)
+    PoorZoneLocation,     // 15 - (unused)
+    PetrolLocalDemand,    // 16 - Commercial (petrochemicals)
+    Warehouses,           // 17 - Industrial (storage)
+    BuildingDemand,       // 18 - All (when no properties exist)
+    Count                 // 19
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Residential Demand</h2>
+
+  <p>
+    <code>ResidentialDemandSystem</code> tracks demand separately for low, medium, and high
+    density residential zones. It outputs a single <code>householdDemand</code> score (0-200) and
+    a per-density <code>buildingDemand</code> (<code>int3</code>, each component 0-100).
+  </p>
+
+  <h3>Demand Factors</h3>
+
+  <table>
+    <thead>
+      <tr><th>Factor</th><th>Calculation</th><th>Densities</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Population Bonus</td>
+        <td><code>20 - smoothstep(0, 20, population/20000)</code></td>
+        <td>All</td>
+      </tr>
+      <tr>
+        <td>Happiness</td>
+        <td><code>m_HappinessEffect * (avgHappiness - m_NeutralHappiness)</code></td>
+        <td>All</td>
+      </tr>
+      <tr>
+        <td>Homelessness</td>
+        <td><code>-m_HomelessEffect * clamp(2 * homeless / m_NeutralHomelessness, 0, 2)</code></td>
+        <td>High only</td>
+      </tr>
+      <tr>
+        <td>Tax Rates</td>
+        <td>Average deviation from 10% across 5 education levels, weighted by <code>m_TaxEffect.x</code></td>
+        <td>All</td>
+      </tr>
+      <tr>
+        <td>Free Workplaces</td>
+        <td><code>m_AvailableWorkplaceEffect * (free - total * neutralPct/100)</code>, clamped</td>
+        <td>All</td>
+      </tr>
+      <tr>
+        <td>Students</td>
+        <td><code>m_StudentEffect * clamp(studyPositions/200, 0, 5)</code></td>
+        <td>Medium, High</td>
+      </tr>
+      <tr>
+        <td>Unemployment</td>
+        <td><code>m_NeutralUnemployment - actualRate</code></td>
+        <td>All</td>
+      </tr>
+      <tr>
+        <td>Free Properties</td>
+        <td><code>100 * (requirement - freeProps) / requirement</code></td>
+        <td>Per density</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The final building demand per density is:
+  </p>
+
+  <pre><code class="language-csharp">buildingDemand = clamp(householdDemand/2 + freePropertyFactor + sumOfDensityFactors, 0, 100);
+// Zeroed out for density types with no unlocked zone prefabs
+buildingDemand = select(0, buildingDemand, isUnlocked);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Commercial Demand</h2>
+
+  <p>
+    <code>CommercialDemandSystem</code> computes demand on a per-resource basis, then averages
+    across all active commercial resource types. It outputs <code>companyDemand</code> and
+    <code>buildingDemand</code>, both 0-100.
+  </p>
+
+  <h3>Per-Resource Demand</h3>
+
+  <p>For each commercial resource (except lodging):</p>
+
+  <pre><code class="language-csharp">// Population-scaled availability threshold
+int threshold = (population &lt;= 1000) ? 2500 : (2500 * (int)Log10(0.01f * population));
+
+// Resource demand: higher when currentAvailables fall below threshold
+resourceDemand = clamp(100 - (currentAvailables - threshold) / 25, 0, 100);
+
+// Tax adjustment: deviation from 10% neutral rate
+float taxEffect = -0.05f * (taxRate - 10f) * m_TaxEffect.y;
+resourceDemand = Round((1 + taxEffect) * resourceDemand);</code></pre>
+
+  <p>
+    <strong>Lodging (hotels):</strong> Gets full demand (100) when
+    <code>currentTourists * m_HotelRoomPercentRequirement &gt; lodging.y</code>.
+  </p>
+
+  <p>
+    <strong>Building demand</strong> only triggers when
+    <code>freeProperties - propertyless &lt;= 0</code> for a given resource.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Industrial and Office Demand</h2>
+
+  <p>
+    <code>IndustrialDemandSystem</code> is the most complex, computing six separate demand values:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Category</th><th>Company Demand</th><th>Building Demand</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Industrial (manufacturing)</td>
+        <td><code>industrialCompanyDemand</code></td>
+        <td><code>industrialBuildingDemand</code></td>
+      </tr>
+      <tr>
+        <td>Office</td>
+        <td><code>officeCompanyDemand</code></td>
+        <td><code>officeBuildingDemand</code></td>
+      </tr>
+      <tr>
+        <td>Storage (warehouses)</td>
+        <td><code>storageCompanyDemand</code></td>
+        <td><code>storageBuildingDemand</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Resource Demand Sources</h3>
+
+  <ul>
+    <li><strong>Office resources</strong> (zero-weight / weightless): <code>(householdDemand + companyDemand) * 2</code></li>
+    <li><strong>Industrial resources</strong>: Company-to-company resource demands, or defaults to 100 if no current demand exists</li>
+    <li><strong>City service upkeep</strong>: Resources consumed by city services (fire, police, etc.) are added to industrial resource demands</li>
+  </ul>
+
+  <h3>Per-Resource Company Demand</h3>
+
+  <pre><code class="language-csharp">float baseDemand = isMaterial ? m_ExtractorBaseDemand : m_IndustrialBaseDemand;
+float supplyDeficit = (1 + resourceDemand - production) / (resourceDemand + 1);
+float rawDemand = 50f * max(0, baseDemand * supplyDeficit);
+
+// Tax effect
+float taxEffect = m_TaxEffect.z * -0.05f * (taxRate - 10);
+
+// Workforce effect (educated for office, uneducated for industrial)
+int educatedEffect = MapAndClaimWorkforceEffect(surplus, min, max);
+
+// Final per-resource demand
+companyDemand = clamp(Round(rawDemand + taxEffect*100 + workforceEffect), 0, 100);</code></pre>
+
+  <h3>Storage Demand</h3>
+
+  <p>
+    Storage (warehouse) demand triggers when storage capacity falls below resource demand:
+  </p>
+
+  <pre><code class="language-csharp">// Storage company demand: when capacity is insufficient
+if (resourceDemand &gt; kStorageProductionDemand &amp;&amp; storageCapacity &lt; resourceDemand)
+    storageCompanyDemand += 1;
+
+// Storage building demand: when no free warehouse slots
+if (freeStorages &lt; 0)
+    storageBuildingDemand += 1;</code></pre>
+
+  <h3>City Modifiers</h3>
+
+  <p>
+    Certain city milestones or policies apply modifiers to specific resource demands:
+  </p>
+
+  <ul>
+    <li><code>CityModifierType.IndustrialElectronicsDemand</code> -- boosts electronics production demand</li>
+    <li><code>CityModifierType.OfficeSoftwareDemand</code> -- boosts software production demand</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>ResidentialDemandSystem, CommercialDemandSystem, IndustrialDemandSystem, DemandUtils, DemandFactor</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>DemandParameterData (struct), DemandPrefab (class)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs.Modes</td>
+        <td>DemandParameterMode</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>DemandParameterData (Game.Prefabs)</h3>
+
+  <p>
+    The central configuration struct, stored as an ECS singleton. All three demand systems
+    read from this. Default values come from <code>DemandPrefab</code>.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_MinimumHappiness</td><td>int</td><td>30</td><td>Floor for happiness in demand calc</td></tr>
+      <tr><td>m_HappinessEffect</td><td>float</td><td>2.0</td><td>Weight for happiness delta</td></tr>
+      <tr><td>m_TaxEffect</td><td>float3</td><td>(1, 1, 1)</td><td>Tax weight: x=residential, y=commercial, z=industrial/office</td></tr>
+      <tr><td>m_StudentEffect</td><td>float</td><td>1.0</td><td>Weight for study positions</td></tr>
+      <tr><td>m_AvailableWorkplaceEffect</td><td>float</td><td>8.0</td><td>Weight for free workplaces</td></tr>
+      <tr><td>m_HomelessEffect</td><td>float</td><td>20.0</td><td>Weight for homelessness</td></tr>
+      <tr><td>m_NeutralHappiness</td><td>int</td><td>45</td><td>Zero-effect happiness threshold</td></tr>
+      <tr><td>m_NeutralUnemployment</td><td>float</td><td>20.0</td><td>Zero-effect unemployment rate (%)</td></tr>
+      <tr><td>m_NeutralAvailableWorkplacePercentage</td><td>float</td><td>10.0</td><td>Zero-effect free workplace %</td></tr>
+      <tr><td>m_NeutralHomelessness</td><td>int</td><td>50</td><td>Zero-effect homeless household count</td></tr>
+      <tr><td>m_FreeResidentialRequirement</td><td>int3</td><td>(5, 10, 10)</td><td>Free property threshold per density</td></tr>
+      <tr><td>m_CommercialBaseDemand</td><td>float</td><td>4.0</td><td>Base demand multiplier for commercial</td></tr>
+      <tr><td>m_IndustrialBaseDemand</td><td>float</td><td>7.0</td><td>Base demand multiplier for industrial</td></tr>
+      <tr><td>m_ExtractorBaseDemand</td><td>float</td><td>1.5</td><td>Base demand multiplier for extractors</td></tr>
+      <tr><td>m_HouseholdSpawnSpeedFactor</td><td>float</td><td>0.5</td><td>Speed factor for new household spawning</td></tr>
+      <tr><td>m_HotelRoomPercentRequirement</td><td>float</td><td>0.5</td><td>Fraction of tourists needing hotel rooms</td></tr>
+      <tr><td>m_FrameIntervalForSpawning</td><td>int3</td><td>(0, 2000, 2000)</td><td>Frame cooldown: x=residential, y=commercial, z=industrial</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+DemandParameterData (singleton)          [tuning parameters from DemandPrefab]
+     |
+     v
+CountCompanyDataSystem (offset 1)        [companies, production, resource demands]
+CountHouseholdDataSystem                  [households, unemployment, resource needs]
+CountWorkplacesSystem                     [free/total workplaces by education level]
+CountResidentialPropertySystem            [free/total residential by density]
+TaxSystem                                [current tax rates per sector]
+     |
+     v
+CommercialDemandSystem (offset 4)        [per-resource commercial demand]
+     |                                    companyDemand, buildingDemand (0-100)
+     |
+IndustrialDemandSystem (offset 7)        [per-resource industrial/office/storage]
+     |                                    6 demand values (company + building x 3)
+     |
+ResidentialDemandSystem (offset 10)      [per-density residential demand]
+     |                                    householdDemand (0-200), buildingDemand int3 (0-100)
+     |
+     v
+ZoneSpawnSystem (offset 13)              [consumes buildingDemand to spawn buildings]
+     |
+     v
+UI InfoView                              [reads factor arrays for demand bar display]
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Modding Approaches</h2>
+
+  <h3>1. Modify DemandParameterData at Runtime</h3>
+
+  <p>
+    The simplest approach: read the <code>DemandParameterData</code> singleton entity, change
+    its fields, and write it back. No Harmony patches needed.
+  </p>
+
+  <pre><code class="language-csharp">public partial class DemandTweakSystem : GameSystemBase
+{
+    private EntityQuery m_DemandParamQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_DemandParamQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;DemandParameterData&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        if (m_DemandParamQuery.IsEmptyIgnoreFilter) return;
+
+        // Read current parameters
+        var data = m_DemandParamQuery.GetSingleton&lt;DemandParameterData&gt;();
+
+        // Tweak: double the happiness effect
+        data.m_HappinessEffect = 4.0f;
+
+        // Tweak: lower neutral unemployment (makes demand more sensitive)
+        data.m_NeutralUnemployment = 10f;
+
+        // Write back
+        m_DemandParamQuery.SetSingleton(data);
+    }
+}</code></pre>
+
+  <h3>2. Postfix Patch to Adjust Demand Results</h3>
+
+  <p>
+    Use Harmony to run code after the demand system updates, modifying the stored values.
+  </p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.ResidentialDemandSystem), "OnUpdate")]
+public static class ResidentialDemandPatch
+{
+    public static void Postfix(ResidentialDemandSystem __instance)
+    {
+        // Access the public properties to read current demand
+        int currentHouseholdDemand = __instance.householdDemand;
+        int3 currentBuildingDemand = __instance.buildingDemand;
+
+        // To modify: need to use reflection or Traverse to access
+        // private NativeValue fields (m_HouseholdDemand, m_BuildingDemand)
+    }
+}</code></pre>
+
+  <h3>3. Replace Demand System Entirely</h3>
+
+  <p>
+    For full control, disable the vanilla system and replace it with a custom one:
+  </p>
+
+  <pre><code class="language-csharp">// In your IMod.OnLoad:
+var existingSystem = World.DefaultGameObjectInjectionWorld
+    .GetOrCreateSystemManaged&lt;ResidentialDemandSystem&gt;();
+existingSystem.Enabled = false;
+
+// Register your custom system that writes to the same NativeValue fields
+// Other systems (ZoneSpawnSystem) read from ResidentialDemandSystem's public properties</code></pre>
+
+  <h3>Important: BurstCompile Limitation</h3>
+
+  <p>
+    The actual demand calculation jobs (<code>UpdateResidentialDemandJob</code>,
+    <code>UpdateCommercialDemandJob</code>, <code>UpdateIndustrialDemandJob</code>) are
+    <code>[BurstCompile]</code> IJob structs. These <strong>cannot</strong> be Harmony-patched.
+    Always patch the parent system's <code>OnUpdate()</code> method instead, or modify inputs
+    (DemandParameterData) and outputs (the NativeValue/NativeArray fields) rather than the jobs
+    themselves.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>ZoneSpawnSystem behavior:</strong> How exactly does the spawn system translate
+      building demand values (0-100) into spawn probability? This requires separate research
+      into ZoneSpawnSystem.
+    </li>
+    <li>
+      <strong>UI demand display:</strong> How does the UI panel read and render the demand factor
+      arrays? The UI binding layer was not decompiled in this research.
+    </li>
+    <li>
+      <strong>Game mode settings:</strong> The <code>ModeSettingData</code> singleton can override
+      demand weights via <code>m_ResidentialDemandWeightsSelector</code>,
+      <code>m_CommercialTaxEffectDemandOffset</code>, and
+      <code>m_IndustrialOfficeTaxEffectDemandOffset</code>. The exact game modes that use these
+      are not documented here.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.ResidentialDemandSystem, Game.Simulation.CommercialDemandSystem, Game.Simulation.IndustrialDemandSystem, Game.Simulation.DemandUtils, Game.Simulation.DemandFactor</li>
+    <li>Prefab types: Game.Prefabs.DemandParameterData, Game.Prefabs.DemandPrefab</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- ResidentialDemandSystem, CommercialDemandSystem, IndustrialDemandSystem, DemandParameterData.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
