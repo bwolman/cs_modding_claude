@@ -847,12 +847,16 @@ public class MyDirectRaycastSystem : GameSystemBase
         }
 
         // Submit a new raycast when triggered (e.g., by a hotkey).
+        // Two ways to get the camera for CalculateRaycastLine:
+        //   1. CameraUpdateSystem.TryGetViewer() — the "proper" CS2 way
+        //   2. Camera.main — simpler, works in practice (MoveIt uses this)
         if (ShouldCastRay() && _cameraUpdateSystem.TryGetViewer(out var viewer))
         {
             // CalculateRaycastLine converts the current mouse screen position
             // into a world-space line segment from camera origin to far clip.
             RaycastInput input = new RaycastInput
             {
+                // Alternative: m_Line = ToolRaycastSystem.CalculateRaycastLine(Camera.main),
                 m_Line = ToolRaycastSystem.CalculateRaycastLine(viewer.camera),
                 m_TypeMask = TypeMask.StaticObjects | TypeMask.MovingObjects | TypeMask.Net,
                 m_CollisionMask = CollisionMask.OnGround | CollisionMask.Overground,
