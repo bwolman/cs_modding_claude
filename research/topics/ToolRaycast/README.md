@@ -104,6 +104,21 @@ This approach is used by Anarchy's `AnarchyComponentsToolSystem` for custom enti
 
 *Source: `Game.dll` → `Game.Tools.Highlighted`*
 
+### `Deleted` (Game.Common)
+
+Empty marker component. **CS2's standard entity deletion mechanism** — instead of calling `EntityManager.DestroyEntity()`, game systems add the `Deleted` component. This triggers cleanup systems to process the entity (remove from spatial trees, update references, clean up sub-entities, etc.) before the entity is actually destroyed.
+
+```csharp
+// Correct way to delete an entity in CS2:
+EntityManager.AddComponent<Deleted>(entity);
+
+// NOT: EntityManager.DestroyEntity(entity);  // Bypasses cleanup systems!
+```
+
+Tool systems like `GetRaycastResult()` automatically filter out `Deleted` entities. Entity queries should include `.WithNone<Deleted>()` to exclude entities pending deletion. Used extensively by BetterBulldozer and Anarchy for entity removal.
+
+*Source: `Game.dll` → `Game.Common.Deleted`*
+
 ### `Temp` (Game.Tools)
 
 Marker component on temporary preview entities created by tools.
