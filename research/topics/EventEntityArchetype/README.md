@@ -219,6 +219,253 @@ commandBuffer.SetComponent(impactEntity, new Impact {
 
 The `PrefabRef` must point to a real `TrafficAccident` prefab entity that has `TrafficAccidentData` and `EventData` components, otherwise `AccidentSiteSystem` will fail to do chain-reaction calculations and fire probability lookup will return defaults.
 
+## Examples
+
+### Example 1: Understanding the Two Event Namespaces
+
+The most common source of confusion is that CS2 has two different `Event` structs. This example shows the distinction and when to use each.
+
+```csharp
+using Game.Common;   // Event = short-lived command marker (consumed in 1-2 frames)
+using Game.Events;   // Event = persistent event marker (lives for duration of accident)
+
+// WRONG: Using Game.Common.Event for a persistent accident event entity.
+// Downstream systems query for Game.Events.Event — this entity won't match.
+EntityArchetype wrongArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite<Game.Common.Event>(),            // <-- wrong namespace
+    ComponentType.ReadWrite<Game.Events.TrafficAccident>(),
+    ComponentType.ReadWrite<TargetElement>()
+);
+
+// CORRECT: Use Game.Events.Event for persistent event entities.
+EntityArchetype correctArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite<Game.Events.Event>(),            // <-- persistent marker
+    ComponentType.ReadWrite<Game.Events.TrafficAccident>(),
+    ComponentType.ReadWrite<TargetElement>(),
+    ComponentType.ReadWrite<PrefabRef>(),
+    ComponentType.ReadWrite<Created>(),
+    ComponentType.ReadWrite<Updated>()
+);
+
+// Use Game.Common.Event only for temporary command entities like Impact:
+EntityArchetype impactArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite<Game.Common.Event>(),            // <-- short-lived command
+    ComponentType.ReadWrite<Impact>()
+);
+```
+
+### Example 2: Creating a Full TrafficAccident Event Entity from a Mod System
+
+This shows how a custom `GameSystemBase` would set up archetypes during `OnCreate` and spawn a complete TrafficAccident event entity at runtime.
+
+```csharp
+using Game.Common;
+using Game.Events;
+using Game.Prefabs;
+using Game.Simulation;
+using Unity.Entities;
+
+public partial class MyAccidentSpawnerSystem : GameSystemBase
+{
+    private EntityArchetype _trafficAccidentArchetype;
+    private EntityArchetype _impactArchetype;
+    private EntityQuery _prefabQuery;
+    private EndFrameBarrier _endFrameBarrier;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        _endFrameBarrier = World.GetOrCreateSystemManaged<EndFrameBarrier>();
+
+        // The 6-component archetype required for a persistent TrafficAccident event entity.
+        // All 6 must be present at creation time — downstream systems guard with HasBuffer
+        // and HasComponent checks, and silently skip entities missing any of these.
+        _trafficAccidentArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite<PrefabRef>(),                    // links to prefab data
+            ComponentType.ReadWrite<Game.Events.Event>(),            // persistent event marker
+            ComponentType.ReadWrite<Game.Events.TrafficAccident>(),  // type marker
+            ComponentType.ReadWrite<TargetElement>(),                // buffer for involved entities
+            ComponentType.ReadWrite<Created>(),                      // ECS lifecycle
+            ComponentType.ReadWrite<Updated>()                       // ECS lifecycle
+        );
+
+        // Temporary Impact command entity archetype — consumed by ImpactSystem within 1-2 frames.
+        _impactArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite<Game.Common.Event>(),
+            ComponentType.ReadWrite<Impact>()
+        );
+
+        // Query to find the TrafficAccident prefab entity at runtime.
+        // The prefab entity holds TrafficAccidentData, FireData, CrimeData, and EventData.
+        _prefabQuery = GetEntityQuery(
+            ComponentType.ReadOnly<TrafficAccidentData>(),
+            ComponentType.ReadOnly<EventData>()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        // Find the game's TrafficAccident prefab entity.
+        // PrefabRef on the event entity MUST point to this — it carries
+        // TrafficAccidentData, FireData, and CrimeData that downstream systems read.
+        if (_prefabQuery.IsEmptyIgnoreFilter)
+            return;
+
+        Entity prefabEntity = _prefabQuery.GetSingletonEntity();
+
+        var commandBuffer = _endFrameBarrier.CreateCommandBuffer();
+
+        // Step 1: Create the persistent event entity with the full archetype.
+        // The TargetElement DynamicBuffer is automatically created (empty) because
+        // it's part of the archetype — no need to AddBuffer separately.
+        Entity eventEntity = commandBuffer.CreateEntity(_trafficAccidentArchetype);
+        commandBuffer.SetComponent(eventEntity, new PrefabRef { m_Prefab = prefabEntity });
+
+        // Step 2: Create an Impact command entity referencing our event entity.
+        // ImpactSystem will pick this up, add InvolvedInAccident to the target,
+        // and append the target to the event's TargetElement buffer.
+        Entity impactEntity = commandBuffer.CreateEntity(_impactArchetype);
+        commandBuffer.SetComponent(impactEntity, new Impact
+        {
+            m_Event = eventEntity,        // links this impact to our event
+            m_Target = targetVehicle,     // the vehicle entity involved
+            m_VelocityDelta = 5f,
+            m_AngularVelocityDelta = 1f,
+            m_Severity = 5f
+        });
+    }
+}
+```
+
+### Example 3: How the Archetype Is Built at Prefab Load Time
+
+The game assembles event entity archetypes automatically via `EventPrefab.RefreshArchetype()`. This example traces the call chain to show where each component comes from. Understanding this is useful when researching other event types beyond TrafficAccident.
+
+```csharp
+// EventPrefab.RefreshArchetype() collects components from all ComponentBase children:
+//
+// Call chain for a TrafficAccident prefab:
+//
+//   PrefabBase.GetArchetypeComponents()
+//       -> adds: PrefabRef
+//
+//   EventPrefab.GetArchetypeComponents()
+//       -> calls base (PrefabBase) first
+//       -> adds: Game.Events.Event
+//
+//   Game.Prefabs.TrafficAccident.GetArchetypeComponents()    (ComponentBase child)
+//       -> adds: Game.Events.TrafficAccident
+//       -> adds: TargetElement (DynamicBuffer)
+//
+//   RefreshArchetype() then unconditionally adds:
+//       -> Created
+//       -> Updated
+//
+// Result stored in EventData.m_Archetype on the prefab entity:
+//   { PrefabRef, Game.Events.Event, Game.Events.TrafficAccident, TargetElement, Created, Updated }
+
+// To research a DIFFERENT event type (e.g., a fire event), decompile its ComponentBase
+// and look at its GetArchetypeComponents() override. The pattern is always the same:
+//   EventPrefab base components + type-specific ComponentBase additions + Created/Updated
+```
+
+### Example 4: Creating Temporary Command Entities (the Command-Entity Pattern)
+
+Downstream systems communicate through short-lived command entities tagged with `Game.Common.Event`. Each command entity carries a payload struct and is consumed within 1-2 frames by a dedicated processing system. This pattern is how the accident pipeline chains its stages together.
+
+```csharp
+// The command-entity pattern: create a short-lived entity with Game.Common.Event
+// and a payload component. A dedicated system queries for that payload component
+// and processes/destroys the entity.
+
+// --- Impact command (consumed by ImpactSystem) ---
+// Signals that a vehicle was involved in a collision.
+// ImpactSystem reads Impact.m_Event, looks up the event entity's TargetElement buffer,
+// and adds the target to it via TryAddUniqueValue.
+EntityArchetype impactArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite<Game.Common.Event>(),
+    ComponentType.ReadWrite<Impact>()
+);
+Entity impact = commandBuffer.CreateEntity(impactArchetype);
+commandBuffer.SetComponent(impact, new Impact
+{
+    m_Event = accidentEventEntity,  // the persistent Game.Events.Event entity
+    m_Target = vehicleEntity,
+    m_Severity = 5f
+});
+
+// --- AddAccidentSite command (consumed by AddAccidentSiteSystem) ---
+// Requests creation of an accident site marker on a road edge.
+// AddAccidentSiteSystem reads the command, creates the site, then appends
+// the site entity to the event's TargetElement buffer.
+EntityArchetype addSiteArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite<Game.Common.Event>(),
+    ComponentType.ReadWrite<AddAccidentSite>()
+);
+Entity addSite = commandBuffer.CreateEntity(addSiteArchetype);
+commandBuffer.SetComponent(addSite, new AddAccidentSite
+{
+    m_Event = accidentEventEntity,
+    m_Target = buildingEntity,
+    m_Flags = AccidentSiteFlags.TrafficAccident
+});
+
+// --- Ignite command (consumed by a fire system) ---
+// Requests fire ignition on a vehicle as a chain-reaction effect.
+// AccidentVehicleSystem creates these when fire probability check passes.
+EntityArchetype igniteArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite<Game.Common.Event>(),
+    ComponentType.ReadWrite<Ignite>()
+);
+Entity ignite = commandBuffer.CreateEntity(igniteArchetype);
+commandBuffer.SetComponent(ignite, new Ignite
+{
+    m_Target = vehicleEntity
+});
+```
+
+### Example 5: Why TargetElement Must Be in the Archetype (Not Added Later)
+
+This example demonstrates the critical timing issue with `TargetElement`. Adding it after entity creation causes a race condition with downstream systems.
+
+```csharp
+// WRONG: Creating the entity without TargetElement and adding it later.
+// ImpactSystem runs in the same frame and checks HasBuffer BEFORE your
+// AddBuffer command is played back. The buffer check fails, and the
+// target entity never gets tracked.
+EntityArchetype incompleteArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite<PrefabRef>(),
+    ComponentType.ReadWrite<Game.Events.Event>(),
+    ComponentType.ReadWrite<Game.Events.TrafficAccident>(),
+    ComponentType.ReadWrite<Created>(),
+    ComponentType.ReadWrite<Updated>()
+    // Missing: TargetElement
+);
+
+Entity eventEntity = commandBuffer.CreateEntity(incompleteArchetype);
+commandBuffer.AddBuffer<TargetElement>(eventEntity);  // Too late — race condition
+
+// All four downstream systems perform this guard check:
+//   if (m_TargetElements.HasBuffer(involvedInAccident.m_Event))
+//
+// If HasBuffer returns false (because the buffer hasn't been added yet):
+//   - ImpactSystem: target entity gets InvolvedInAccident but is never tracked
+//   - AccidentVehicleSystem: no AddAccidentSite command, no notifications, no injuries
+//   - AccidentSiteSystem: cannot count participants, no police dispatch
+//   - AddAccidentSiteSystem: site added to road but event doesn't know about it
+
+// CORRECT: Include TargetElement in the archetype so the buffer exists immediately.
+EntityArchetype completeArchetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite<PrefabRef>(),
+    ComponentType.ReadWrite<Game.Events.Event>(),
+    ComponentType.ReadWrite<Game.Events.TrafficAccident>(),
+    ComponentType.ReadWrite<TargetElement>(),    // <-- in archetype, exists from frame 0
+    ComponentType.ReadWrite<Created>(),
+    ComponentType.ReadWrite<Updated>()
+);
+```
+
 ## Open Questions
 
 - [x] What is the complete archetype for a TrafficAccident event entity? — 6 components (see above)

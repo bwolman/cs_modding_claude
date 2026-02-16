@@ -184,6 +184,169 @@ AddBinding(new TriggerBinding(kGroup, "ActivateMyTool", () =>
 
 No need for flag-based deferral. This matches vanilla patterns.
 
+## Examples
+
+### Example 1: Activate a Custom Tool from a UI Button
+
+The most common pattern -- a TriggerBinding callback that switches the active tool when the user clicks a button in your mod's UI panel.
+
+```csharp
+using Game.Tools;
+using Game.UI;
+using Colossal.UI.Binding;
+
+/// <summary>
+/// UI system that exposes a trigger to activate a custom tool.
+/// The TriggerBinding callback fires on the Unity main thread (via cohtml),
+/// outside ToolSystem.OnUpdate(). Setting activeTool here is safe because:
+///   - m_ActiveTool is written immediately (no deferred queue)
+///   - ToolUpdate() detects the change via activeTool != m_LastTool on the next frame
+///   - This matches the vanilla ActivatePrefabTool() pattern
+/// </summary>
+public partial class MyToolUISystem : UISystemBase
+{
+    private const string kGroup = "myMod";
+
+    private ToolSystem _toolSystem;
+    private MyCustomToolSystem _myTool;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        _toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+        _myTool = World.GetOrCreateSystemManaged<MyCustomToolSystem>();
+
+        // When the UI fires "ActivateMyTool", set the active tool directly.
+        // No flag-based deferral is needed.
+        AddBinding(new TriggerBinding(kGroup, "ActivateMyTool", () =>
+        {
+            _toolSystem.activeTool = _myTool;
+        }));
+    }
+}
+```
+
+### Example 2: Toggle Between a Custom Tool and the Default Tool
+
+A toggle pattern that switches to your tool if it is not active, or back to the default tool if it is already active.
+
+```csharp
+using Game.Tools;
+using Game.UI;
+using Colossal.UI.Binding;
+
+public partial class ToggleToolUISystem : UISystemBase
+{
+    private const string kGroup = "myMod";
+
+    private ToolSystem _toolSystem;
+    private MyCustomToolSystem _myTool;
+    private DefaultToolSystem _defaultTool;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        _toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+        _myTool = World.GetOrCreateSystemManaged<MyCustomToolSystem>();
+        _defaultTool = World.GetOrCreateSystemManaged<DefaultToolSystem>();
+
+        AddBinding(new TriggerBinding(kGroup, "ToggleMyTool", () =>
+        {
+            // activeTool getter returns m_ActiveTool, so this comparison
+            // is always up to date even if another callback changed it
+            // earlier in the same frame.
+            if (_toolSystem.activeTool == _myTool)
+            {
+                // Switch back to the default tool (same as pressing Escape in-game)
+                _toolSystem.activeTool = _defaultTool;
+            }
+            else
+            {
+                _toolSystem.activeTool = _myTool;
+            }
+        }));
+    }
+}
+```
+
+### Example 3: Listen for Tool Changes via EventToolChanged
+
+Subscribe to `EventToolChanged` to update your mod's UI state whenever any tool becomes active -- including changes made by other mods or by the base game.
+
+```csharp
+using Game.Tools;
+using Game.UI;
+using Colossal.UI.Binding;
+
+public partial class ToolStateUISystem : UISystemBase
+{
+    private const string kGroup = "myMod";
+
+    private ToolSystem _toolSystem;
+    private MyCustomToolSystem _myTool;
+    private ValueBinding<bool> _isMyToolActiveBinding;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        _toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+        _myTool = World.GetOrCreateSystemManaged<MyCustomToolSystem>();
+
+        // Expose a boolean to the UI so it can highlight the tool button
+        _isMyToolActiveBinding = new ValueBinding<bool>(kGroup, "IsMyToolActive", false);
+        AddBinding(_isMyToolActiveBinding);
+
+        // EventToolChanged fires synchronously inside the activeTool setter,
+        // on the same thread that set the tool. This is safe for UI updates.
+        _toolSystem.EventToolChanged += OnToolChanged;
+    }
+
+    private void OnToolChanged(ToolBaseSystem newTool)
+    {
+        // newTool is the tool that was just assigned to activeTool.
+        // Update the binding so the UI reflects the current state.
+        _isMyToolActiveBinding.Update(newTool == _myTool);
+    }
+
+    protected override void OnDestroy()
+    {
+        _toolSystem.EventToolChanged -= OnToolChanged;
+        base.OnDestroy();
+    }
+}
+```
+
+### Example 4: Activate a Tool with a Prefab (Vanilla Pattern)
+
+Use `ActivatePrefabTool()` when you want the game to find the right tool for a given prefab. This is how the vanilla UI activates tools for roads, buildings, etc.
+
+```csharp
+using Game.Prefabs;
+using Game.Tools;
+
+/// <summary>
+/// Demonstrates the vanilla ActivatePrefabTool() pattern.
+/// Internally, this iterates over all registered ToolBaseSystem instances,
+/// calls TrySetPrefab() on each, and sets activeTool to the first one that
+/// accepts the prefab. If none accept it, activeTool is set to DefaultToolSystem.
+/// </summary>
+public void ActivateToolForPrefab(ToolSystem toolSystem, PrefabBase prefab)
+{
+    // Returns true if a tool accepted the prefab, false if it fell back to default.
+    // The activeTool setter fires synchronously inside this method -- by the time
+    // it returns, m_ActiveTool is already updated and EventToolChanged has fired.
+    bool activated = toolSystem.ActivatePrefabTool(prefab);
+
+    if (!activated)
+    {
+        Mod.Log.Info($"No tool accepted prefab '{prefab.name}', fell back to default tool.");
+    }
+}
+```
+
 ## Open Questions
 
 - [x] Is `activeTool` safe to set from TriggerBinding callbacks? — Yes, fully safe

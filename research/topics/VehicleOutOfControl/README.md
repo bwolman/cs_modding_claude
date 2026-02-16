@@ -486,6 +486,374 @@ Add `OutOfControl` + `Moving` (with velocity) + `InvolvedInAccident` components 
 - None required for basic functionality
 - Optional: accident statistics panel, manual accident trigger tool
 
+## Examples
+
+### Example 1: Trigger a Vehicle Accident via Impact Event
+
+The safest way to make a vehicle lose control is to create an `Impact` event entity. The game's `ImpactSystem` will process it on the next frame, applying velocity changes and adding `OutOfControl` + `InvolvedInAccident` automatically.
+
+```csharp
+using Game.Events;
+using Game.Simulation;
+using Unity.Entities;
+using Unity.Mathematics;
+
+/// <summary>
+/// Custom system that creates Impact event entities to trigger vehicle accidents.
+/// ImpactSystem will process these on the next simulation frame.
+/// </summary>
+public partial class AccidentTriggerSystem : GameSystemBase
+{
+    private EntityArchetype _impactArchetype;
+    private EntityArchetype _accidentEventArchetype;
+    private SimulationSystem _simulationSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _simulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
+
+        // Impact entities need the Impact component plus the Event tag
+        _impactArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite<Impact>(),
+            ComponentType.ReadWrite<Game.Common.Event>()
+        );
+
+        // The parent accident event needs TrafficAccident marker.
+        // Note: The full archetype for persistent accident events may require
+        // additional components (TargetElement, PrefabRef, Created, Updated)
+        // depending on which downstream systems consume it. This minimal
+        // archetype is sufficient for ImpactSystem processing.
+        _accidentEventArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite<TrafficAccident>(),
+            ComponentType.ReadWrite<Game.Common.Event>()
+        );
+    }
+
+    /// <summary>
+    /// Creates an Impact event that will cause the target vehicle to go out of control.
+    /// </summary>
+    /// <param name="targetVehicle">The vehicle entity to impact.</param>
+    /// <param name="lateralForce">Sideways push in m/s (5.0 is the game default for staged accidents).</param>
+    /// <param name="angularSpin">Y-axis spin in rad/s (2.0 is the game default).</param>
+    /// <param name="severity">Damage severity (5.0 is the game default for staged accidents).</param>
+    public void TriggerAccident(Entity targetVehicle, float lateralForce, float angularSpin, float severity)
+    {
+        // Create the parent accident event entity
+        Entity accidentEvent = EntityManager.CreateEntity(_accidentEventArchetype);
+
+        // Create the Impact event entity
+        Entity impactEntity = EntityManager.CreateEntity(_impactArchetype);
+        EntityManager.SetComponentData(impactEntity, new Impact
+        {
+            m_Event = accidentEvent,
+            m_Target = targetVehicle,
+            // Lateral push -- perpendicular to travel direction
+            m_VelocityDelta = new float3(lateralForce, 0f, 0f),
+            // Spin around the vertical axis
+            m_AngularVelocityDelta = new float3(0f, angularSpin, 0f),
+            m_Severity = severity,
+            m_CheckStoppedEvent = false
+        });
+
+        // ImpactSystem processes this next frame:
+        //   1. Applies velocity delta to the vehicle's Moving component
+        //   2. Adds OutOfControl marker component
+        //   3. Adds InvolvedInAccident with the severity and current frame
+        //   4. Detaches any trailer from the vehicle
+    }
+
+    protected override void OnUpdate()
+    {
+        // Trigger logic goes here (e.g., random selection, player input, etc.)
+    }
+}
+```
+
+### Example 2: Check if a Vehicle Is Out of Control or Involved in an Accident
+
+Query for vehicles with the `OutOfControl` marker or `InvolvedInAccident` component to react to ongoing accidents.
+
+```csharp
+using Game.Events;
+using Game.Objects;
+using Game.Simulation;
+using Game.Vehicles;
+using Unity.Entities;
+
+/// <summary>
+/// Monitors vehicles involved in accidents and logs their state.
+/// Demonstrates how to query for OutOfControl and InvolvedInAccident components.
+/// </summary>
+public partial class AccidentMonitorSystem : GameSystemBase
+{
+    private EntityQuery _outOfControlQuery;
+    private EntityQuery _involvedQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Query for vehicles currently in physics-driven out-of-control state
+        _outOfControlQuery = GetEntityQuery(
+            ComponentType.ReadOnly<OutOfControl>(),
+            ComponentType.ReadOnly<Vehicle>(),
+            ComponentType.ReadOnly<Moving>()
+        );
+
+        // Query for all entities involved in an accident (vehicles and creatures)
+        _involvedQuery = GetEntityQuery(
+            ComponentType.ReadOnly<InvolvedInAccident>(),
+            ComponentType.ReadOnly<Vehicle>()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        // Count vehicles currently sliding around with physics
+        int outOfControlCount = _outOfControlQuery.CalculateEntityCount();
+
+        // Count all vehicles tagged as part of an accident (includes stopped ones)
+        int involvedCount = _involvedQuery.CalculateEntityCount();
+
+        // Example: iterate involved vehicles and check their severity
+        var entities = _involvedQuery.ToEntityArray(Unity.Collections.Allocator.Temp);
+        for (int i = 0; i < entities.Length; i++)
+        {
+            Entity vehicle = entities[i];
+            InvolvedInAccident accident = EntityManager.GetComponentData<InvolvedInAccident>(vehicle);
+
+            // Check severity -- higher values mean more damage
+            float severity = accident.m_Severity;
+
+            // Check if vehicle is still moving or has stopped
+            bool isStillSliding = EntityManager.HasComponent<OutOfControl>(vehicle);
+            bool hasStopped = EntityManager.HasComponent<Game.Objects.Stopped>(vehicle);
+
+            // Check if vehicle caught fire
+            bool isOnFire = EntityManager.HasComponent<Game.Events.OnFire>(vehicle);
+
+            // Check if vehicle is destroyed (wreck)
+            bool isDestroyed = EntityManager.HasComponent<Game.Common.Destroyed>(vehicle);
+
+            // Check the damage channels if Damaged component exists
+            if (EntityManager.HasComponent<Damaged>(vehicle))
+            {
+                Damaged damaged = EntityManager.GetComponentData<Damaged>(vehicle);
+                float fireDamage = damaged.m_Damage.x;       // Fire damage
+                float structuralDamage = damaged.m_Damage.y;  // Structural damage
+                float weatherDamage = damaged.m_Damage.z;      // Weather damage
+            }
+        }
+        entities.Dispose();
+    }
+}
+```
+
+### Example 3: Prevent Specific Vehicles from Going Out of Control
+
+Use a custom marker component and a system that runs before `ImpactSystem` to remove `Impact` events targeting protected vehicles.
+
+```csharp
+using Game.Events;
+using Game.Simulation;
+using Unity.Entities;
+
+/// <summary>
+/// Marker component to protect a vehicle from accident impacts.
+/// Add this to any vehicle entity that should be immune to OutOfControl.
+/// </summary>
+public struct AccidentImmune : IComponentData
+{
+}
+
+/// <summary>
+/// Runs before ImpactSystem and removes Impact events targeting immune vehicles.
+/// Uses UpdateBefore attribute to ensure it processes before impacts are applied.
+/// </summary>
+[UpdateBefore(typeof(ImpactSystem))]
+public partial class AccidentFilterSystem : GameSystemBase
+{
+    private EntityQuery _impactQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _impactQuery = GetEntityQuery(
+            ComponentType.ReadOnly<Impact>(),
+            ComponentType.ReadOnly<Game.Common.Event>()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _impactQuery.ToEntityArray(Unity.Collections.Allocator.Temp);
+        var impacts = _impactQuery.ToComponentDataArray<Impact>(Unity.Collections.Allocator.Temp);
+
+        for (int i = 0; i < entities.Length; i++)
+        {
+            Entity target = impacts[i].m_Target;
+
+            // If the target vehicle has our AccidentImmune marker, destroy the Impact event
+            // so ImpactSystem never processes it
+            if (EntityManager.HasComponent<AccidentImmune>(target))
+            {
+                EntityManager.DestroyEntity(entities[i]);
+            }
+        }
+
+        entities.Dispose();
+        impacts.Dispose();
+    }
+}
+```
+
+### Example 4: Query Accident Sites and Check Their State
+
+Read `AccidentSite` components on road edges to find active accident locations, check police status, and determine if chain reactions are possible.
+
+```csharp
+using Game.Events;
+using Game.Simulation;
+using Unity.Entities;
+
+/// <summary>
+/// Queries all active accident sites and inspects their flags and timing.
+/// Useful for building accident statistics or UI overlays.
+/// </summary>
+public partial class AccidentSiteMonitorSystem : GameSystemBase
+{
+    private EntityQuery _siteQuery;
+    private SimulationSystem _simulationSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _simulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
+        _siteQuery = GetEntityQuery(ComponentType.ReadOnly<AccidentSite>());
+    }
+
+    protected override void OnUpdate()
+    {
+        uint currentFrame = _simulationSystem.frameIndex;
+
+        var entities = _siteQuery.ToEntityArray(Unity.Collections.Allocator.Temp);
+        var sites = _siteQuery.ToComponentDataArray<AccidentSite>(Unity.Collections.Allocator.Temp);
+
+        for (int i = 0; i < entities.Length; i++)
+        {
+            AccidentSite site = sites[i];
+
+            // Check if chain-reaction accidents can still occur at this site
+            // StageAccident flag is active for 3600 frames (~60 seconds) after creation
+            bool canChainReact = (site.m_Flags & AccidentSiteFlags.StageAccident) != 0;
+
+            // Check if police have arrived
+            bool isSecured = (site.m_Flags & AccidentSiteFlags.Secured) != 0;
+
+            // Check if police dispatch has been requested
+            bool needsPolice = (site.m_Flags & AccidentSiteFlags.RequirePolice) != 0;
+
+            // Check if any vehicles are still sliding around
+            bool hasMovingVehicles = (site.m_Flags & AccidentSiteFlags.MovingVehicles) != 0;
+
+            // Calculate age of the accident site in frames
+            uint ageInFrames = currentFrame - site.m_CreationFrame;
+
+            // Sites auto-cleanup after 14400 frames (~4 minutes at 60fps)
+            // even without police if all involved entities are cleared
+            bool isTimedOut = ageInFrames >= 14400;
+        }
+
+        entities.Dispose();
+        sites.Dispose();
+    }
+}
+```
+
+### Example 5: Manually Add OutOfControl to a Vehicle (Direct Component Manipulation)
+
+Bypasses the `Impact` event pipeline entirely. This is simpler but misses side effects like trailer detachment and proper event tracking. Useful for testing or when you need immediate control.
+
+```csharp
+using Game.Events;
+using Game.Objects;
+using Game.Simulation;
+using Game.Vehicles;
+using Unity.Entities;
+using Unity.Mathematics;
+
+/// <summary>
+/// Demonstrates directly adding OutOfControl and related components to a vehicle.
+/// WARNING: This skips ImpactSystem, so trailers won't detach, parked/stopped
+/// cars won't be activated, and event target tracking may be incomplete.
+/// Prefer creating Impact events (Example 1) for production use.
+/// </summary>
+public partial class DirectOutOfControlSystem : GameSystemBase
+{
+    private SimulationSystem _simulationSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _simulationSystem = World.GetOrCreateSystemManaged<SimulationSystem>();
+    }
+
+    /// <summary>
+    /// Directly makes a moving vehicle go out of control.
+    /// The vehicle must already have a Moving component (i.e., it is actively driving).
+    /// </summary>
+    public void MakeVehicleOutOfControl(Entity vehicle, float3 pushVelocity, float severity)
+    {
+        uint currentFrame = _simulationSystem.frameIndex;
+
+        // Add the OutOfControl marker -- VehicleOutOfControlSystem will start
+        // simulating physics for this vehicle
+        if (!EntityManager.HasComponent<OutOfControl>(vehicle))
+        {
+            EntityManager.AddComponent<OutOfControl>(vehicle);
+        }
+
+        // Apply a velocity change to the existing Moving component
+        if (EntityManager.HasComponent<Moving>(vehicle))
+        {
+            Moving moving = EntityManager.GetComponentData<Moving>(vehicle);
+            moving.m_Velocity += pushVelocity;
+            moving.m_AngularVelocity += new float3(0f, 2f, 0f); // Y-axis spin
+            EntityManager.SetComponentData(vehicle, moving);
+        }
+
+        // Create a parent accident event (needed for InvolvedInAccident).
+        // Note: This minimal archetype may need additional components
+        // (TargetElement, PrefabRef, etc.) for full event pipeline processing.
+        Entity accidentEvent = EntityManager.CreateEntity(
+            ComponentType.ReadWrite<TrafficAccident>(),
+            ComponentType.ReadWrite<Game.Common.Event>()
+        );
+
+        // Tag the vehicle as involved in the accident
+        EntityManager.AddComponent<InvolvedInAccident>(vehicle);
+        EntityManager.SetComponentData(vehicle, new InvolvedInAccident(
+            accidentEvent,
+            severity,
+            currentFrame
+        ));
+
+        // AccidentVehicleSystem will handle the rest:
+        //   - Stop the vehicle when velocity drops below threshold
+        //   - Create an AccidentSite on the nearest road edge
+        //   - Roll for fire ignition based on damage
+        //   - Injure passengers
+        //   - Eventually clean up or restart the vehicle
+    }
+
+    protected override void OnUpdate()
+    {
+        // Direct manipulation logic goes here
+    }
+}
+```
+
 ## Open Questions
 
 - [ ] How does the game initially create TrafficAccident event entities? The `AccidentSiteSystem.TryFindSubject()` handles staged chain-reactions, but the initial accident event creation (from the prefab's `m_OccurenceProbability`) likely happens in a separate event scheduling system not yet traced.

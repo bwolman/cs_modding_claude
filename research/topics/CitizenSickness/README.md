@@ -475,6 +475,304 @@ public void MakeAllResidentsSick(Entity buildingEntity)
 - Death probability for building events
 - Target scope (single citizen, building occupants, building residents)
 
+## Examples
+
+### Example 1: Make a single citizen sick
+
+Create an `AddHealthProblem` event entity targeting a specific citizen. The `AddHealthProblemSystem` picks this up on the next simulation frame, adds the `HealthProblem` component, fires trigger events, and creates journal data.
+
+```csharp
+using Game.Citizens;
+using Game.Common;
+using Game.Events;
+using Unity.Entities;
+
+/// <summary>
+/// Makes a single citizen sick by creating an AddHealthProblem event entity.
+/// Call this from within a GameSystemBase (where you have access to EntityManager).
+/// </summary>
+public void MakeCitizenSick(EntityManager entityManager, Entity citizenEntity)
+{
+    // Create an event entity with the Event tag + AddHealthProblem component.
+    // The Event tag marks it for processing by AddHealthProblemSystem.
+    EntityArchetype archetype = entityManager.CreateArchetype(
+        ComponentType.ReadWrite<Event>(),
+        ComponentType.ReadWrite<AddHealthProblem>()
+    );
+
+    Entity eventEntity = entityManager.CreateEntity(archetype);
+    entityManager.SetComponentData(eventEntity, new AddHealthProblem
+    {
+        m_Event = Entity.Null,               // No parent event (standalone sickness)
+        m_Target = citizenEntity,            // The citizen to make sick
+        m_Flags = HealthProblemFlags.Sick    // Basic sickness — citizen seeks healthcare on their own
+    });
+
+    // AddHealthProblemSystem processes this next frame:
+    //   - Adds HealthProblem component to the citizen (or merges flags if already sick)
+    //   - Fires TriggerAction(TriggerType.CitizenGotSick, ...)
+    //   - Creates journal entry for statistics tracking
+}
+
+/// <summary>
+/// Makes a citizen severely sick — they collapse and need an ambulance.
+/// Use Sick | RequireTransport to trigger ambulance dispatch.
+/// </summary>
+public void MakeCitizenSeverelySick(EntityManager entityManager, Entity citizenEntity)
+{
+    EntityArchetype archetype = entityManager.CreateArchetype(
+        ComponentType.ReadWrite<Event>(),
+        ComponentType.ReadWrite<AddHealthProblem>()
+    );
+
+    Entity eventEntity = entityManager.CreateEntity(archetype);
+    entityManager.SetComponentData(eventEntity, new AddHealthProblem
+    {
+        m_Event = Entity.Null,
+        m_Target = citizenEntity,
+        m_Flags = HealthProblemFlags.Sick | HealthProblemFlags.RequireTransport
+    });
+
+    // RequireTransport causes AddHealthProblemSystem to also:
+    //   - Stop the citizen's movement (clears pathfinding via StopMoving)
+    //   - The citizen waits in place for an ambulance
+}
+```
+
+### Example 2: Make all citizens currently inside a building sick
+
+Query all citizens with `CurrentBuilding`, filter by the target building entity, and create an `AddHealthProblem` event for each match. This follows the same pattern the game uses in `FindCitizensInBuildingJob`.
+
+```csharp
+using Game.Citizens;
+using Game.Common;
+using Game.Events;
+using Unity.Collections;
+using Unity.Entities;
+
+/// <summary>
+/// A custom GameSystemBase that can make all citizens physically present
+/// in a building sick. Uses CurrentBuilding to find who is actually there
+/// right now (not just residents — also workers, visitors, etc.).
+/// </summary>
+public partial class BuildingSicknessSystem : GameSystemBase
+{
+    private EntityQuery _citizenQuery;
+    private EntityArchetype _addHealthProblemArchetype;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Query all citizens who are currently inside any building.
+        // CurrentBuilding tracks physical location — not home address.
+        _citizenQuery = GetEntityQuery(
+            ComponentType.ReadOnly<Citizen>(),
+            ComponentType.ReadOnly<CurrentBuilding>(),
+            ComponentType.Exclude<Deleted>()
+        );
+
+        // Archetype for the AddHealthProblem event entity.
+        // Event tag is required — AddHealthProblemSystem queries for it.
+        _addHealthProblemArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite<Event>(),
+            ComponentType.ReadWrite<AddHealthProblem>()
+        );
+    }
+
+    /// <summary>
+    /// Iterates all citizens with CurrentBuilding, creates AddHealthProblem
+    /// events for those inside the target building.
+    /// </summary>
+    public void MakeAllOccupantsSick(Entity buildingEntity)
+    {
+        var entityHandle = GetEntityTypeHandle();
+        var currentBuildingHandle = GetComponentTypeHandle<CurrentBuilding>(true);
+        NativeArray<ArchetypeChunk> chunks = _citizenQuery.ToArchetypeChunkArray(Allocator.Temp);
+
+        try
+        {
+            foreach (ArchetypeChunk chunk in chunks)
+            {
+                NativeArray<Entity> entities = chunk.GetNativeArray(entityHandle);
+                NativeArray<CurrentBuilding> buildings = chunk.GetNativeArray(ref currentBuildingHandle);
+
+                for (int i = 0; i < entities.Length; i++)
+                {
+                    // CurrentBuilding.m_CurrentBuilding is the building the citizen
+                    // is physically inside right now. Compare against our target.
+                    if (buildings[i].m_CurrentBuilding == buildingEntity)
+                    {
+                        Entity cmd = EntityManager.CreateEntity(_addHealthProblemArchetype);
+                        EntityManager.SetComponentData(cmd, new AddHealthProblem
+                        {
+                            m_Event = Entity.Null,
+                            m_Target = entities[i],
+                            m_Flags = HealthProblemFlags.Sick
+                        });
+                    }
+                }
+            }
+        }
+        finally
+        {
+            chunks.Dispose();
+        }
+    }
+
+    protected override void OnUpdate()
+    {
+        // Trigger MakeAllOccupantsSick from mod logic (e.g., UI button, event, etc.)
+    }
+}
+```
+
+### Example 3: Check if a citizen is sick
+
+Read the `HealthProblem` component to inspect a citizen's current health problem flags. Citizens without `HealthProblem` are healthy.
+
+```csharp
+using Game.Citizens;
+using Unity.Entities;
+
+/// <summary>
+/// Checks whether a citizen entity currently has any health problem,
+/// and inspects specific flags. Citizens without the HealthProblem
+/// component are healthy.
+/// </summary>
+public void CheckCitizenHealth(EntityManager entityManager, Entity citizenEntity)
+{
+    // HealthProblem is only present on citizens who have an active health issue.
+    // Healthy citizens do not have this component at all.
+    if (!entityManager.HasComponent<HealthProblem>(citizenEntity))
+    {
+        // Citizen is healthy — no active health problems.
+        return;
+    }
+
+    HealthProblem problem = entityManager.GetComponentData<HealthProblem>(citizenEntity);
+
+    // Check specific flags using bitwise AND.
+    // Multiple flags can be set simultaneously (e.g., Sick | RequireTransport).
+    bool isSick = (problem.m_Flags & HealthProblemFlags.Sick) != 0;
+    bool isDead = (problem.m_Flags & HealthProblemFlags.Dead) != 0;
+    bool isInjured = (problem.m_Flags & HealthProblemFlags.Injured) != 0;
+    bool needsAmbulance = (problem.m_Flags & HealthProblemFlags.RequireTransport) != 0;
+    bool isInDanger = (problem.m_Flags & HealthProblemFlags.InDanger) != 0;
+    bool isTrapped = (problem.m_Flags & HealthProblemFlags.Trapped) != 0;
+
+    // The m_Event field links to the event that caused the problem (or Entity.Null).
+    // The m_HealthcareRequest field links to the active ambulance/hearse request.
+    bool hasAmbulanceDispatched = problem.m_HealthcareRequest != Entity.Null;
+}
+
+/// <summary>
+/// Query example: find all sick citizens in a job-friendly way using EntityQuery.
+/// This queries citizens who have the HealthProblem component.
+/// </summary>
+public EntityQuery CreateSickCitizenQuery(GameSystemBase system)
+{
+    // Citizens WITH HealthProblem are sick/injured/dead/etc.
+    // Add Exclude<Deleted> to skip destroyed entities.
+    return system.GetEntityQuery(
+        ComponentType.ReadOnly<Citizen>(),
+        ComponentType.ReadOnly<HealthProblem>(),
+        ComponentType.Exclude<Deleted>()
+    );
+}
+```
+
+### Example 4: How natural sickness probability works (the wellbeing curve)
+
+The `SicknessCheckSystem` runs once per game day and checks each healthy citizen against an exponential sickness probability curve based on `Citizen.m_Health`. Lower health means dramatically higher chance of getting sick.
+
+```csharp
+using Unity.Mathematics;
+
+/// <summary>
+/// Demonstrates the exact sickness probability curve from SicknessCheckSystem.
+/// This is how the game calculates the chance of a citizen getting sick naturally.
+///
+/// The curve is exponential: healthy citizens are nearly immune, while
+/// citizens with low health get sick frequently.
+///
+/// SicknessCheckSystem runs once per game day, partitioned across 16 sub-frames
+/// (update interval = 262144 / 16 = 16384 frames). It only checks citizens
+/// who do NOT already have a HealthProblem component.
+/// </summary>
+public static class SicknessProbabilityExample
+{
+    /// <summary>
+    /// Calculates the sickness interpolation factor 't' from a citizen's health.
+    /// This is the exact formula from SicknessCheckSystem.TryAddHealthProblem().
+    ///
+    /// The 't' value is then used to interpolate between the min and max
+    /// occurrence probability defined in the HealthEventData prefab:
+    ///   finalProbability = lerp(occurenceProbability.min, occurenceProbability.max, t)
+    /// </summary>
+    /// <param name="health">Citizen.m_Health (0-255)</param>
+    /// <returns>Interpolation factor 't' in range [0, 1]</returns>
+    public static float CalculateSicknessT(byte health)
+    {
+        // From decompiled SicknessCheckSystem.TryAddHealthProblem:
+        //   float t = math.saturate(math.pow(2f, 10f - (float)(int)citizen.m_Health * 0.1f) * 0.001f);
+        float t = math.saturate(math.pow(2f, 10f - (float)(int)health * 0.1f) * 0.001f);
+        return t;
+
+        // Reference values:
+        //   health = 255  ->  t ≈ 0.000  (virtually immune)
+        //   health = 200  ->  t ≈ 0.000
+        //   health = 100  ->  t ≈ 0.001  (very low chance)
+        //   health =  50  ->  t ≈ 0.032
+        //   health =  10  ->  t ≈ 0.512
+        //   health =   0  ->  t = 1.000  (guaranteed sick)
+    }
+
+    /// <summary>
+    /// Shows the full probability calculation including HealthEventData prefab values.
+    /// The final probability is what gets rolled against random.NextFloat(100).
+    ///
+    /// For Disease-type events, the probability is further modified by the
+    /// CityModifier.DiseaseProbability city modifier (e.g., from polluted water).
+    /// </summary>
+    /// <param name="health">Citizen.m_Health (0-255)</param>
+    /// <param name="occurrenceMin">HealthEventData.m_OccurenceProbability.min</param>
+    /// <param name="occurrenceMax">HealthEventData.m_OccurenceProbability.max</param>
+    /// <returns>Probability value compared against random.NextFloat(100)</returns>
+    public static float CalculateFinalProbability(byte health, float occurrenceMin, float occurrenceMax)
+    {
+        float t = CalculateSicknessT(health);
+
+        // Interpolate between prefab-defined min/max probability
+        float probability = math.lerp(occurrenceMin, occurrenceMax, t);
+        return probability;
+
+        // The game rolls: random.NextFloat(100) < probability
+        // So if probability = 5, there's a 5% chance per check (once per game day).
+    }
+
+    /// <summary>
+    /// Shows how transport probability (needing an ambulance) is calculated.
+    /// Healthier citizens are less likely to need ambulance transport.
+    /// From SicknessCheckSystem.CreateHealthEvent().
+    /// </summary>
+    /// <param name="health">Citizen.m_Health (0-255)</param>
+    /// <param name="transportMin">HealthEventData.m_TransportProbability.min</param>
+    /// <param name="transportMax">HealthEventData.m_TransportProbability.max</param>
+    /// <returns>Transport probability compared against random.NextFloat(100)</returns>
+    public static float CalculateTransportProbability(byte health, float transportMin, float transportMax)
+    {
+        // Note: lerp goes from max to min as health increases (inverted)
+        float prob = math.lerp(transportMax, transportMin, (float)(int)health * 0.01f);
+        return prob;
+
+        // At health=0:   prob = transportMax  (most likely to need ambulance)
+        // At health=100: prob = transportMin  (least likely to need ambulance)
+        // Rolled as: random.NextFloat(100) < prob
+    }
+}
+```
+
 ## Open Questions
 
 - [x] How does natural sickness work? **Answered**: `SicknessCheckSystem` runs once/day, iterates healthy citizens, calculates sickness probability from `Citizen.m_Health` using exponential curve `pow(2, 10 - health*0.1) * 0.001`, rolls against `HealthEventData` prefab probabilities. Disease probability modified by `CityModifier.DiseaseProbability`.

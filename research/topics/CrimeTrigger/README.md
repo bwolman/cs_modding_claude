@@ -492,6 +492,288 @@ Citizens checked by `CrimeCheckSystem` must be:
 - **Not sick** (no `HealthProblem` component)
 - **Not already in an active crime** (no `Criminal` with non-null `m_Event`)
 
+## Examples
+
+### Example 1: Making a Citizen Commit a Crime via AddCriminal Event
+
+This is the recommended approach. It mirrors how the game itself triggers crimes: create a crime event entity, then create an `AddCriminal` command entity that `AddCriminalSystem` processes on the next frame.
+
+```csharp
+using Game.Citizens;
+using Game.Common;
+using Game.Events;
+using Game.Prefabs;
+using Unity.Collections;
+using Unity.Entities;
+
+/// <summary>
+/// Triggers a crime on a specific citizen using the AddCriminal event pattern.
+/// The citizen will enter Planning state, travel to a building, and attempt robbery.
+/// </summary>
+public void TriggerCrimeOnCitizen(EntityManager entityManager, Entity citizenEntity)
+{
+    // Find the crime event prefab — it has CrimeData and EventData components.
+    // There is typically one crime prefab in the game (Robbery).
+    var crimeQuery = entityManager.CreateEntityQuery(
+        ComponentType.ReadOnly<Game.Prefabs.CrimeData>(),
+        ComponentType.ReadOnly<EventData>(),
+        ComponentType.Exclude<Locked>()
+    );
+
+    using var prefabEntities = crimeQuery.ToEntityArray(Allocator.Temp);
+    if (prefabEntities.Length == 0) return;
+
+    Entity eventPrefab = prefabEntities[0];
+    EventData eventData = entityManager.GetComponentData<EventData>(eventPrefab);
+
+    // Create the crime event entity from the prefab's archetype.
+    // This gives it the Crime tag, TargetElement buffer, and other event components.
+    Entity crimeEvent = entityManager.CreateEntity(eventData.m_Archetype);
+    entityManager.SetComponentData(crimeEvent, new PrefabRef(eventPrefab));
+
+    // Add the citizen to the event's target list.
+    entityManager.GetBuffer<TargetElement>(crimeEvent).Add(new TargetElement(citizenEntity));
+
+    // Create the AddCriminal command entity.
+    // AddCriminalSystem looks for entities with both Event (tag) and AddCriminal.
+    Entity cmd = entityManager.CreateEntity(
+        ComponentType.ReadWrite<Game.Common.Event>(),
+        ComponentType.ReadWrite<AddCriminal>()
+    );
+    entityManager.SetComponentData(cmd, new AddCriminal
+    {
+        m_Event = crimeEvent,
+        m_Target = citizenEntity,
+        // Robber | Planning: citizen will seek a building to rob on the next CriminalSystem tick
+        m_Flags = CriminalFlags.Robber | CriminalFlags.Planning
+    });
+
+    // AddCriminalSystem processes this next frame:
+    //   - Adds Criminal component to citizenEntity
+    //   - Links citizen to the crime event
+    // CriminalSystem then drives the lifecycle:
+    //   Planning -> Preparing (traveling) -> At Target -> Crime or Arrest
+}
+```
+
+### Example 2: Creating a Crime Scene at a Building
+
+When a criminal arrives at a building, `CriminalSystem` creates an `AddAccidentSite` command entity to mark it as a crime scene. You can do the same thing directly to trigger a police response at any building.
+
+```csharp
+using Game.Common;
+using Game.Events;
+using Unity.Entities;
+
+/// <summary>
+/// Marks a building as an active crime scene, triggering police dispatch.
+/// Requires an existing crime event entity (see Example 1 for how to create one).
+/// </summary>
+public void CreateCrimeSceneAtBuilding(
+    EntityManager entityManager,
+    Entity buildingEntity,
+    Entity crimeEventEntity)
+{
+    // Create the AddAccidentSite command entity.
+    // AddAccidentSiteSystem looks for entities with Event (tag) + AddAccidentSite.
+    Entity cmd = entityManager.CreateEntity(
+        ComponentType.ReadWrite<Game.Common.Event>(),
+        ComponentType.ReadWrite<AddAccidentSite>()
+    );
+    entityManager.SetComponentData(cmd, new AddAccidentSite
+    {
+        m_Event = crimeEventEntity,
+        m_Target = buildingEntity,
+        // CrimeScene flag identifies this as a crime (not a traffic accident).
+        // AddAccidentSiteSystem will add an AccidentSite component to the building
+        // and reset CrimeProducer.m_Crime to 0.
+        m_Flags = AccidentSiteFlags.CrimeScene
+    });
+
+    // After processing, the building will have an AccidentSite component with:
+    //   m_Event = crimeEventEntity
+    //   m_Flags = CrimeScene
+    //   m_CreationFrame = current frame
+    //
+    // CriminalSystem checks AccidentSite state to determine outcomes:
+    //   - CrimeScene + Secured: criminal gets arrested
+    //   - CrimeScene + not Secured: criminal commits the robbery and tries to escape
+}
+```
+
+### Example 3: Checking a Citizen's Criminal State
+
+The `Criminal` component uses a flags-based state machine. Checking which flags are set tells you exactly where the citizen is in the criminal lifecycle.
+
+```csharp
+using Game.Citizens;
+using Unity.Entities;
+
+/// <summary>
+/// Reads a citizen's criminal state and returns a human-readable description.
+/// </summary>
+public string GetCriminalStatus(EntityManager entityManager, Entity citizenEntity)
+{
+    // Citizens without the Criminal component are not criminals.
+    if (!entityManager.HasComponent<Criminal>(citizenEntity))
+    {
+        return "Not a criminal";
+    }
+
+    Criminal criminal = entityManager.GetComponentData<Criminal>(citizenEntity);
+    CriminalFlags flags = criminal.m_Flags;
+
+    // Flags == 0 means the citizen is about to be released
+    // (Criminal component will be removed next CriminalSystem tick).
+    if (flags == 0)
+    {
+        return "Released (Criminal component pending removal)";
+    }
+
+    // Check states in priority order (matches CriminalSystem's dispatch logic).
+
+    if ((flags & CriminalFlags.Prisoner) != 0)
+    {
+        // Serving prison sentence. m_JailTime counts down each tick.
+        return $"In prison, {criminal.m_JailTime} ticks remaining";
+    }
+
+    if ((flags & CriminalFlags.Arrested) != 0 && (flags & CriminalFlags.Sentenced) != 0)
+    {
+        // Sentenced and waiting for prisoner transport vehicle.
+        return "Sentenced, awaiting prison transport";
+    }
+
+    if ((flags & CriminalFlags.Arrested) != 0)
+    {
+        // In police station, jail time counting down.
+        // When jail time expires, CriminalSystem rolls PrisonProbability (default 50%).
+        return $"Arrested, in jail for {criminal.m_JailTime} more ticks";
+    }
+
+    if ((flags & CriminalFlags.Planning) != 0)
+    {
+        // Just became a criminal. CriminalSystem will add TripNeeded(Purpose.Crime)
+        // on the next tick and transition to Preparing.
+        return "Planning crime (will start traveling next tick)";
+    }
+
+    if ((flags & CriminalFlags.Preparing) != 0)
+    {
+        // Traveling to the crime target building.
+        return "Traveling to crime target";
+    }
+
+    if ((flags & CriminalFlags.Robber) != 0)
+    {
+        // At the target building. CriminalSystem will check for AccidentSite
+        // to determine if police have secured the scene or if the crime proceeds.
+        bool isMonitored = (flags & CriminalFlags.Monitored) != 0;
+        return $"At crime target, committing robbery{(isMonitored ? " (monitored by police)" : "")}";
+    }
+
+    return $"Unknown state: flags={flags}";
+}
+
+/// <summary>
+/// Quick check: is this citizen currently an active criminal (not in prison/jail)?
+/// </summary>
+public bool IsActiveCriminal(EntityManager entityManager, Entity citizenEntity)
+{
+    if (!entityManager.HasComponent<Criminal>(citizenEntity))
+        return false;
+
+    Criminal criminal = entityManager.GetComponentData<Criminal>(citizenEntity);
+    // Active criminals have Robber flag but are not Arrested or in Prison.
+    return (criminal.m_Flags & CriminalFlags.Robber) != 0
+        && (criminal.m_Flags & CriminalFlags.Arrested) == 0
+        && (criminal.m_Flags & CriminalFlags.Prisoner) == 0;
+}
+```
+
+### Example 4: Calculating Crime Probability from Wellbeing
+
+The game uses a specific curve to convert a citizen's wellbeing (0-100) into a crime probability factor. This is the exact formula from `CrimeCheckSystem.CrimeCheckJob.TryAddCrime`.
+
+```csharp
+using Game.Citizens;
+using Game.Prefabs;
+using Unity.Mathematics;
+
+/// <summary>
+/// Calculates the crime probability factor for a citizen based on their wellbeing.
+/// Returns a value where higher = more likely to commit crime.
+/// This replicates the formula from CrimeCheckSystem.CrimeCheckJob.TryAddCrime.
+/// </summary>
+public float CalculateCrimeProbabilityFactor(byte wellBeing)
+{
+    float t;
+    if (wellBeing <= 25)
+    {
+        // Low wellbeing (0-25): linear mapping.
+        // wellBeing 0  -> t = 0.0 (maximum crime probability)
+        // wellBeing 25 -> t = 1.0 (minimum crime probability in this range)
+        t = (float)wellBeing / 25f;
+    }
+    else
+    {
+        // Higher wellbeing (26-100): quadratic falloff.
+        // wellBeing 26  -> t ~ 0.987^2 ~ 0.974 (still high probability)
+        // wellBeing 50  -> t ~ 0.667^2 ~ 0.444
+        // wellBeing 75  -> t ~ 0.333^2 ~ 0.111
+        // wellBeing 100 -> t = 0.0 (no crime)
+        t = (float)(100 - wellBeing) / 75f;
+        t *= t; // Quadratic: probability drops sharply as wellbeing increases
+    }
+    return t;
+}
+
+/// <summary>
+/// Determines the actual crime probability for a citizen, accounting for
+/// population scaling and occurrence/recurrence rates from CrimeData.
+/// </summary>
+public float GetEffectiveCrimeProbability(
+    byte wellBeing,
+    bool isRepeatOffender,
+    int cityPopulation,
+    CrimeData crimeData,
+    PoliceConfigurationData policeConfig)
+{
+    float t = CalculateCrimeProbabilityFactor(wellBeing);
+
+    // Select probability range based on whether this is a first-time or repeat offender.
+    // First-time: m_OccurenceProbability (default 0-50)
+    // Repeat:     m_RecurrenceProbability (default 0-100)
+    float probability;
+    if (isRepeatOffender)
+    {
+        probability = math.lerp(
+            crimeData.m_RecurrenceProbability.min,
+            crimeData.m_RecurrenceProbability.max,
+            t);
+    }
+    else
+    {
+        probability = math.lerp(
+            crimeData.m_OccurenceProbability.min,
+            crimeData.m_OccurenceProbability.max,
+            t);
+    }
+
+    // Population scaling: larger cities have a wider random range,
+    // making individual crimes less likely (but total crime scales with population).
+    // randomRange = max(population / 2000 * 100, 100)
+    // The game rolls random.NextFloat(randomRange) < probability.
+    float randomRange = math.max(
+        (float)cityPopulation / policeConfig.m_CrimePopulationReduction * 100f,
+        100f);
+
+    // Return probability as a percentage of the random range.
+    // This is the chance that random.NextFloat(randomRange) < probability.
+    return probability / randomRange;
+}
+```
+
 ## Open Questions
 
 - [x] How does the game decide which citizens become criminals? → Based on `m_WellBeing`, unemployment, and population-scaled probability

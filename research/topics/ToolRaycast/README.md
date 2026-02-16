@@ -565,6 +565,350 @@ public class MyRaycastSystem : GameSystemBase
 }
 ```
 
+## Examples
+
+### Example 1: Custom tool that raycasts buildings and vehicles only
+
+This shows how to create a custom `ToolBaseSystem` subclass that configures its own raycast to only hit static objects (buildings) and moving objects (vehicles/citizens). The `InitializeRaycast` override is called every frame by `ToolRaycastSystem.OnUpdate()` before the ray is cast.
+
+```csharp
+using Game.Common;
+using Game.Tools;
+using Unity.Entities;
+using Unity.Jobs;
+using UnityEngine.Scripting;
+
+public class MyEntityInspectorTool : ToolBaseSystem
+{
+    private Entity _lastHitEntity;
+
+    public override string toolID => "My Entity Inspector";
+
+    public override PrefabBase GetPrefab() => null;
+    public override bool TrySetPrefab(PrefabBase prefab) => false;
+
+    /// <summary>
+    /// Called every frame by ToolRaycastSystem before the raycast executes.
+    /// The base class resets all masks to None/defaults. We then configure
+    /// exactly what entity types our tool should be able to hit.
+    /// </summary>
+    public override void InitializeRaycast()
+    {
+        // Always call base first — it resets typeMask to None, collisionMask
+        // to OnGround | Overground, and clears all layer/flag masks.
+        base.InitializeRaycast();
+
+        // Set which entity categories the ray should test against.
+        // StaticObjects = buildings, props, trees.
+        // MovingObjects = vehicles, citizens, animals.
+        m_ToolRaycastSystem.typeMask = TypeMask.StaticObjects | TypeMask.MovingObjects;
+
+        // Only hit ground-level and above-ground entities (skip underground).
+        m_ToolRaycastSystem.collisionMask = CollisionMask.OnGround | CollisionMask.Overground;
+
+        // Include outside connections (e.g., highway entry/exit buildings).
+        m_ToolRaycastSystem.raycastFlags |= RaycastFlags.OutsideConnections;
+    }
+
+    [Preserve]
+    protected override JobHandle OnUpdate(JobHandle inputDeps)
+    {
+        // GetRaycastResult is a convenience method from ToolBaseSystem.
+        // It calls ToolRaycastSystem.GetRaycastResult(), filters out Deleted
+        // entities, and returns the hit entity + hit details.
+        if (GetRaycastResult(out Entity entity, out RaycastHit hit))
+        {
+            if (entity != _lastHitEntity)
+            {
+                _lastHitEntity = entity;
+                Mod.Log.Info($"Hovering entity {entity.Index}:{entity.Version} " +
+                             $"at position ({hit.m_HitPosition.x:F1}, {hit.m_HitPosition.y:F1}, {hit.m_HitPosition.z:F1})");
+            }
+        }
+        else
+        {
+            _lastHitEntity = Entity.Null;
+        }
+
+        return inputDeps;
+    }
+}
+```
+
+### Example 2: Activating a custom tool
+
+Tools are activated by setting `ToolSystem.activeTool`. The default tool (`DefaultToolSystem`) is always the fallback when no other tool is active.
+
+```csharp
+using Game.Tools;
+using Unity.Entities;
+
+public class MyToolActivator : GameSystemBase
+{
+    private ToolSystem _toolSystem;
+    private MyEntityInspectorTool _inspectorTool;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+        _inspectorTool = World.GetOrCreateSystemManaged<MyEntityInspectorTool>();
+    }
+
+    protected override void OnUpdate()
+    {
+        // Activate the custom tool (e.g., triggered by a keybind).
+        // ToolSystem fires EventToolChanged when the active tool changes.
+        // While active, ToolRaycastSystem will call our tool's InitializeRaycast()
+        // each frame to configure the ray before casting.
+        _toolSystem.activeTool = _inspectorTool;
+
+        // To deactivate and return to the default pointer tool:
+        // _toolSystem.activeTool = World.GetOrCreateSystemManaged<DefaultToolSystem>();
+    }
+}
+```
+
+### Example 3: Harmony patch to modify DefaultToolSystem raycast configuration
+
+Instead of creating a custom tool, you can patch the default tool's `InitializeRaycast` to change what entities are hoverable with the normal pointer. This postfix runs after `DefaultToolSystem` has set its masks, so you can add or remove flags.
+
+```csharp
+using Game.Common;
+using Game.Tools;
+using HarmonyLib;
+
+[HarmonyPatch(typeof(Game.Tools.DefaultToolSystem), "InitializeRaycast")]
+public static class DefaultToolRaycastPatch
+{
+    /// <summary>
+    /// Postfix runs after DefaultToolSystem.InitializeRaycast() has set up
+    /// its raycast configuration on m_ToolRaycastSystem. We can read or
+    /// modify the masks before the ray is actually cast.
+    /// </summary>
+    public static void Postfix(DefaultToolSystem __instance)
+    {
+        // Access the protected m_ToolRaycastSystem field via Harmony's Traverse.
+        var trs = Traverse.Create(__instance)
+            .Field("m_ToolRaycastSystem")
+            .GetValue<ToolRaycastSystem>();
+
+        // Example: Add network (road) raycasting to the default pointer tool.
+        // Normally the default tool only hits StaticObjects | MovingObjects | Labels | Icons.
+        trs.typeMask |= TypeMask.Net;
+        trs.netLayerMask = Game.Net.Layer.Road | Game.Net.Layer.TrainTrack;
+
+        // Example: Also allow selecting underground entities.
+        trs.collisionMask |= CollisionMask.Underground;
+    }
+}
+```
+
+### Example 4: Reading ControlPoint from a raycast hit
+
+`ControlPoint` is a tool-level wrapper around `RaycastHit` that adds snap information. Tools use the `GetRaycastResult(out ControlPoint)` overload when they need positional data for placement or preview.
+
+```csharp
+using Game.Tools;
+using Unity.Entities;
+using Unity.Jobs;
+using UnityEngine.Scripting;
+
+public class MyPositionTool : ToolBaseSystem
+{
+    public override string toolID => "My Position Tool";
+    public override PrefabBase GetPrefab() => null;
+    public override bool TrySetPrefab(PrefabBase prefab) => false;
+
+    public override void InitializeRaycast()
+    {
+        base.InitializeRaycast();
+        // Hit terrain and static objects so we get a ground position
+        // even when not hovering a building.
+        m_ToolRaycastSystem.typeMask =
+            Game.Common.TypeMask.Terrain | Game.Common.TypeMask.StaticObjects;
+    }
+
+    [Preserve]
+    protected override JobHandle OnUpdate(JobHandle inputDeps)
+    {
+        // GetRaycastResult with ControlPoint wraps the RaycastHit into
+        // a ControlPoint struct via: new ControlPoint(entity, hit).
+        if (GetRaycastResult(out ControlPoint controlPoint))
+        {
+            // controlPoint.m_OriginalEntity — the entity the ray hit
+            // controlPoint.m_Position       — logical/snapped position (from RaycastHit.m_Position)
+            // controlPoint.m_HitPosition    — exact world-space intersection point
+            // controlPoint.m_HitDirection   — surface normal at hit point
+            // controlPoint.m_CurvePosition  — position along curve (for net edges)
+            Mod.Log.Info($"Hit at ({controlPoint.m_HitPosition.x:F1}, " +
+                         $"{controlPoint.m_HitPosition.y:F1}, " +
+                         $"{controlPoint.m_HitPosition.z:F1}), " +
+                         $"entity: {controlPoint.m_OriginalEntity.Index}");
+        }
+
+        return inputDeps;
+    }
+}
+```
+
+### Example 5: Programmatic raycast independent of the tool system
+
+You can submit raycasts directly to `RaycastSystem` without going through the tool pipeline. This is useful for mod logic that needs to query the world from code (e.g., on a hotkey press) without changing the active tool. Note that results are available the frame *after* submission.
+
+```csharp
+using Game.Common;
+using Game.Rendering;
+using Game.Tools;
+using Unity.Collections;
+using Unity.Entities;
+using Unity.Mathematics;
+using UnityEngine.Scripting;
+
+public class MyDirectRaycastSystem : GameSystemBase
+{
+    private RaycastSystem _raycastSystem;
+    private CameraUpdateSystem _cameraUpdateSystem;
+    private bool _pendingResult;
+
+    [Preserve]
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _raycastSystem = World.GetOrCreateSystemManaged<RaycastSystem>();
+        _cameraUpdateSystem = World.GetOrCreateSystemManaged<CameraUpdateSystem>();
+    }
+
+    [Preserve]
+    protected override void OnUpdate()
+    {
+        // Check results from the previous frame's raycast.
+        if (_pendingResult)
+        {
+            // GetResult returns results keyed by the context object (this system).
+            NativeArray<RaycastResult> results = _raycastSystem.GetResult(this);
+            if (results.Length > 0 && results[0].m_Owner != Entity.Null)
+            {
+                RaycastResult result = results[0];
+                Entity hitEntity = result.m_Hit.m_HitEntity;
+                float3 hitPos = result.m_Hit.m_HitPosition;
+                float3 hitNormal = result.m_Hit.m_HitDirection;
+                float distance = result.m_Hit.m_NormalizedDistance;
+
+                Mod.Log.Info($"Direct raycast hit entity {hitEntity.Index} " +
+                             $"at ({hitPos.x:F1}, {hitPos.y:F1}, {hitPos.z:F1}), " +
+                             $"distance={distance:F3}");
+            }
+            _pendingResult = false;
+        }
+
+        // Submit a new raycast when triggered (e.g., by a hotkey).
+        if (ShouldCastRay() && _cameraUpdateSystem.TryGetViewer(out var viewer))
+        {
+            // CalculateRaycastLine converts the current mouse screen position
+            // into a world-space line segment from camera origin to far clip.
+            RaycastInput input = new RaycastInput
+            {
+                m_Line = ToolRaycastSystem.CalculateRaycastLine(viewer.camera),
+                m_TypeMask = TypeMask.StaticObjects | TypeMask.MovingObjects | TypeMask.Net,
+                m_CollisionMask = CollisionMask.OnGround | CollisionMask.Overground,
+                m_NetLayerMask = Game.Net.Layer.Road,
+                // Other masks default to None/zero, meaning no filtering.
+            };
+
+            // AddInput registers the raycast. RaycastSystem processes it during
+            // the Raycast update phase. Results are retrieved via GetResult(this)
+            // on the next frame.
+            _raycastSystem.AddInput(this, input);
+            _pendingResult = true;
+        }
+    }
+
+    private bool ShouldCastRay()
+    {
+        // Replace with your trigger logic (keybind, timer, etc.)
+        return false;
+    }
+}
+```
+
+### Example 6: Reacting to entity selection via Harmony patch
+
+If your mod just needs to know when the player selects an entity (without changing what is selectable), you can patch `ToolSystem.selected`'s setter. This fires for all tools, not just `DefaultToolSystem`.
+
+```csharp
+using Game.Tools;
+using HarmonyLib;
+using Unity.Entities;
+
+[HarmonyPatch(typeof(Game.Tools.ToolSystem), "selected", MethodType.Setter)]
+public static class SelectionChangedPatch
+{
+    /// <summary>
+    /// Fires every time any tool sets ToolSystem.selected, including when
+    /// clearing the selection (value == Entity.Null).
+    /// </summary>
+    public static void Postfix(Entity value)
+    {
+        if (value != Entity.Null)
+        {
+            Mod.Log.Info($"Player selected entity: {value.Index}:{value.Version}");
+            // Read components from the entity via EntityManager to
+            // determine its type and show custom UI, log info, etc.
+        }
+        else
+        {
+            Mod.Log.Info("Selection cleared");
+        }
+    }
+}
+```
+
+### Example 7: Polling ToolSystem.selected without patching
+
+The simplest approach requires no Harmony patches at all. Create a system that polls `ToolSystem.selected` each frame and reacts when it changes.
+
+```csharp
+using Game.Tools;
+using Unity.Entities;
+using UnityEngine.Scripting;
+
+public class SelectionPollingSystem : GameSystemBase
+{
+    private ToolSystem _toolSystem;
+    private Entity _lastSelected;
+
+    [Preserve]
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+    }
+
+    [Preserve]
+    protected override void OnUpdate()
+    {
+        Entity current = _toolSystem.selected;
+        if (current != _lastSelected)
+        {
+            _lastSelected = current;
+            if (current != Entity.Null)
+            {
+                // New entity selected. Query its components to determine type:
+                // - EntityManager.HasComponent<Game.Buildings.Building>(current) → building
+                // - EntityManager.HasComponent<Game.Vehicles.Vehicle>(current) → vehicle
+                // - EntityManager.HasComponent<Game.Citizens.Citizen>(current) → citizen
+                Mod.Log.Info($"Selection changed to {current.Index}:{current.Version}");
+            }
+            else
+            {
+                Mod.Log.Info("Selection cleared");
+            }
+        }
+    }
+}
+```
+
 ## Open Questions
 
 - [x] How does DefaultToolSystem configure the raycast? — Documented in InitializeRaycast override

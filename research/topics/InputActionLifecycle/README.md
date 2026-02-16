@@ -257,6 +257,275 @@ public partial class MyHotkeySystem : GameSystemBase
 - Accept that the key will be blocked during loading screens, splash screens, platform overlays, and text field focus — these are correct behaviors
 - The key **is not** blocked by tool context changes, camera mode, or photo mode
 
+## Examples
+
+### Example 1: Basic Mod Hotkey System
+
+A minimal ECS system that listens for a mod-registered keybinding during gameplay. The critical step is setting `shouldBeEnabled = true` -- without it, the `ProxyAction` has no `InputActivator` and `WasPressedThisFrame()` will always return `false`.
+
+```csharp
+using Game;
+using Game.Input;
+
+/// <summary>
+/// Listens for the mod's configured hotkey and toggles a panel.
+/// The action is registered via ModSettings and found by ID at creation time.
+/// </summary>
+public partial class TogglePanelSystem : GameSystemBase
+{
+    private ProxyAction _toggleAction;
+    private bool _panelVisible;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Look up the action registered by ModSettings.RegisterKeyBindings().
+        // The first argument is your mod's settings ID, the second is the action name
+        // you defined in your ModSettings class.
+        _toggleAction = InputManager.instance.FindAction(
+            Mod.Settings.id, "TogglePanel");
+
+        // REQUIRED: RegisterKeyBindings() does NOT enable the action.
+        // Without this line, m_Activators is empty and the action never fires.
+        _toggleAction.shouldBeEnabled = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        // WasPressedThisFrame() silently returns false when the action is
+        // disabled (text field focus, loading screen, overlay, etc.).
+        // No need to guard against those cases manually.
+        if (_toggleAction.WasPressedThisFrame())
+        {
+            _panelVisible = !_panelVisible;
+            Mod.Log.Info($"Panel toggled: {_panelVisible}");
+        }
+    }
+
+    protected override void OnDestroy()
+    {
+        // Disable the action when the system is destroyed.
+        _toggleAction.shouldBeEnabled = false;
+        base.OnDestroy();
+    }
+}
+```
+
+### Example 2: Multiple Keybindings in One System
+
+When a mod has several hotkeys, each `ProxyAction` must be independently looked up and enabled. All mod actions share the same priority bucket (lowest) in `InputConflictResolution`, so they do not conflict with each other -- only with system and UI actions.
+
+```csharp
+using Game;
+using Game.Input;
+
+/// <summary>
+/// Manages multiple hotkeys for a statistics overlay mod.
+/// Each action is resolved independently by InputConflictResolution.
+/// </summary>
+public partial class StatsOverlaySystem : GameSystemBase
+{
+    private ProxyAction _toggleOverlay;
+    private ProxyAction _cycleMode;
+    private ProxyAction _resetCounters;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        string settingsId = Mod.Settings.id;
+
+        // Find each action by name (must match names in ModSettings)
+        _toggleOverlay = InputManager.instance.FindAction(settingsId, "ToggleOverlay");
+        _cycleMode     = InputManager.instance.FindAction(settingsId, "CycleMode");
+        _resetCounters = InputManager.instance.FindAction(settingsId, "ResetCounters");
+
+        // Enable all three -- each gets its own InputActivator
+        _toggleOverlay.shouldBeEnabled = true;
+        _cycleMode.shouldBeEnabled     = true;
+        _resetCounters.shouldBeEnabled = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_toggleOverlay.WasPressedThisFrame())
+            ToggleOverlayVisibility();
+
+        if (_cycleMode.WasPressedThisFrame())
+            CycleDisplayMode();
+
+        if (_resetCounters.WasPressedThisFrame())
+            ResetAllCounters();
+    }
+
+    protected override void OnDestroy()
+    {
+        _toggleOverlay.shouldBeEnabled = false;
+        _cycleMode.shouldBeEnabled     = false;
+        _resetCounters.shouldBeEnabled = false;
+        base.OnDestroy();
+    }
+
+    private void ToggleOverlayVisibility() { /* ... */ }
+    private void CycleDisplayMode() { /* ... */ }
+    private void ResetAllCounters() { /* ... */ }
+}
+```
+
+### Example 3: Detecting Why a Hotkey Is Not Firing
+
+Because the game silently disables mod actions in several contexts, debugging can be difficult. This example shows how to log the state of the input pipeline to diagnose issues.
+
+```csharp
+using Game;
+using Game.Input;
+
+/// <summary>
+/// Diagnostic system that logs the input pipeline state every frame
+/// when a hotkey appears to be non-functional. Enable temporarily
+/// to trace which mechanism is blocking your action.
+/// </summary>
+public partial class InputDebugSystem : GameSystemBase
+{
+    private ProxyAction _action;
+    private int _logCooldown;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _action = InputManager.instance.FindAction(Mod.Settings.id, "DebugAction");
+        _action.shouldBeEnabled = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        // Throttle logging to once per second (~60 frames)
+        if (++_logCooldown < 60) return;
+        _logCooldown = 0;
+
+        // Check each layer of the input pipeline:
+
+        // 1. Global mask — is keyboard input allowed right now?
+        //    If hasInputFieldFocus is true, keyboard mask is stripped.
+        bool textFieldFocused = InputManager.instance.hasInputFieldFocus;
+
+        // 2. Action-level state — is the action's preResolvedEnable true?
+        //    This reflects map enabled state + activator state.
+        bool preResolved = _action.preResolvedEnable;
+
+        // 3. Final enabled state — after conflict resolution
+        bool enabled = _action.enabled;
+
+        Mod.Log.Info(
+            $"[InputDebug] textFieldFocus={textFieldFocused} " +
+            $"preResolvedEnable={preResolved} " +
+            $"enabled={enabled}");
+
+        // Interpretation:
+        // - textFieldFocus=true → keyboard is globally masked, action won't fire
+        // - preResolved=false → map is disabled (barrier) or no activator (forgot shouldBeEnabled)
+        // - preResolved=true but enabled=false → InputConflictResolution blocked it (key conflict)
+        // - All true but still no press → check if the binding itself is correct
+    }
+}
+```
+
+### Example 4: Understanding the Conflict Resolution Priority
+
+This example illustrates how `InputConflictResolution` resolves binding conflicts across the three priority tiers: system (highest), UI (middle), and mod (lowest). If your mod keybinding shares a key with a system action, the mod action will be silently disabled.
+
+```csharp
+// The game classifies actions into three priority buckets every frame:
+//
+//   System actions (highest): Camera, Tool, Editor maps
+//     e.g., camera pan, tool apply, editor shortcuts
+//
+//   UI actions (middle): menu navigation, dialog controls
+//     e.g., Escape to close menus, Tab to cycle fields
+//
+//   Mod actions (lowest): all actions from mod settings
+//     e.g., your custom hotkeys
+//
+// Resolution runs in this order each frame:
+//   1. System vs UI   → conflicting UI action gets m_HasConflict = true
+//   2. System vs Mod  → conflicting mod action gets m_HasConflict = true
+//   3. UI vs Mod      → conflicting mod action gets m_HasConflict = true
+//
+// A mod action with m_HasConflict = true is disabled via ApplyState(),
+// and WasPressedThisFrame() returns false with no error or warning.
+//
+// PRACTICAL ADVICE:
+// - Avoid binding to keys used by Camera controls (WASD, middle mouse, etc.)
+// - Avoid binding to keys used by Tool actions (left click, right click, etc.)
+// - Use modifier combinations (Ctrl+Shift+X) to minimize conflicts
+// - The conflict only matters when the system action is ENABLED —
+//   e.g., if a tool-map action is blocked by ToolSystem's barrier,
+//   it won't conflict with your mod action for that frame.
+```
+
+### Example 5: Scoped Input Blocking with InputBarrier
+
+If your mod needs to temporarily block all input (for example, while showing a full-screen dialog), you can use `InputBarrier` via `CreateOverlayBarrier`. The barrier is `IDisposable` and blocks all maps except Engagement and Splash screen.
+
+```csharp
+using Game;
+using Game.Input;
+using System;
+
+/// <summary>
+/// Demonstrates scoped input blocking using InputBarrier.
+/// While a full-screen mod dialog is open, all other input is blocked.
+/// </summary>
+public partial class FullScreenDialogSystem : GameSystemBase
+{
+    private InputBarrier _dialogBarrier;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+    }
+
+    /// <summary>
+    /// Call when opening a full-screen dialog that should capture all input.
+    /// Creates an overlay barrier that blocks all maps (including other mod maps).
+    /// </summary>
+    public void OpenDialog()
+    {
+        // CreateOverlayBarrier returns a barrier with blocked = true.
+        // This blocks ALL maps except "Engagement" and "Splash screen".
+        // The barrier is added to each map's m_Barriers list, and
+        // ProxyActionMap.UpdateState() disables the map when any barrier is blocked.
+        _dialogBarrier = InputManager.instance.CreateOverlayBarrier("MyModDialog");
+
+        Mod.Log.Info("Dialog opened — all input blocked");
+    }
+
+    /// <summary>
+    /// Call when closing the dialog. Disposing the barrier removes it
+    /// from all maps, allowing them to re-enable.
+    /// </summary>
+    public void CloseDialog()
+    {
+        // Dispose removes the barrier from all maps and triggers UpdateState(),
+        // which re-enables each map if no other barriers are blocking it.
+        _dialogBarrier?.Dispose();
+        _dialogBarrier = null;
+
+        Mod.Log.Info("Dialog closed — input restored");
+    }
+
+    protected override void OnDestroy()
+    {
+        // Always clean up barriers to avoid permanently blocking input
+        _dialogBarrier?.Dispose();
+        base.OnDestroy();
+    }
+
+    protected override void OnUpdate() { }
+}
+```
+
 ## Open Questions
 
 - [x] Does the game disable mod ProxyActions? — Yes, silently, in 6 contexts

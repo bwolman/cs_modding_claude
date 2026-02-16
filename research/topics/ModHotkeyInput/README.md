@@ -522,6 +522,340 @@ _triggerAction.onInteraction += (action, phase) =>
 - **Activators**: Use `action.CreateActivator()` to enable/disable per device type
 - **`shouldBeEnabled`**: Must be set to `true` for non-built-in actions to receive input (but this is handled automatically by the framework for mod actions)
 
+## Examples
+
+### Example 1: Minimal Single-Hotkey Mod
+
+A complete minimal setup for a mod with one rebindable hotkey (Ctrl+H) that toggles a boolean flag.
+
+```csharp
+// === Settings class ===
+using Colossal.IO.AssetDatabase;
+using Game.Input;
+using Game.Modding;
+using Game.Settings;
+
+[FileLocation(nameof(ToggleOverlayMod))]
+[SettingsUIKeyboardAction("ToggleOverlay", ActionType.Button)]
+public class ToggleOverlaySettings : ModSetting
+{
+    public ToggleOverlaySettings(IMod mod) : base(mod) { }
+
+    // Default binding: Ctrl+H
+    // The actionName "ToggleOverlay" links this property to the class-level attribute above.
+    [SettingsUIKeyboardBinding(BindingKeyboard.H, "ToggleOverlay", ctrl: true)]
+    public ProxyBinding ToggleOverlayBinding { get; set; }
+
+    public override void SetDefaults() { }
+}
+```
+
+```csharp
+// === Mod entry point ===
+using Colossal.IO.AssetDatabase;
+using Game.Modding;
+
+public class ToggleOverlayMod : IMod
+{
+    internal static ToggleOverlaySettings Settings { get; private set; }
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        Settings = new ToggleOverlaySettings(this);
+
+        // Order matters: register UI first, load saved rebindings, then register with InputManager
+        Settings.RegisterInOptionsUI();
+        AssetDatabase.global.LoadSettings(nameof(ToggleOverlayMod), Settings, new ToggleOverlaySettings(this));
+        Settings.RegisterKeyBindings();
+
+        updateSystem.UpdateAt<ToggleOverlaySystem>(SystemUpdatePhase.MainLoop);
+    }
+
+    public void OnDispose() { }
+}
+```
+
+```csharp
+// === ECS System that reads the hotkey ===
+using Game.Input;
+using Unity.Entities;
+
+public partial class ToggleOverlaySystem : GameSystemBase
+{
+    private ProxyAction _toggleAction;
+    private bool _overlayVisible;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        // Look up the action using the settings ID as the map name
+        _toggleAction = InputManager.instance.FindAction(
+            ToggleOverlayMod.Settings.id, "ToggleOverlay");
+    }
+
+    protected override void OnUpdate()
+    {
+        // WasPressedThisFrame() returns true only on the frame the key goes down
+        if (_toggleAction != null && _toggleAction.WasPressedThisFrame())
+        {
+            _overlayVisible = !_overlayVisible;
+            Log.Info($"Overlay toggled: {_overlayVisible}");
+        }
+    }
+}
+```
+
+### Example 2: Multiple Actions with Different Modifiers
+
+Demonstrates registering several hotkeys on one settings class. Each `[SettingsUIKeyboardAction]` declares an action, and each `ProxyBinding` property links to its action via the `actionName` parameter.
+
+```csharp
+using Colossal.IO.AssetDatabase;
+using Game.Input;
+using Game.Modding;
+using Game.Settings;
+
+[FileLocation(nameof(ZoneToolMod))]
+[SettingsUIKeyboardAction("CycleZoneUp", ActionType.Button)]
+[SettingsUIKeyboardAction("CycleZoneDown", ActionType.Button)]
+[SettingsUIKeyboardAction("ResetZone", ActionType.Button)]
+public class ZoneToolSettings : ModSetting
+{
+    public ZoneToolSettings(IMod mod) : base(mod) { }
+
+    // PageUp with no modifiers
+    [SettingsUIKeyboardBinding(BindingKeyboard.PageUp, "CycleZoneUp")]
+    public ProxyBinding CycleZoneUpBinding { get; set; }
+
+    // PageDown with no modifiers
+    [SettingsUIKeyboardBinding(BindingKeyboard.PageDown, "CycleZoneDown")]
+    public ProxyBinding CycleZoneDownBinding { get; set; }
+
+    // Ctrl+Shift+R
+    [SettingsUIKeyboardBinding(BindingKeyboard.R, "ResetZone", ctrl: true, shift: true)]
+    public ProxyBinding ResetZoneBinding { get; set; }
+
+    public override void SetDefaults() { }
+}
+```
+
+```csharp
+// Reading multiple actions in a system
+public partial class ZoneToolHotkeySystem : GameSystemBase
+{
+    private ProxyAction _cycleUp;
+    private ProxyAction _cycleDown;
+    private ProxyAction _reset;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        string mapName = ZoneToolMod.Settings.id;
+        _cycleUp = InputManager.instance.FindAction(mapName, "CycleZoneUp");
+        _cycleDown = InputManager.instance.FindAction(mapName, "CycleZoneDown");
+        _reset = InputManager.instance.FindAction(mapName, "ResetZone");
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_cycleUp.WasPressedThisFrame())
+        {
+            // Cycle to next zone type
+        }
+        else if (_cycleDown.WasPressedThisFrame())
+        {
+            // Cycle to previous zone type
+        }
+
+        if (_reset.WasPressedThisFrame())
+        {
+            // Reset to default zone
+        }
+    }
+}
+```
+
+### Example 3: Hold-to-Activate with IsPressed()
+
+Use `IsPressed()` for actions that should fire continuously while a key is held, rather than once on key-down.
+
+```csharp
+[FileLocation(nameof(SpeedBoostMod))]
+[SettingsUIKeyboardAction("SpeedBoost", ActionType.Button)]
+public class SpeedBoostSettings : ModSetting
+{
+    public SpeedBoostSettings(IMod mod) : base(mod) { }
+
+    [SettingsUIKeyboardBinding(BindingKeyboard.Tab, "SpeedBoost", shift: true)]
+    public ProxyBinding SpeedBoostBinding { get; set; }
+
+    public override void SetDefaults() { }
+}
+```
+
+```csharp
+public partial class SpeedBoostSystem : GameSystemBase
+{
+    private ProxyAction _boostAction;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _boostAction = InputManager.instance.FindAction(
+            SpeedBoostMod.Settings.id, "SpeedBoost");
+    }
+
+    protected override void OnUpdate()
+    {
+        // IsPressed() is true every frame while the key is held down
+        if (_boostAction.IsPressed())
+        {
+            // Apply speed multiplier while held
+        }
+
+        // WasReleasedThisFrame() fires once when the key is let go
+        if (_boostAction.WasReleasedThisFrame())
+        {
+            // Revert to normal speed
+        }
+    }
+}
+```
+
+### Example 4: Event-Driven Input with onInteraction
+
+Instead of polling in `OnUpdate()`, subscribe to the `onInteraction` event. Useful when you want to react to input outside of the ECS update loop, or when you need to distinguish between Started, Performed, and Canceled phases.
+
+```csharp
+using Game.Input;
+using UnityEngine.InputSystem;
+
+public partial class EventDrivenHotkeySystem : GameSystemBase
+{
+    private ProxyAction _action;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _action = InputManager.instance.FindAction(
+            MyMod.Settings.id, "TriggerAction");
+
+        // Subscribe to interaction events
+        _action.onInteraction += OnHotkeyInteraction;
+    }
+
+    private void OnHotkeyInteraction(ProxyAction action, InputActionPhase phase)
+    {
+        switch (phase)
+        {
+            case InputActionPhase.Started:
+                // Key was initially pressed down
+                Log.Info("Key down");
+                break;
+            case InputActionPhase.Performed:
+                // Action fully performed (for Button type, same as Started)
+                Log.Info("Action performed");
+                break;
+            case InputActionPhase.Canceled:
+                // Key was released
+                Log.Info("Key released");
+                break;
+        }
+    }
+
+    protected override void OnUpdate() { }
+
+    protected override void OnDestroy()
+    {
+        // Always unsubscribe to prevent leaks — when no subscribers remain,
+        // ProxyAction automatically unhooks from the underlying Unity callbacks.
+        if (_action != null)
+            _action.onInteraction -= OnHotkeyInteraction;
+        base.OnDestroy();
+    }
+}
+```
+
+### Example 5: Safe Action Lookup with TryFindAction
+
+Use `TryFindAction` for defensive lookups, especially when the action may not be registered yet or the map name might be wrong.
+
+```csharp
+protected override void OnCreate()
+{
+    base.OnCreate();
+
+    // TryFindAction returns false if the map or action doesn't exist
+    if (InputManager.instance.TryFindAction(MyMod.Settings.id, "TriggerAction", out var action))
+    {
+        _triggerAction = action;
+    }
+    else
+    {
+        Log.Warn("Failed to find TriggerAction — keybinding may not be registered yet.");
+    }
+}
+```
+
+### Example 6: Unbound Default with Optional Keybinding
+
+Declare an action with no default key. The player must manually bind it in Options. This is useful for optional or advanced shortcuts that should not conflict with anything by default.
+
+```csharp
+[FileLocation(nameof(AdvancedToolMod))]
+[SettingsUIKeyboardAction("SecretFeature", ActionType.Button, canBeEmpty: true)]
+public class AdvancedToolSettings : ModSetting
+{
+    public AdvancedToolSettings(IMod mod) : base(mod) { }
+
+    // No default key — pass only the actionName
+    [SettingsUIKeyboardBinding("SecretFeature")]
+    public ProxyBinding SecretFeatureBinding { get; set; }
+
+    public override void SetDefaults() { }
+}
+```
+
+### Example 7: Temporarily Blocking Input with Barriers
+
+Use `CreateBarrier` to prevent an action from processing input while a UI element has focus (e.g., a text field). Dispose the barrier to re-enable input.
+
+```csharp
+public partial class MyPanelSystem : GameSystemBase
+{
+    private ProxyAction _hotkeyAction;
+    private InputBarrier _barrier;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _hotkeyAction = InputManager.instance.FindAction(
+            MyMod.Settings.id, "TogglePanel");
+    }
+
+    /// <summary>
+    /// Call when a text field gains focus to block the hotkey from firing.
+    /// </summary>
+    public void OnTextFieldFocused()
+    {
+        // CreateBarrier blocks the action from receiving input
+        _barrier = _hotkeyAction.CreateBarrier("TextFieldFocus");
+    }
+
+    /// <summary>
+    /// Call when the text field loses focus to restore hotkey input.
+    /// </summary>
+    public void OnTextFieldBlurred()
+    {
+        // Disposing the barrier re-enables the action
+        _barrier?.Dispose();
+        _barrier = null;
+    }
+
+    protected override void OnUpdate() { }
+}
+```
+
 ## Open Questions
 
 - [ ] How does `shouldBeEnabled` interact with the automatic enabling done by `RegisterKeyBindings()`? Is it necessary to explicitly set it for mod actions?

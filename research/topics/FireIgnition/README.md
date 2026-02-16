@@ -431,6 +431,387 @@ public Entity CreateFireEvent(EventTargetType targetType)
 - Structural integrity multiplier (default: 1.0)
 - Forest fire enabled (default: true)
 
+## Examples
+
+### Example 1: Ignite a Building
+
+Creates an `Ignite` event entity that `IgniteSystem` will process on the next frame, adding the `OnFire` component to the target building. Requires a fire event entity (see Example 3 for how to create one).
+
+```csharp
+using Game.Common;
+using Game.Events;
+using Game.Prefabs;
+using Unity.Entities;
+
+/// <summary>
+/// Demonstrates how to programmatically ignite a building entity.
+/// Call from within a custom GameSystemBase.OnUpdate().
+/// </summary>
+public partial class BuildingIgnitionExample : GameSystemBase
+{
+    private EntityQuery m_FirePrefabQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        // Query for fire event prefabs — these define fire behavior parameters
+        m_FirePrefabQuery = GetEntityQuery(
+            ComponentType.ReadOnly<EventData>(),
+            ComponentType.ReadOnly<FireData>()
+        );
+    }
+
+    protected override void OnUpdate() { }
+
+    /// <summary>
+    /// Ignites a building. The Ignite event is a temporary entity processed
+    /// by IgniteSystem within one frame, then destroyed.
+    /// </summary>
+    public void IgniteBuilding(Entity targetBuilding)
+    {
+        // Step 1: Create the fire event entity from the Building fire prefab.
+        // This entity carries the Fire tag and TargetElement buffer.
+        Entity fireEvent = CreateFireEvent(EventTargetType.Building);
+        if (fireEvent == Entity.Null)
+            return;
+
+        // Step 2: Create the Ignite event entity.
+        // Must have both Ignite data and the Event tag for IgniteSystem to find it.
+        Entity igniteEntity = EntityManager.CreateEntity(
+            ComponentType.ReadWrite<Event>(),
+            ComponentType.ReadWrite<Ignite>()
+        );
+
+        // Step 3: Set ignition parameters.
+        // m_Intensity = 1f matches the default FireData.m_StartIntensity.
+        // m_RequestFrame = 0 tells IgniteSystem to calculate rescue timing automatically.
+        EntityManager.SetComponentData(igniteEntity, new Ignite
+        {
+            m_Event = fireEvent,
+            m_Target = targetBuilding,
+            m_Intensity = 1f,
+            m_RequestFrame = 0
+        });
+
+        // IgniteSystem processes this next frame:
+        //   1. Adds OnFire component to targetBuilding
+        //   2. Adds targetBuilding to fireEvent's TargetElement buffer
+        //   3. Creates journal data for damage tracking
+        //   4. Destroys this Ignite entity
+    }
+
+    /// <summary>
+    /// Finds the fire event prefab matching the given target type and creates
+    /// an event entity from its archetype.
+    /// </summary>
+    private Entity CreateFireEvent(EventTargetType targetType)
+    {
+        var chunks = m_FirePrefabQuery.ToArchetypeChunkArray(Unity.Collections.Allocator.Temp);
+        var fireDataHandle = GetComponentTypeHandle<FireData>(true);
+        var eventDataHandle = GetComponentTypeHandle<EventData>(true);
+        var entityHandle = GetEntityTypeHandle();
+
+        foreach (var chunk in chunks)
+        {
+            var fireDatas = chunk.GetNativeArray(ref fireDataHandle);
+            var eventDatas = chunk.GetNativeArray(ref eventDataHandle);
+            var entities = chunk.GetNativeArray(entityHandle);
+
+            for (int i = 0; i < fireDatas.Length; i++)
+            {
+                if (fireDatas[i].m_RandomTargetType == targetType)
+                {
+                    // Create event entity using the prefab's archetype.
+                    // This gives us Fire tag + TargetElement buffer automatically.
+                    Entity eventEntity = EntityManager.CreateEntity(eventDatas[i].m_Archetype);
+                    EntityManager.SetComponentData(eventEntity, new PrefabRef(entities[i]));
+                    chunks.Dispose();
+                    return eventEntity;
+                }
+            }
+        }
+
+        chunks.Dispose();
+        return Entity.Null;
+    }
+}
+```
+
+### Example 2: Ignite a Tree
+
+Trees use the exact same `Ignite` mechanism as buildings. The only difference is using `EventTargetType.WildTree` when looking up the fire event prefab. Note that forest fires normally require the `naturalDisasters` city setting to be enabled, but programmatic ignition bypasses that check entirely.
+
+```csharp
+using Game.Common;
+using Game.Events;
+using Game.Prefabs;
+using Unity.Entities;
+
+/// <summary>
+/// Demonstrates how to programmatically ignite a wild tree.
+/// Trees and buildings share the same Ignite → OnFire pipeline.
+/// </summary>
+public partial class TreeIgnitionExample : GameSystemBase
+{
+    private EntityQuery m_FirePrefabQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_FirePrefabQuery = GetEntityQuery(
+            ComponentType.ReadOnly<EventData>(),
+            ComponentType.ReadOnly<FireData>()
+        );
+    }
+
+    protected override void OnUpdate() { }
+
+    /// <summary>
+    /// Ignites a wild tree. Uses EventTargetType.WildTree to find
+    /// the correct fire prefab (which may have different escalation/spread values).
+    /// </summary>
+    public void IgniteTree(Entity targetTree)
+    {
+        // Use WildTree target type — the game has separate fire prefabs
+        // for buildings and trees with potentially different parameters
+        Entity fireEvent = CreateFireEvent(EventTargetType.WildTree);
+        if (fireEvent == Entity.Null)
+            return;
+
+        Entity igniteEntity = EntityManager.CreateEntity(
+            ComponentType.ReadWrite<Event>(),
+            ComponentType.ReadWrite<Ignite>()
+        );
+
+        EntityManager.SetComponentData(igniteEntity, new Ignite
+        {
+            m_Event = fireEvent,
+            m_Target = targetTree,
+            m_Intensity = 1f,
+            m_RequestFrame = 0
+        });
+
+        // Trees have lower structural integrity (default 3,000 vs 12,000-16,000
+        // for buildings), so they burn down faster.
+        // FireSimulationSystem handles all the escalation and destruction.
+    }
+
+    private Entity CreateFireEvent(EventTargetType targetType)
+    {
+        // Same pattern as building example — find prefab by target type
+        var chunks = m_FirePrefabQuery.ToArchetypeChunkArray(Unity.Collections.Allocator.Temp);
+        var fireDataHandle = GetComponentTypeHandle<FireData>(true);
+        var eventDataHandle = GetComponentTypeHandle<EventData>(true);
+        var entityHandle = GetEntityTypeHandle();
+
+        foreach (var chunk in chunks)
+        {
+            var fireDatas = chunk.GetNativeArray(ref fireDataHandle);
+            var eventDatas = chunk.GetNativeArray(ref eventDataHandle);
+            var entities = chunk.GetNativeArray(entityHandle);
+
+            for (int i = 0; i < fireDatas.Length; i++)
+            {
+                if (fireDatas[i].m_RandomTargetType == targetType)
+                {
+                    Entity eventEntity = EntityManager.CreateEntity(eventDatas[i].m_Archetype);
+                    EntityManager.SetComponentData(eventEntity, new PrefabRef(entities[i]));
+                    chunks.Dispose();
+                    return eventEntity;
+                }
+            }
+        }
+
+        chunks.Dispose();
+        return Entity.Null;
+    }
+}
+```
+
+### Example 3: Check if an Entity is On Fire
+
+Query for entities with the `OnFire` component to find all burning entities, or check a specific entity directly. The `OnFire` component contains the current fire intensity and event reference.
+
+```csharp
+using Game.Events;
+using Game.Buildings;
+using Game.Objects;
+using Unity.Collections;
+using Unity.Entities;
+using UnityEngine.Scripting;
+
+/// <summary>
+/// Demonstrates how to query for burning entities and read their fire state.
+/// </summary>
+public partial class FireCheckExample : GameSystemBase
+{
+    private EntityQuery m_BurningQuery;
+
+    [Preserve]
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        // Query all entities currently on fire (excluding deleted/temp)
+        m_BurningQuery = GetEntityQuery(
+            ComponentType.ReadOnly<OnFire>(),
+            ComponentType.Exclude<Game.Common.Deleted>(),
+            ComponentType.Exclude<Game.Tools.Temp>()
+        );
+    }
+
+    [Preserve]
+    protected override void OnUpdate()
+    {
+        // --- Check a specific entity ---
+        // Use HasComponent to test if a known entity is burning
+        Entity someBuilding = Entity.Null; // your target entity
+        if (EntityManager.HasComponent<OnFire>(someBuilding))
+        {
+            OnFire onFire = EntityManager.GetComponentData<OnFire>(someBuilding);
+
+            // m_Intensity ranges from 0 (extinguished) to 100 (maximum)
+            float intensity = onFire.m_Intensity;
+
+            // m_Event references the fire event entity (has Fire tag + TargetElement buffer)
+            Entity fireEvent = onFire.m_Event;
+
+            // m_RescueRequest is Entity.Null until a FireRescueRequest has been created
+            bool rescueRequested = onFire.m_RescueRequest != Entity.Null;
+
+            Log.Info($"Entity is burning! Intensity: {intensity}, Rescue requested: {rescueRequested}");
+        }
+
+        // --- Query all burning entities ---
+        var burningEntities = m_BurningQuery.ToEntityArray(Allocator.Temp);
+        var onFireComponents = m_BurningQuery.ToComponentDataArray<OnFire>(Allocator.Temp);
+
+        for (int i = 0; i < burningEntities.Length; i++)
+        {
+            Entity entity = burningEntities[i];
+            OnFire fire = onFireComponents[i];
+
+            // Distinguish buildings from trees
+            bool isBuilding = EntityManager.HasComponent<Building>(entity);
+            bool isTree = EntityManager.HasComponent<Tree>(entity);
+
+            string type = isBuilding ? "Building" : isTree ? "Tree" : "Other";
+            Log.Info($"{type} {entity.Index} on fire — intensity: {fire.m_Intensity:F1}");
+        }
+
+        burningEntities.Dispose();
+        onFireComponents.Dispose();
+    }
+}
+```
+
+### Example 4: How Fire Hazard and Probability are Calculated
+
+This example shows the logic `FireHazardSystem` uses to determine whether a spontaneous fire starts. The actual calculation happens inside `EventHelpers.FireHazardData.GetFireHazard()` and `FireHazardSystem.TryStartFire()`. Below is a standalone illustration of the math.
+
+```csharp
+using Game.Buildings;
+using Game.Events;
+using Game.Prefabs;
+using Game.Simulation;
+using Unity.Entities;
+using Unity.Mathematics;
+
+/// <summary>
+/// Illustrates how fire hazard probability is computed for buildings and trees.
+/// This is NOT runnable code — it reconstructs the logic from FireHazardData.GetFireHazard()
+/// and FireHazardSystem.TryStartFire() to explain the math.
+/// </summary>
+public static class FireHazardCalculationReference
+{
+    /// <summary>
+    /// Building fire hazard calculation.
+    /// Mirrors EventHelpers.FireHazardData.GetFireHazard(building overload).
+    /// </summary>
+    public static float CalculateBuildingFireHazard(
+        float prefabFireHazard,   // DestructibleObjectData.m_FireHazard, or 100 if not set
+        int buildingLevel,        // SpawnableBuildingData.m_Level (1-5)
+        float zoneFireMultiplier, // ZonePropertiesData.m_FireHazardMultiplier
+        float serviceCoverage,    // Fire station coverage at building's road edge (0-100)
+        float districtModifier,   // District BuildingFireHazard modifier (additive)
+        float structuralDamage,   // Damaged.m_Damage.y (structural damage, 0-1)
+        float weatherDamage)      // Damaged.m_Damage.z (weather damage, 0-1)
+    {
+        float hazard = prefabFireHazard;
+
+        // Higher level buildings have slightly lower hazard (3% reduction per level above 1)
+        hazard *= 1f - (buildingLevel - 1) * 0.03f;
+
+        // Zone type multiplier (e.g., industrial zones have higher fire hazard)
+        hazard *= zoneFireMultiplier;
+
+        // Fire station coverage reduces hazard — but never below 1% of base
+        // Full coverage (100) reduces hazard by 99%
+        hazard *= math.max(0.01f, 1f - serviceCoverage * 0.01f);
+
+        // District policy modifier (applied additively via AreaUtils.ApplyModifier)
+        // This is a simplified representation — actual uses AreaUtils.ApplyModifier
+        hazard *= (1f + districtModifier);
+
+        // Existing damage reduces fire hazard (already-damaged buildings are less flammable)
+        // Factor = (1 - totalDamage)^4 — drops off sharply
+        float damageFactor = math.max(0f, 1f - (structuralDamage + weatherDamage));
+        damageFactor = damageFactor * damageFactor * damageFactor * damageFactor; // ^4
+        hazard *= damageFactor;
+
+        return hazard;
+    }
+
+    /// <summary>
+    /// Tree fire hazard calculation.
+    /// Mirrors EventHelpers.FireHazardData.GetFireHazard(tree overload).
+    /// </summary>
+    public static float CalculateTreeFireHazard(
+        float prefabFireHazard,       // DestructibleObjectData.m_FireHazard, or 100 if not set
+        float forestFireHazardFactor,  // Temperature curve * no-rain curve (from FireConfigurationPrefab)
+        float localEffectModifier,     // ForestFireHazard local effect at tree position
+        float structuralDamage,
+        float weatherDamage)
+    {
+        float hazard = prefabFireHazard;
+
+        // Climate factor: product of temperature curve and no-rain-days curve
+        // Both curves are AnimationCurves defined in the FireConfigurationPrefab asset.
+        // Hot + dry = high factor, cold + wet = near zero.
+        hazard *= forestFireHazardFactor;
+
+        // Local effect modifier (spatial map — areas near certain buildings or map features
+        // can increase or decrease forest fire hazard)
+        // Simplified — actual uses LocalEffectSystem.ReadData.ApplyModifier
+        hazard *= (1f + localEffectModifier);
+
+        // Same damage-based reduction as buildings
+        float damageFactor = math.max(0f, 1f - (structuralDamage + weatherDamage));
+        damageFactor = damageFactor * damageFactor * damageFactor * damageFactor;
+        hazard *= damageFactor;
+
+        return hazard;
+    }
+
+    /// <summary>
+    /// Final ignition roll — performed by FireHazardSystem.TryStartFire().
+    /// This is how the game decides whether a spontaneous fire actually starts.
+    /// </summary>
+    public static bool WouldFireStart(
+        float fireHazard,        // Output of GetFireHazard() above
+        float startProbability,  // FireData.m_StartProbability (default 0.01)
+        float randomRoll)        // random.NextFloat(10000)
+    {
+        // Final probability combines the environmental hazard with the prefab's base probability
+        float probability = fireHazard * startProbability;
+
+        // The roll is out of 10,000 — so a probability of 1.0 means a 0.01% chance per check.
+        // With default startProbability (0.01) and a hazard of 100: probability = 1.0
+        // Combined with 1-in-64 chunk skip and 4096-frame interval, actual fires are rare.
+        return randomRoll < probability;
+    }
+}
+```
+
 ## Open Questions
 
 - [ ] What are the exact shapes of the `m_TemperatureForestFireHazard` and `m_NoRainForestFireHazard` AnimationCurves? These are defined in the prefab asset, not in code. Would need to extract from game data files.

@@ -571,6 +571,372 @@ This ensures no wasted serialization when no JS component is listening.
 
 Note: In practice, mods rarely need to patch the binding system. The `UISystemBase` API provides sufficient extension points via subclassing and `AddBinding`.
 
+## Examples
+
+### Example 1: Basic UI System with Value and Trigger Bindings
+
+A minimal `UISystemBase` subclass that pushes a boolean state to the JS frontend and receives toggle events back. This is the foundation of every mod UI system.
+
+```csharp
+using Colossal.UI.Binding;
+using Game.UI;
+
+/// <summary>
+/// Minimal mod UI system demonstrating ValueBinding (C# -> JS)
+/// and TriggerBinding (JS -> C#).
+/// </summary>
+public partial class PanelToggleUISystem : UISystemBase
+{
+    private ValueBinding<bool> _isPanelOpen;
+    private ValueBinding<string> _statusText;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // ValueBinding pushes state to JS whenever Update() is called.
+        // The first arg is the binding group (use your mod ID), the second
+        // is the binding name, and the third is the initial value.
+        _isPanelOpen = new ValueBinding<bool>("MyMod", "IsPanelOpen", false);
+        _statusText = new ValueBinding<string>("MyMod", "StatusText", "Ready");
+        AddBinding(_isPanelOpen);
+        AddBinding(_statusText);
+
+        // TriggerBinding receives events from JS. The no-arg version
+        // takes an Action callback. Typed versions (TriggerBinding<T>)
+        // deserialize arguments automatically.
+        AddBinding(new TriggerBinding("MyMod", "TogglePanel", OnTogglePanel));
+        AddBinding(new TriggerBinding<string>("MyMod", "SetStatus", OnSetStatus));
+    }
+
+    private void OnTogglePanel()
+    {
+        // Update() only sends to JS if the value actually changed
+        // (uses EqualityComparer<T> internally).
+        _isPanelOpen.Update(!_isPanelOpen.value);
+        _statusText.Update(_isPanelOpen.value ? "Panel is open" : "Panel is closed");
+    }
+
+    private void OnSetStatus(string newStatus)
+    {
+        _statusText.Update(newStatus);
+    }
+}
+```
+
+### Example 2: Getter-Based Polling Binding
+
+Use `GetterValueBinding<T>` when you want the UI to reflect a value that changes externally (e.g., from other ECS systems). The binding polls the getter every frame and only pushes to JS when the value changes.
+
+```csharp
+using Colossal.UI.Binding;
+using Game.UI;
+
+/// <summary>
+/// Demonstrates GetterValueBinding for auto-polled values.
+/// The getter runs every frame; the binding only sends updates
+/// when the return value differs from the previous frame.
+/// </summary>
+public partial class StatsUISystem : UISystemBase
+{
+    private int _entityCount;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // GetterValueBinding takes a Func<T> that is called every frame.
+        // IMPORTANT: use AddUpdateBinding (not AddBinding) so the system
+        // includes it in its per-frame poll loop.
+        AddUpdateBinding(new GetterValueBinding<int>(
+            "MyMod", "EntityCount", () => _entityCount));
+
+        // You can also poll computed values or query other systems.
+        AddUpdateBinding(new GetterValueBinding<bool>(
+            "MyMod", "HasEntities", () => _entityCount > 0));
+    }
+
+    protected override void OnUpdate()
+    {
+        // Update game state before bindings are polled.
+        _entityCount = ComputeEntityCount();
+
+        // base.OnUpdate() iterates all IUpdateBinding instances
+        // and calls Update() on each, which triggers the getters.
+        base.OnUpdate();
+    }
+
+    private int ComputeEntityCount()
+    {
+        // Placeholder — in a real mod, query ECS data here.
+        return 42;
+    }
+}
+```
+
+### Example 3: Multi-Arg Trigger Binding
+
+Trigger bindings support up to 4 typed arguments. Each argument is deserialized from JSON automatically using `ValueReaders`.
+
+```csharp
+using Colossal.UI.Binding;
+using Game.UI;
+
+/// <summary>
+/// Demonstrates multi-argument TriggerBindings. The JS side passes
+/// arguments via trigger(group, name, arg1, arg2, ...) and they
+/// are deserialized to the corresponding C# types.
+/// </summary>
+public partial class ConfigUISystem : UISystemBase
+{
+    private ValueBinding<int> _selectedOption;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        _selectedOption = new ValueBinding<int>("MyMod", "SelectedOption", -1);
+        AddBinding(_selectedOption);
+
+        // 2-arg trigger: receives (string category, int optionId)
+        AddBinding(new TriggerBinding<string, int>(
+            "MyMod", "SelectOption", OnSelectOption));
+
+        // 3-arg trigger: receives (int x, int y, int z)
+        AddBinding(new TriggerBinding<int, int, int>(
+            "MyMod", "SetPosition", OnSetPosition));
+    }
+
+    private void OnSelectOption(string category, int optionId)
+    {
+        Mod.Log.Info($"Option selected: {category} #{optionId}");
+        _selectedOption.Update(optionId);
+    }
+
+    private void OnSetPosition(int x, int y, int z)
+    {
+        Mod.Log.Info($"Position set to ({x}, {y}, {z})");
+    }
+}
+```
+
+### Example 4: Custom Serializable Type with IJsonWritable
+
+When pushing complex objects from C# to JS, implement `IJsonWritable` on your data type. The binding framework auto-detects the interface via `ValueWriters.Create<T>()`.
+
+```csharp
+using Colossal.UI.Binding;
+using Game.UI;
+
+/// <summary>
+/// A custom data type that serializes itself to JSON for the UI.
+/// Implement IJsonWritable for C# -> JS, IJsonReadable for JS -> C#.
+/// </summary>
+public struct ModPanelData : IJsonWritable
+{
+    public string Title;
+    public int Progress;
+    public bool IsComplete;
+
+    public void Write(IJsonWriter writer)
+    {
+        // TypeBegin writes a __Type discriminator property.
+        // Use it when JS needs to identify the object type.
+        writer.TypeBegin("ModPanelData");
+        writer.PropertyName("title");
+        writer.Write(Title);
+        writer.PropertyName("progress");
+        writer.Write(Progress);
+        writer.PropertyName("isComplete");
+        writer.Write(IsComplete);
+        writer.TypeEnd();
+    }
+}
+
+/// <summary>
+/// UI system that pushes a custom struct to the frontend.
+/// </summary>
+public partial class PanelDataUISystem : UISystemBase
+{
+    private ValueBinding<ModPanelData> _panelData;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // ValueWriters.Create<ModPanelData>() detects IJsonWritable
+        // and uses it automatically — no custom IWriter<T> needed.
+        _panelData = new ValueBinding<ModPanelData>(
+            "MyMod", "PanelData",
+            new ModPanelData { Title = "Loading...", Progress = 0, IsComplete = false });
+        AddBinding(_panelData);
+    }
+
+    public void SetProgress(int progress)
+    {
+        _panelData.Update(new ModPanelData
+        {
+            Title = "Working...",
+            Progress = progress,
+            IsComplete = progress >= 100
+        });
+    }
+}
+```
+
+### Example 5: Restricting a UI System to Specific Game Modes
+
+Override the `gameMode` property to control when your UI system is active. The system auto-disables itself during mode transitions via `OnGamePreload`.
+
+```csharp
+using Colossal.UI.Binding;
+using Game.UI;
+
+/// <summary>
+/// UI system that only runs during gameplay (not in the editor or main menu).
+/// The gameMode property is checked on every mode transition via OnGamePreload.
+/// </summary>
+public partial class GameplayOnlyUISystem : UISystemBase
+{
+    // Only active during gameplay — the system is disabled (and bindings
+    // stop polling) in the editor, main menu, and other modes.
+    public override GameMode gameMode => GameMode.Game;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        AddUpdateBinding(new GetterValueBinding<float>(
+            "MyMod", "GameTime", () => UnityEngine.Time.time));
+
+        AddBinding(new TriggerBinding("MyMod", "PauseAction", OnPauseAction));
+    }
+
+    private void OnPauseAction()
+    {
+        Mod.Log.Info("Pause action triggered during gameplay");
+    }
+}
+```
+
+### Example 6: Registering the UI System in Mod.OnLoad
+
+All UI systems must be registered with the update system during `IMod.OnLoad`. Use `SystemUpdatePhase.UIUpdate` so bindings are polled at the correct point in the frame.
+
+```csharp
+using Game;
+using Game.Modding;
+
+/// <summary>
+/// Mod entry point. Registers all UI systems with the update loop.
+/// </summary>
+public class Mod : IMod
+{
+    internal static Colossal.Logging.ILog Log { get; }
+        = Colossal.Logging.LogManager.GetLogger(nameof(Mod)).SetShowsErrorsInUI(true);
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        Log.Info("Mod loaded");
+
+        // Register UI systems at the UIUpdate phase.
+        // This ensures OnUpdate() runs after game simulation
+        // but before the frame is rendered.
+        updateSystem.UpdateAt<PanelToggleUISystem>(SystemUpdatePhase.UIUpdate);
+        updateSystem.UpdateAt<StatsUISystem>(SystemUpdatePhase.UIUpdate);
+    }
+
+    public void OnDispose()
+    {
+        Log.Info("Mod disposed");
+        // UISystemBase.OnDestroy() auto-removes bindings from the registry.
+    }
+}
+```
+
+### Example 7: TypeScript Bindings and React Component (Full Round-Trip)
+
+The TypeScript side mirrors the C# bindings. Each `bindValue` call creates an observable that subscribes to a C# `ValueBinding`, and `trigger` calls invoke C# `TriggerBinding` callbacks.
+
+```typescript
+// --- bindings.ts ---
+// Centralize all binding declarations in one file.
+// Components import from here rather than calling bindValue/trigger directly.
+
+import { bindValue, trigger } from "cs2/api";
+import mod from "mod.json"; // { id: "MyMod" }
+
+// Value bindings (C# -> JS): the group and name must match the C# side exactly.
+// The third argument is the default value used before C# pushes data.
+export const isPanelOpen$ = bindValue<boolean>(mod.id, "IsPanelOpen", false);
+export const statusText$ = bindValue<string>(mod.id, "StatusText", "Ready");
+export const entityCount$ = bindValue<number>(mod.id, "EntityCount", 0);
+
+// No-arg trigger: use .bind() to create a clean callable function.
+export const togglePanel = trigger.bind(null, mod.id, "TogglePanel");
+
+// Typed trigger: wrap in an arrow function to pass arguments.
+export const setStatus = (status: string) => trigger(mod.id, "SetStatus", status);
+
+// Multi-arg trigger: all args are serialized and sent to C#.
+export const selectOption = (category: string, optionId: number) =>
+    trigger(mod.id, "SelectOption", category, optionId);
+```
+
+```typescript
+// --- MyPanel.tsx ---
+// React component that reads C# state and triggers C# callbacks.
+
+import { useValue } from "cs2/api";
+import { Button, Panel } from "cs2/ui";
+import { isPanelOpen$, statusText$, entityCount$, togglePanel, setStatus } from "mods/bindings";
+
+export const MyPanel = () => {
+    // useValue subscribes to the C# ValueBinding observable.
+    // The component re-renders automatically when C# calls binding.Update().
+    const isOpen = useValue(isPanelOpen$);
+    const status = useValue(statusText$);
+    const count = useValue(entityCount$);
+
+    if (!isOpen) return null;
+
+    return (
+        <Panel>
+            <h2>My Mod Panel</h2>
+            <p>Status: {status}</p>
+            <p>Entities: {count}</p>
+            <Button onSelect={() => setStatus("User clicked!")}>
+                Update Status
+            </Button>
+            <Button onSelect={togglePanel}>
+                Close Panel
+            </Button>
+        </Panel>
+    );
+};
+```
+
+```typescript
+// --- index.tsx ---
+// Entry point: register components into the game UI via moduleRegistry.
+
+import { ModRegistrar } from "cs2/modding";
+import { MyPanel } from "mods/MyPanel";
+import { MyToolbarButton } from "mods/MyToolbarButton";
+
+const register: ModRegistrar = (moduleRegistry) => {
+    // "GameTopLeft" slot places the button in the top-left toolbar
+    // alongside vanilla tool buttons (roads, zones, etc.).
+    moduleRegistry.append("GameTopLeft", MyToolbarButton);
+
+    // "Game" slot injects a component at the gameplay view root.
+    // The component controls its own visibility (returns null when hidden).
+    moduleRegistry.append("Game", MyPanel);
+};
+
+export default register;
+```
+
 ## Open Questions
 
 - [ ] What `moduleRegistry.extend()` wrapper components receive as props (the wrapped component? its props?)
