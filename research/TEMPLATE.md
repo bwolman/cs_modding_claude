@@ -99,6 +99,28 @@ How a mod would use these findings.
 - **Settings**: [User-configurable values]
 - **UI changes**: [If applicable]
 
+## Examples
+
+Working C# code examples demonstrating practical usage. Each example should be a complete, self-contained snippet a modder can adapt.
+
+### Example 1: [Short Description]
+
+[Brief explanation of what this example demonstrates and when you'd use it.]
+
+```csharp
+// Working code here
+```
+
+### Example 2: [Short Description]
+
+[Brief explanation.]
+
+```csharp
+// Working code here
+```
+
+<!-- Include 3-5 examples covering common use cases -->
+
 ## Open Questions
 
 - [ ] Question that still needs answering

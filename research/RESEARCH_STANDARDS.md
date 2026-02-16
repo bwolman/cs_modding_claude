@@ -12,6 +12,7 @@ CS2 has no official API docs for internals. Coding against wrong assumptions mea
   - Location: `~/.dotnet/tools/ilspycmd`
   - Requires: .NET 8.0 runtime
 - **Game DLLs** — `/Volumes/steamapps/common/Cities Skylines II/Cities2_Data/Managed/`
+- **Local lib copies** — `lib/` (key DLLs copied locally for reference)
 - **Key assemblies**:
   - `Game.dll` — core game systems, ECS components, simulation logic
   - `Colossal.Core.dll` — engine-level utilities, base classes
@@ -148,11 +149,31 @@ All research findings go in `research/topics/<TopicName>/` using the template.
 
 ```
 research/topics/<TopicName>/
-├── README.md          # Filled-in TEMPLATE.md
+├── README.md          # Filled-in TEMPLATE.md (includes Examples section)
 ├── components.md      # Detailed component documentation (if large)
 ├── systems.md         # Detailed system documentation (if large)
 └── snippets/          # Key code snippets from decompilation
 ```
+
+### GitHub Pages (required)
+
+Each research topic must also have an HTML page in `site/`:
+
+```
+site/<topic-slug>.html   # e.g. site/fire-ignition.html
+```
+
+The HTML page must:
+- Link to `style.css` (shared stylesheet)
+- Include nav bar: `Home` link → `index.html`, separator, page name
+- Be human-readable — guide the reader to understanding, not just dump data
+- Use `<div class="diagram"><pre>` for ASCII art diagrams
+- Use `<pre><code>` for code examples
+- HTML-escape `<` and `>` in code blocks
+- No emojis
+- Structure: Scope → How It Works → Key Components → Data Flow → Examples → Configuration → Open Questions → Sources
+
+After creating the HTML page, add a card for it in `site/index.html`.
 
 ## Completeness Criteria
 
@@ -165,6 +186,8 @@ Research is **done** when:
 5. At least one viable Harmony patch point is identified (if patching is needed)
 6. Open questions are explicitly listed (not hidden)
 7. Another developer could start coding from the research alone
+8. **Examples section** with working C# code snippets demonstrating practical usage (3-5 examples per topic)
+9. **GitHub Pages HTML page** created in `site/` — human-readable, guides the reader to understanding
 
 Research is **NOT done** if:
 
@@ -172,3 +195,5 @@ Research is **NOT done** if:
 - You found components but didn't trace which systems use them
 - You skipped prefab tracing
 - You have unnamed "TODO: investigate" items
+- There are no working code examples in the README
+- There is no HTML page in `site/` for the topic
