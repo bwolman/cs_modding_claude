@@ -17,7 +17,7 @@
 | Assembly | Namespace | What's there |
 |----------|-----------|-------------|
 | Game.dll | Game.Citizens | `Criminal`, `CriminalFlags`, `CrimeVictim` |
-| Game.dll | Game.Events | `Crime` (tag), `AccidentSite`, `AccidentSiteFlags`, `AddAccidentSite`, `TargetElement` |
+| Game.dll | Game.Events | `Crime` (tag), `AddCriminal`, `AddCriminalSystem`, `AccidentSite`, `AccidentSiteFlags`, `AddAccidentSite`, `TargetElement` |
 | Game.dll | Game.Buildings | `CrimeProducer` |
 | Game.dll | Game.Simulation | `CrimeCheckSystem`, `CriminalSystem`, `CrimeAccumulationSystem` |
 | Game.dll | Game.Prefabs | `CrimeData`, `CrimeType`, `CrimeAccumulationData`, `PoliceConfigurationData`, `Crime` (ComponentBase) |
@@ -61,6 +61,18 @@ These flags represent a state machine. A criminal progresses through: `Planning`
 Empty tag component placed on crime event entities (like `TrafficAccident` for traffic events). Crime event entities also have a `TargetElement` buffer containing the criminal citizen.
 
 *Source: `Game.dll` → `Game.Events.Crime`*
+
+### `AddCriminal` (Game.Events) — Event Command
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Event | Entity | The crime event entity |
+| m_Target | Entity | The citizen to make a criminal |
+| m_Flags | CriminalFlags | Initial flags (e.g., Robber \| Planning) |
+
+Temporary event entity (with `Game.Common.Event` tag) that commands `AddCriminalSystem` to add the `Criminal` component to a citizen. This is the **missing link** between `CrimeCheckSystem` creating a crime event and the citizen getting the `Criminal` component. Follows the same command-entity pattern as `AddHealthProblem`.
+
+*Source: `Game.dll` → `Game.Events.AddCriminal`*
 
 ### `CrimeProducer` (Game.Buildings)
 
@@ -240,6 +252,18 @@ Per-zone-type configuration set via `CrimeAccumulation` ComponentBase on zone/se
   - Modified by district and city `CrimeAccumulation` modifiers
   - When `m_Crime > m_CrimeAccumulationTolerance` (1000): creates `PolicePatrolRequest`
 
+### `AddCriminalSystem` (Game.Events)
+
+- **Base class**: GameSystemBase
+- **Queries**:
+  - AddCriminal query: `Event` + `AddCriminal`
+- **Key logic**:
+  - Processes `AddCriminal` event entities to add `Criminal` component to target citizens
+  - If citizen already has `Criminal`: merges flags (Prisoner takes priority, non-null event takes priority)
+  - Adds the citizen to the crime event's `TargetElement` buffer
+  - Uses `ModificationBarrier4` for command buffer
+- **This is the missing link**: `CrimeCheckSystem` creates crime event entities → something creates `AddCriminal` event entities → `AddCriminalSystem` adds `Criminal` component to citizens
+
 ### `AddAccidentSiteSystem` (Game.Events)
 
 - **Base class**: GameSystemBase
@@ -260,6 +284,17 @@ Per-zone-type configuration set via `CrimeAccumulation` ComponentBase on zone/se
     - Crime tag component
     - TargetElement buffer (criminal citizen)
     - PrefabRef (crime data prefab)
+    │
+    ▼
+[AddCriminal Event Entity] (created by event processing)
+    │  m_Event = crime event entity
+    │  m_Target = citizen entity
+    │  m_Flags = Robber | Planning
+    │
+    ▼
+[AddCriminalSystem] processes AddCriminal events
+    │  Adds Criminal component to citizen
+    │  Adds citizen to crime event's TargetElement buffer
     │
     ▼
 [CriminalSystem picks up Criminal component] (every 16 frames)
@@ -344,13 +379,13 @@ Per-zone-type configuration set via `CrimeAccumulation` ComponentBase on zone/se
 
 ## Mod Blueprint
 
-### Approach 1: Make a Specific Citizen Commit a Crime (ECS Event Entity)
+### Approach 1: Make a Specific Citizen Commit a Crime (Recommended — AddCriminal Event)
 
-The cleanest approach is to mimic what `CrimeCheckSystem.CreateCrimeEvent` does — create a crime event entity and add the `Criminal` component to the target citizen.
+The cleanest approach uses the `AddCriminal` event command pattern, which is how the game itself triggers crimes. This creates both a crime event entity and an `AddCriminal` command that `AddCriminalSystem` processes to add the `Criminal` component.
 
 ```csharp
 /// <summary>
-/// Makes a specific citizen commit a crime.
+/// Makes a specific citizen commit a crime via the AddCriminal event pattern.
 /// The citizen will enter the Planning state and travel to a building to rob.
 /// </summary>
 public void MakeCitizenCommitCrime(EntityManager entityManager, Entity citizenEntity)
@@ -378,20 +413,26 @@ public void MakeCitizenCommitCrime(EntityManager entityManager, Entity citizenEn
     // The archetype includes: Game.Events.Crime (tag) + TargetElement (buffer)
     Entity crimeEvent = entityManager.CreateEntity(eventData.m_Archetype);
     entityManager.SetComponentData(crimeEvent, new PrefabRef(eventPrefab));
+    entityManager.GetBuffer<TargetElement>(crimeEvent).Add(new TargetElement(citizenEntity));
 
-    var targetBuffer = entityManager.GetBuffer<TargetElement>(crimeEvent);
-    targetBuffer.Add(new TargetElement(citizenEntity));
-
-    // Step 3: Add Criminal component to the citizen (Planning state)
-    // CrimeCheckSystem normally does NOT add Criminal directly —
-    // the crime event entity triggers the criminal lifecycle.
-    // The Criminal component with Planning flag is added by event processing.
+    // Step 3: Create AddCriminal event entity to add Criminal component to citizen
+    var addCriminalArchetype = entityManager.CreateArchetype(
+        ComponentType.ReadWrite<Game.Common.Event>(),
+        ComponentType.ReadWrite<AddCriminal>()
+    );
+    Entity cmd = entityManager.CreateEntity(addCriminalArchetype);
+    entityManager.SetComponentData(cmd, new AddCriminal
+    {
+        m_Event = crimeEvent,
+        m_Target = citizenEntity,
+        m_Flags = CriminalFlags.Robber | CriminalFlags.Planning
+    });
 
     prefabChunks.Dispose();
 }
 ```
 
-**Important**: `CrimeCheckSystem` creates the crime event entity, but it's the event processing pipeline that adds the `Criminal` component with `Planning` flag to the citizen. The crime event entity (with `Crime` tag + `TargetElement`) is the trigger.
+`AddCriminalSystem` will process this next frame, adding the `Criminal` component to the citizen and linking them to the crime event. The citizen then enters the `Planning` → `Preparing` → crime lifecycle managed by `CriminalSystem`.
 
 ### Approach 2: Directly Add Criminal Component
 
@@ -457,10 +498,10 @@ Citizens checked by `CrimeCheckSystem` must be:
 - [x] What is the only crime type? → `Robbery` (only enum value in `CrimeType`)
 - [x] How does the criminal lifecycle work? → State machine: Planning → Preparing → At Target → Crime/Arrest → Jail → possibly Prison → Released
 - [x] How does crime accumulation on buildings work? → `CrimeAccumulationSystem` accumulates based on zone rate and police coverage
-- [ ] How exactly does the crime event entity trigger adding the `Criminal` component to the citizen? The event processing between `CrimeCheckSystem` creating the event and `CriminalSystem` reading the `Criminal` component needs further investigation
+- [x] How exactly does the crime event entity trigger adding the `Criminal` component to the citizen? → Via `AddCriminal` event entities processed by `AddCriminalSystem`, which adds the `Criminal` component with `Robber | Planning` flags
 - [ ] What system processes `AccidentSite` state transitions (CrimeDetected, CrimeFinished, etc.)?
 
 ## Sources
 
 - Decompiled from: Game.dll (Cities: Skylines II)
-- Types decompiled: `Criminal`, `CriminalFlags`, `CrimeData`, `CrimeType`, `Crime` (tag), `Crime` (ComponentBase), `CrimeProducer`, `CrimeVictim`, `AccidentSite`, `AccidentSiteFlags`, `AddAccidentSite`, `PoliceConfigurationData`, `CrimeAccumulationData`, `CrimeCheckSystem`, `CriminalSystem`, `CrimeAccumulationSystem`
+- Types decompiled: `Criminal`, `CriminalFlags`, `CrimeData`, `CrimeType`, `Crime` (tag), `Crime` (ComponentBase), `CrimeProducer`, `CrimeVictim`, `AccidentSite`, `AccidentSiteFlags`, `AddAccidentSite`, `AddCriminal`, `PoliceConfigurationData`, `CrimeAccumulationData`, `CrimeCheckSystem`, `CriminalSystem`, `CrimeAccumulationSystem`, `AddCriminalSystem`
