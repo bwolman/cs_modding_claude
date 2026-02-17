@@ -386,6 +386,16 @@ public void ActivateEmergencyLights(EntityManager em, Entity policeCarEntity)
 
 ### Example 2: Dispatch Police to a Specific Building via Emergency Request
 
+> **Warning**: This request-based approach is **unreliable for mod-created requests**. While the
+> code compiles and creates valid-looking entities, the `PoliceEmergencyDispatchSystem` pipeline
+> often silently fails to match and dispatch vehicles for synthetically created requests. The
+> pathfinding and reverse-dispatch matching assumes requests originate from real game events, and
+> mod-created requests frequently get stuck without ever dispatching a car.
+>
+> **Use [Example 3](#example-3-force-a-police-car-to-drive-to-world-coordinates-with-sirens)
+> (direct car manipulation) as the preferred approach** for reliably sending police cars to
+> specific locations.
+
 Create a full emergency dispatch request targeting a specific building. This requires an AccidentSite component on the target for validation.
 
 ```csharp
@@ -397,19 +407,26 @@ using Unity.Entities;
 
 public partial class DispatchPoliceToLocationSystem : GameSystemBase
 {
-    private EntityArchetype m_RequestArchetype;
+    /// <summary>Tracks the dummy event entity so it can be cleaned up.</summary>
+    private Entity m_DummyEventEntity;
 
     protected override void OnCreate()
     {
         base.OnCreate();
-        m_RequestArchetype = EntityManager.CreateArchetype(
-            ComponentType.ReadWrite<ServiceRequest>(),
-            ComponentType.ReadWrite<PoliceEmergencyRequest>(),
-            ComponentType.ReadWrite<RequestGroup>()
-        );
     }
 
     protected override void OnUpdate() { }
+
+    protected override void OnDestroy()
+    {
+        // Clean up the dummy event entity if it exists
+        if (m_DummyEventEntity != Entity.Null
+            && EntityManager.Exists(m_DummyEventEntity))
+        {
+            EntityManager.DestroyEntity(m_DummyEventEntity);
+        }
+        base.OnDestroy();
+    }
 
     /// <summary>
     /// Dispatch police to a target entity. The target must have an AccidentSite
@@ -417,6 +434,18 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
     /// </summary>
     public void DispatchTo(Entity targetEntity)
     {
+        // Create a dummy Event entity so AccidentSiteSystem does not
+        // immediately remove the AccidentSite component.
+        // Entity.Null in m_Event causes AccidentSiteSystem to treat the
+        // site as invalid and remove it.
+        if (m_DummyEventEntity == Entity.Null
+            || !EntityManager.Exists(m_DummyEventEntity))
+        {
+            m_DummyEventEntity = EntityManager.CreateEntity();
+            EntityManager.AddComponentData<Game.Common.Event>(
+                m_DummyEventEntity, default);
+        }
+
         // Ensure target has AccidentSite with RequirePolice
         if (!EntityManager.HasComponent<AccidentSite>(targetEntity))
         {
@@ -424,7 +453,7 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
             {
                 m_Flags = AccidentSiteFlags.RequirePolice | AccidentSiteFlags.CrimeScene
                         | AccidentSiteFlags.CrimeDetected,
-                m_Event = Entity.Null,
+                m_Event = m_DummyEventEntity,
                 m_PoliceRequest = Entity.Null
             });
         }
@@ -432,19 +461,24 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
         {
             AccidentSite site = EntityManager.GetComponentData<AccidentSite>(targetEntity);
             site.m_Flags |= AccidentSiteFlags.RequirePolice;
+            if (site.m_Event == Entity.Null)
+            {
+                site.m_Event = m_DummyEventEntity;
+            }
             EntityManager.SetComponentData(targetEntity, site);
         }
 
-        // Create emergency request
-        Entity request = EntityManager.CreateEntity(m_RequestArchetype);
-        EntityManager.SetComponentData(request, new ServiceRequest());
-        EntityManager.SetComponentData(request, new PoliceEmergencyRequest(
+        // Create emergency request entity with individual AddComponentData
+        // calls (CreateArchetype is not available on netstandard2.1)
+        Entity request = EntityManager.CreateEntity();
+        EntityManager.AddComponentData(request, new ServiceRequest());
+        EntityManager.AddComponentData(request, new PoliceEmergencyRequest(
             targetEntity,   // site
             targetEntity,   // target
             1f,             // priority
             PolicePurpose.Emergency
         ));
-        EntityManager.SetComponentData(request, new RequestGroup(4u));
+        EntityManager.AddComponentData(request, new RequestGroup(4u));
     }
 }
 ```
