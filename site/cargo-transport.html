@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cargo Transport</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html" class="active">Cargo Transport</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Cargo Transport</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How do cargo trains, ships, and planes transport resources
+      between cargo terminals? How do delivery trucks distribute goods from storage/industry
+      to commercial buildings and for building upkeep?
+    </p>
+    <p>
+      <strong>Verdict:</strong> CS2 uses a <strong>three-tier cargo pipeline</strong>. At the top,
+      <code>StorageCompanySystem</code> manages resource inventories at cargo stations and
+      generates <code>StorageTransferRequest</code> entries. These are fulfilled either by
+      <strong>delivery trucks</strong> (local, road-based) or <strong>cargo transport vehicles</strong>
+      (trains/ships/planes on routes). A parallel system handles
+      <strong>goods delivery requests</strong> from buildings that need upkeep or commercial stock,
+      dispatched via <code>GoodsDeliveryDispatchSystem</code>. All three tiers share the same
+      resource types from the <code>Resource</code> enum.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Passenger transport, public transit, resource production at
+      industrial companies, pathfinding subsystem.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <h3>Three Tiers of Cargo Movement</h3>
+
+  <p>Resources move through the city in three distinct ways:</p>
+
+  <ol>
+    <li><strong>Storage Transfers</strong> -- Between cargo stations, storage facilities, and
+    outside connections. Managed by <code>StorageCompanySystem</code> and
+    <code>StorageTransferSystem</code>. Uses delivery trucks for road transport or cargo
+    vehicles for rail/water/air routes.</li>
+    <li><strong>Goods Delivery</strong> -- From commercial/industrial buildings or imports to
+    buildings that need resources (upkeep, commercial stock). Managed by
+    <code>GoodsDeliveryDispatchSystem</code> and <code>GoodsDeliveryFacilityAISystem</code>.</li>
+    <li><strong>Cargo Route Transport</strong> -- Cargo trains, ships, and planes operating on
+    fixed routes between connected cargo stations. Managed by
+    <code>TransportStationAISystem</code> with <code>CargoTransport</code> vehicle components.</li>
+  </ol>
+
+  <h3>Storage Transfer Pipeline</h3>
+
+  <p>
+    Every N frames (configurable via <code>m_TransportInterval</code>), the
+    <code>StorageCompanySystem</code> evaluates each cargo station and storage company:
+  </p>
+
+  <ol>
+    <li>Reads current inventory from <code>Resources</code> buffer</li>
+    <li>Compares against <code>StorageLimitData</code> capacity</li>
+    <li>Calculates trade costs and writes them to <code>TradeCost</code> buffer</li>
+    <li>Generates <code>StorageTransferRequest</code> entries for surplus (export) or
+    deficit (import) resources</li>
+  </ol>
+
+  <p>
+    The <code>StorageTransferSystem</code> then processes these requests:
+  </p>
+
+  <ol>
+    <li>Matches source and destination for each transfer</li>
+    <li>Creates a pathfind request for the delivery route</li>
+    <li>Dispatches a <code>DeliveryTruck</code> entity with the
+    <code>StorageTransfer</code> flag</li>
+    <li>The truck loads at source, drives to destination, unloads, and returns</li>
+  </ol>
+
+  <h3>Goods Delivery Pipeline</h3>
+
+  <p>
+    When a building needs resources (construction upkeep, commercial goods for sale), a
+    <code>GoodsDeliveryRequest</code> entity is created with flags indicating allowed sources:
+  </p>
+
+  <ul>
+    <li><code>CommercialAllowed</code> -- can be fulfilled by commercial buildings</li>
+    <li><code>IndustrialAllowed</code> -- can be fulfilled by industrial producers</li>
+    <li><code>ImportAllowed</code> -- can be imported from outside connections</li>
+    <li><code>BuildingUpkeep</code> -- this is a maintenance delivery</li>
+  </ul>
+
+  <p>
+    <code>GoodsDeliveryDispatchSystem</code> processes these requests on a frame-based update cycle,
+    finding the nearest eligible source and dispatching a vehicle from a
+    <code>GoodsDeliveryFacility</code>.
+  </p>
+
+  <h3>Cargo Transport Vehicles</h3>
+
+  <p>
+    Cargo trains, ships, and planes have the <code>CargoTransport</code> component. They operate
+    on fixed routes between stations, cycling through states:
+  </p>
+
+  <ol>
+    <li><strong>Boarding</strong> -- loading resources at origin station</li>
+    <li><strong>EnRoute</strong> -- traveling along the route</li>
+    <li><strong>Arriving</strong> -- approaching destination station</li>
+    <li><strong>Boarding</strong> (again) -- unloading at destination</li>
+    <li><strong>Returning</strong> -- heading back to home station</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Vehicles</td>
+        <td>CargoTransport, DeliveryTruck, GoodsDeliveryVehicle, CargoTransportFlags, DeliveryTruckFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>CargoTransportStation, TransportStation, GoodsDeliveryFacility, StorageProperty</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Companies</td>
+        <td>StorageTransferRequest, StorageTransferFlags, StorageCompany, TransportCompany, TradeCost</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>StorageCompanySystem, StorageTransferSystem, GoodsDeliveryDispatchSystem, DeliveryTruckAISystem, GoodsDeliveryRequest</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>CargoTransportStation (prefab), StorageCompanyData, CargoTransportStationData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>DeliveryTruck (Game.Vehicles)</h3>
+
+  <p>Attached to delivery truck entities that carry specific resources.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_State</td><td>DeliveryTruckFlags</td><td>Current state (Loaded, Delivering, Returning, etc.)</td></tr>
+      <tr><td>m_Resource</td><td>Resource</td><td>Type of resource being carried</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Quantity of resource in cargo</td></tr>
+    </tbody>
+  </table>
+
+  <h3>GoodsDeliveryRequest (Game.Simulation)</h3>
+
+  <p>Service request entity created when a building needs goods delivered.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ResourceNeeder</td><td>Entity</td><td>Building that needs the resource</td></tr>
+      <tr><td>m_Flags</td><td>GoodsDeliveryFlags</td><td>Allowed sources (Commercial, Industrial, Import)</td></tr>
+      <tr><td>m_Resource</td><td>Resource</td><td>Type of resource needed</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Quantity needed</td></tr>
+    </tbody>
+  </table>
+
+  <h3>StorageTransferRequest (Game.Companies) -- Buffer</h3>
+
+  <p>Buffer on storage buildings listing pending transfer requests.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Flags</td><td>StorageTransferFlags</td><td>Transfer mode (Car, Transport, Track, Incoming)</td></tr>
+      <tr><td>m_Resource</td><td>Resource</td><td>Resource type to transfer</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Quantity to transfer</td></tr>
+      <tr><td>m_Target</td><td>Entity</td><td>Target building or outside connection</td></tr>
+    </tbody>
+  </table>
+
+  <h3>StorageCompanyData (Game.Prefabs)</h3>
+
+  <p>Prefab data defining which resources a storage facility handles.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_StoredResources</td><td>Resource</td><td>Bitmask of resource types this facility stores</td></tr>
+      <tr><td>m_TransportInterval</td><td>int2</td><td>Min/max frames between transport dispatches</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+RESOURCE PRODUCTION (Industrial Companies)
+  Resources stored in company Resources buffer
+        |
+        v
+STORAGE MANAGEMENT (StorageCompanySystem, every N frames)
+  For each cargo station / storage company:
+    Read current inventory vs. storage limits
+    Calculate trade costs
+    Generate StorageTransferRequests
+        |
+        +------------- Storage Transfers -------------+
+        |                                             |
+        v                                             v
+  StorageTransferSystem                    Cargo Route Vehicles
+    Match source/dest pairs                  CargoTransport component
+    Dispatch DeliveryTruck                   Load at origin station
+    with StorageTransfer flag                Travel route (EnRoute)
+        |                                    Unload at destination
+        v                                         |
+  DeliveryTruckAISystem                           v
+    Load at source (Loaded)             TransportStationAISystem
+    Drive to dest (Delivering)            Update station factors
+    Unload resources                      Manage connected routes
+    Return home (Returning)
+        |
+        +--------- Goods Delivery Requests -----------+
+        |                                             |
+        v                                             v
+  GoodsDeliveryRequest                    GoodsDeliveryDispatchSystem
+    Created when buildings                  Find nearest source
+    need upkeep or stock                    Check CommercialAllowed,
+    Flags: BuildingUpkeep,                  IndustrialAllowed,
+    CommercialAllowed, etc.                 ImportAllowed flags
+        |                                         |
+        v                                         v
+  GoodsDeliveryFacilityAISystem          Outside Connections
+    Manage delivery fleet                  Import: resources arrive
+    Dispatch vehicles                      Export: resources sent out
+                                           via OCStationStorageJob
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read Cargo Station Inventory</h3>
+
+  <p>Query a cargo station's stored resources and pending transfers.</p>
+
+  <pre><code class="language-csharp">public void InspectCargoStation(EntityManager em, Entity stationEntity)
+{
+    if (!em.HasComponent&lt;Game.Buildings.CargoTransportStation&gt;(stationEntity))
+        return;
+
+    if (em.HasBuffer&lt;Game.Economy.Resources&gt;(stationEntity))
+    {
+        var resources = em.GetBuffer&lt;Game.Economy.Resources&gt;(stationEntity);
+        for (int i = 0; i &lt; resources.Length; i++)
+            Log.Info($"  {resources[i].m_Resource} = {resources[i].m_Amount}");
+    }
+
+    if (em.HasBuffer&lt;StorageTransferRequest&gt;(stationEntity))
+    {
+        var requests = em.GetBuffer&lt;StorageTransferRequest&gt;(stationEntity);
+        Log.Info($"  Pending transfers: {requests.Length}");
+        for (int i = 0; i &lt; requests.Length; i++)
+        {
+            var req = requests[i];
+            Log.Info($"    {req.m_Resource} x{req.m_Amount} " +
+                     $"flags={req.m_Flags} target={req.m_Target}");
+        }
+    }
+}</code></pre>
+
+  <h3>Track Active Delivery Trucks</h3>
+
+  <p>Count delivery trucks by state to monitor logistics throughput.</p>
+
+  <pre><code class="language-csharp">public partial class DeliveryTruckMonitor : GameSystemBase
+{
+    private EntityQuery _truckQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _truckQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;DeliveryTruck&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var trucks = _truckQuery.ToComponentDataArray&lt;DeliveryTruck&gt;(Allocator.Temp);
+        int loaded = 0, delivering = 0, returning = 0;
+
+        for (int i = 0; i &lt; trucks.Length; i++)
+        {
+            if ((trucks[i].m_State &amp; DeliveryTruckFlags.Loaded) != 0) loaded++;
+            if ((trucks[i].m_State &amp; DeliveryTruckFlags.Delivering) != 0) delivering++;
+            if ((trucks[i].m_State &amp; DeliveryTruckFlags.Returning) != 0) returning++;
+        }
+
+        Log.Info($"Trucks: {trucks.Length} total, {loaded} loaded, " +
+                 $"{delivering} delivering, {returning} returning");
+        trucks.Dispose();
+    }
+}</code></pre>
+
+  <h3>Monitor Unfulfilled Delivery Requests</h3>
+
+  <p>Identify supply chain bottlenecks by tracking pending goods delivery requests.</p>
+
+  <pre><code class="language-csharp">public partial class DeliveryRequestMonitor : GameSystemBase
+{
+    private EntityQuery _requestQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _requestQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;GoodsDeliveryRequest&gt;(),
+            ComponentType.ReadOnly&lt;ServiceRequest&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var requests = _requestQuery.ToComponentDataArray&lt;GoodsDeliveryRequest&gt;(
+            Allocator.Temp);
+
+        var demandByResource = new Dictionary&lt;Resource, int&gt;();
+        for (int i = 0; i &lt; requests.Length; i++)
+        {
+            var req = requests[i];
+            if (!demandByResource.ContainsKey(req.m_Resource))
+                demandByResource[req.m_Resource] = 0;
+            demandByResource[req.m_Resource] += req.m_Amount;
+        }
+
+        foreach (var kvp in demandByResource)
+            Log.Info($"Unfulfilled: {kvp.Key} = {kvp.Value}");
+
+        requests.Dispose();
+    }
+}</code></pre>
+
+  <h3>Modify Cargo Station Traded Resources</h3>
+
+  <p>Change which resources a cargo station prefab can handle.</p>
+
+  <pre><code class="language-csharp">public void AddResourceToStation(EntityManager em,
+    Entity stationPrefabEntity, Resource additionalResource)
+{
+    if (!em.HasComponent&lt;StorageCompanyData&gt;(stationPrefabEntity)) return;
+
+    StorageCompanyData data =
+        em.GetComponentData&lt;StorageCompanyData&gt;(stationPrefabEntity);
+    data.m_StoredResources |= additionalResource;
+    em.SetComponentData(stationPrefabEntity, data);
+}</code></pre>
+
+  <h3>Query Cargo Transport Vehicle Status</h3>
+
+  <p>Check the state of all cargo transport vehicles (trains, ships, planes) on routes.</p>
+
+  <pre><code class="language-csharp">public partial class CargoVehicleMonitor : GameSystemBase
+{
+    private EntityQuery _cargoQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _cargoQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;CargoTransport&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var vehicles = _cargoQuery.ToComponentDataArray&lt;CargoTransport&gt;(
+            Allocator.Temp);
+
+        int enRoute = 0, boarding = 0, returning = 0;
+        for (int i = 0; i &lt; vehicles.Length; i++)
+        {
+            var v = vehicles[i];
+            if ((v.m_State &amp; CargoTransportFlags.EnRoute) != 0) enRoute++;
+            if ((v.m_State &amp; CargoTransportFlags.Boarding) != 0) boarding++;
+            if ((v.m_State &amp; CargoTransportFlags.Returning) != 0) returning++;
+        }
+
+        Log.Info($"Cargo: {vehicles.Length} total, {enRoute} en route, " +
+                 $"{boarding} boarding, {returning} returning");
+        vehicles.Dispose();
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Cargo Station Prefab Settings</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Traded resources</td>
+        <td>CargoTransportStation.m_TradedResources</td>
+        <td>Which resource types this station can handle</td>
+      </tr>
+      <tr>
+        <td>Vehicle count</td>
+        <td>CargoTransportStation.transports</td>
+        <td>Number of cargo vehicles owned by station</td>
+      </tr>
+      <tr>
+        <td>Loading efficiency</td>
+        <td>CargoTransportStation.m_LoadingFactor</td>
+        <td>How fast cargo is loaded/unloaded</td>
+      </tr>
+      <tr>
+        <td>Work multiplier</td>
+        <td>CargoTransportStation.m_WorkMultiplier</td>
+        <td>Work efficiency for goods processing</td>
+      </tr>
+      <tr>
+        <td>Transport interval</td>
+        <td>StorageCompanyData.m_TransportInterval</td>
+        <td>Min/max frames between transport dispatches</td>
+      </tr>
+      <tr>
+        <td>Fuel types</td>
+        <td>TransportStation.m_*RefuelTypes</td>
+        <td>Supported energy types for each vehicle class</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Cargo route assignment:</strong> How cargo vehicles are assigned to specific routes
+      between stations is managed by the route/transport system, not fully traced here.
+    </li>
+    <li>
+      <strong>Trade cost formula:</strong> The exact calculation StorageCompanySystem uses to
+      compute TradeCost entries is inside a Burst-compiled job and not easily modified.
+    </li>
+    <li>
+      <strong>Import/export capacity:</strong> How outside connection throughput limits are
+      enforced on cargo transport needs further investigation.
+    </li>
+    <li>
+      <strong>Vehicle fleet sizing:</strong> How the game creates or destroys cargo vehicles
+      based on demand versus available transport capacity.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Vehicles.CargoTransport, Game.Vehicles.DeliveryTruck, Game.Vehicles.GoodsDeliveryVehicle</li>
+    <li>Building components: Game.Buildings.CargoTransportStation, Game.Buildings.TransportStation, Game.Buildings.GoodsDeliveryFacility</li>
+    <li>Systems: Game.Simulation.StorageCompanySystem, Game.Simulation.StorageTransferSystem, Game.Simulation.GoodsDeliveryDispatchSystem, Game.Simulation.DeliveryTruckAISystem, Game.Simulation.TransportStationAISystem</li>
+    <li>Prefab types: Game.Prefabs.CargoTransportStation, Game.Prefabs.StorageCompanyData, Game.Prefabs.CargoTransportStationData</li>
+    <li>Request types: Game.Simulation.GoodsDeliveryRequest, Game.Companies.StorageTransferRequest</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- CargoTransport, DeliveryTruck, StorageCompanySystem, GoodsDeliveryDispatchSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
