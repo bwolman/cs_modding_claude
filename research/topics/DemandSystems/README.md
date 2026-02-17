@@ -286,6 +286,36 @@ When `m_Enable` is true, `ResidentialDemandSystem` applies the weights selector 
 
 An `EntityQueryModePrefab` subclass under `ComponentMenu("Modes/Mode Parameters/")` that can override most `DemandParameterData` fields for specific game modes. It implements `ApplyModeData()` to write overridden values to the `DemandParameterData` singleton, and `RestoreDefaultData()` to reset fields from the original `DemandPrefab` values. Note: `DemandParameterMode` does **not** override the storage-related fields (`m_CommercialStorageMinimum`, `m_CommercialStorageEffect`, `m_IndustrialStorageMinimum`, `m_IndustrialStorageEffect`, `m_StorageDemandMultiplier`, `m_FreeCommercialProportion`, `m_FreeIndustrialProportion`).
 
+### CountResidentialPropertySystem and Vacancy Control
+
+`CountResidentialPropertySystem` is a dependency system that runs before the demand systems. It counts available (free) residential properties per density tier and feeds these counts into `ResidentialDemandSystem`. The free property counts are compared against `DemandParameterData.m_FreeResidentialRequirement` to determine building demand:
+
+- `m_FreeResidentialRequirement` is an `int3` where `x` = low density threshold, `y` = medium density threshold, `z` = high density threshold.
+- Default values are `(5, 10, 10)`, meaning the game targets at least 5 free low-density properties, 10 free medium, and 10 free high.
+- When free properties fall below the requirement, building demand increases. The formula is: `100 * (requirement - freeProps) / requirement`.
+- When free properties meet or exceed the requirement, building demand from this factor is 0 or negative (suppressing spawning).
+
+**Dynamic m_FreeResidentialRequirement adjustment**: Community mods (e.g., RealisticWorkplacesAndHouseholds) dynamically modify `m_FreeResidentialRequirement` at runtime to control vacancy rates. By increasing the requirement, mods can force the game to maintain a larger buffer of empty properties, which keeps building demand higher and causes more buildings to spawn. By decreasing it, mods reduce the buffer and slow down building construction.
+
+```csharp
+// Dynamically adjust vacancy requirement based on city population
+var paramQuery = GetEntityQuery(ComponentType.ReadWrite<DemandParameterData>());
+var data = paramQuery.GetSingleton<DemandParameterData>();
+
+int population = ...; // from CountHouseholdDataSystem
+int scaledRequirement = math.max(5, population / 500); // Scale with pop
+
+data.m_FreeResidentialRequirement = new int3(
+    scaledRequirement,          // low density
+    scaledRequirement * 2,      // medium density
+    scaledRequirement * 2       // high density
+);
+
+paramQuery.SetSingleton(data);
+```
+
+This is a powerful lever for controlling city growth rate because it directly affects whether `ZoneSpawnSystem` receives positive building demand values. The mod can run a custom system that adjusts this value every few frames based on whatever criteria it wants (population size, time of day, player setting, etc.).
+
 ### Cross-References
 
 See also: [Citizens & Households](../CitizensHouseholds/README.md) for `CountHouseholdDataSystem`, which provides household counts, unemployment rate, homeless household count, and resource needs consumed by all three demand systems.

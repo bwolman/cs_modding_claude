@@ -496,6 +496,50 @@ UI InfoView                              [reads factor arrays for demand bar dis
   </div>
 
   <!-- ============================================================ -->
+  <h2>CountResidentialPropertySystem and Vacancy Control</h2>
+
+  <p>
+    <code>CountResidentialPropertySystem</code> runs before the demand systems, counting available
+    (free) residential properties per density tier. These counts feed into
+    <code>ResidentialDemandSystem</code> and are compared against
+    <code>DemandParameterData.m_FreeResidentialRequirement</code>:
+  </p>
+
+  <ul>
+    <li><code>m_FreeResidentialRequirement</code> is an <code>int3</code>: x=low, y=medium, z=high density thresholds</li>
+    <li>Default: <code>(5, 10, 10)</code> -- targets 5 free low-density, 10 medium, 10 high</li>
+    <li>When free properties &lt; requirement, building demand increases: <code>100 * (requirement - free) / requirement</code></li>
+    <li>When free properties &gt;= requirement, this factor is 0 or negative (suppresses spawning)</li>
+  </ul>
+
+  <p>
+    <strong>Dynamic adjustment:</strong> Community mods dynamically modify
+    <code>m_FreeResidentialRequirement</code> to control vacancy rates. Increasing the requirement
+    forces a larger buffer of empty properties, keeping demand higher and spawning more buildings.
+    Decreasing it slows construction.
+  </p>
+
+  <pre><code class="language-csharp">// Dynamically adjust vacancy requirement based on population
+var paramQuery = GetEntityQuery(ComponentType.ReadWrite&lt;DemandParameterData&gt;());
+var data = paramQuery.GetSingleton&lt;DemandParameterData&gt;();
+
+int population = ...; // from CountHouseholdDataSystem
+int scaledReq = math.max(5, population / 500);
+
+data.m_FreeResidentialRequirement = new int3(
+    scaledReq,        // low density
+    scaledReq * 2,    // medium density
+    scaledReq * 2     // high density
+);
+
+paramQuery.SetSingleton(data);</code></pre>
+
+  <p>
+    This is a powerful lever for controlling city growth because it directly determines whether
+    <code>ZoneSpawnSystem</code> receives positive building demand values.
+  </p>
+
+  <!-- ============================================================ -->
   <h2>Modding Approaches</h2>
 
   <h3>1. Modify DemandParameterData at Runtime</h3>
