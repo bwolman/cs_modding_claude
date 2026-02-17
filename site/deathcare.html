@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deathcare System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html" class="active">Deathcare</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Deathcare System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 handle citizen death, hearse dispatch, corpse
+      transport, and processing at cemeteries and crematoriums?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Deathcare operates through a multi-stage pipeline.
+      <code>DeathCheckSystem</code> determines whether sick or injured citizens die or recover,
+      using health-based probability formulas and hospital treatment bonuses. Dead citizens receive
+      the <code>HealthProblemFlags.Dead | RequireTransport</code> flags, which route them through
+      the shared <code>HealthcareDispatchSystem</code> to deathcare facilities.
+      <code>DeathcareFacilityAISystem</code> (running every 256 frames, offset 32) manages hearse
+      spawning, corpse processing, and long-term storage. Cemeteries provide permanent burial
+      (<code>m_LongTermStorage = true</code>) while crematoriums consume corpses through a
+      processing rate formula.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> The sickness/injury origin systems (SicknessCheckSystem,
+      AddHealthProblemSystem) and hospital treatment are covered in the
+      <a href="healthcare.html">Healthcare</a> research topic.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The deathcare pipeline has four stages: death determination, corpse routing and dispatch,
+    facility processing, and hearse lifecycle.
+  </p>
+
+  <h3>Stage 1: Death Determination</h3>
+
+  <p>
+    <code>DeathCheckSystem</code> runs per citizen on their UpdateFrame. For each citizen, it
+    checks two paths to death:
+  </p>
+
+  <p><strong>Natural death</strong> uses an age-based curve from
+    <code>HealthcareParameterData.m_DeathRate</code>:</p>
+
+  <pre><code class="language-csharp">float normalizedAge = ageInDays / daysPerYear / kMaxAgeInGameYear;
+bool dies = citizen.GetPseudoRandom(Death).NextFloat() &lt; DeathRate.Evaluate(normalizedAge);</code></pre>
+
+  <p><strong>Sick/injured death</strong> uses a health-based probability:</p>
+
+  <pre><code class="language-csharp">// Death chance: lower health = higher chance
+int deathChance = (10 - health / 10) * (10 - health / 10) + 8;
+bool dies = random.NextInt(kUpdatesPerDay * 1000) &lt; deathChance;</code></pre>
+
+  <p>
+    At health 50, the death chance is <code>(10-5)^2 + 8 = 33</code> per
+    <code>kUpdatesPerDay * 1000</code> checks. At health 10, it rises to
+    <code>(10-1)^2 + 8 = 89</code>.
+  </p>
+
+  <h3>Stage 1b: Recovery Check</h3>
+
+  <p>
+    If a sick/injured citizen does not die, the system checks for recovery using a
+    <strong>logistic function</strong>:
+  </p>
+
+  <pre><code class="language-csharp">float severity = (10f - health / 10f) / 10f;
+float recoveryFail = Logistic(3f, 1000f, 6f, severity - 0.35f);
+recoveryFail -= 10f * treatmentBonus;  // Hospital treatment directly reduces failure
+ApplyModifier(ref recoveryFail, RecoveryFailChange);  // City modifier
+bool recovers = random.NextFloat(1000f) &gt;= recoveryFail;</code></pre>
+
+  <p>
+    A hospital treatment bonus of 100 subtracts 1000 from recoveryFail, effectively guaranteeing
+    recovery. Citizens who recover have their <code>HealthProblem</code> flags cleared.
+  </p>
+
+  <h3>Stage 2: Corpse Routing and Dispatch</h3>
+
+  <p>
+    When a citizen dies, <code>DeathCheckSystem.Die()</code> sets
+    <code>HealthProblemFlags.Dead | RequireTransport</code> and removes the citizen's
+    <code>Worker</code>, <code>Student</code>, <code>ResourceBuyer</code>, and <code>Leisure</code>
+    components. The shared <code>HealthProblemSystem</code> detects dead citizens needing transport
+    and creates a <code>HealthcareRequest</code> of type <code>Hearse</code>. The
+    <code>HealthcareDispatchSystem</code> matches this request to the nearest
+    <code>DeathcareFacility</code> via spatial search and adds a <code>ServiceDispatch</code>
+    entry to the facility's buffer.
+  </p>
+
+  <h3>Stage 3: Facility Processing</h3>
+
+  <p>
+    <code>DeathcareFacilityAISystem</code> runs <strong>every 256 frames</strong> (offset 32).
+    For each facility, it:
+  </p>
+
+  <ol>
+    <li>Advances the <strong>processing state</strong>:
+      <code>processingState += efficiency * processingRate * 0.0009765625</code></li>
+    <li>Processes <strong>long-term stored corpses</strong>: if processingState &gt;= 1.0,
+      decrements the long-term count (gradual decomposition in cemeteries)</li>
+    <li>Processes <strong>queued patients</strong> (Patient buffer): if processingState &gt;= 1.0,
+      deletes the corpse entity (cremation complete); otherwise if long-term storage, moves to
+      <code>m_LongTermStoredCount</code> (burial)</li>
+    <li>Manages <strong>hearse capacity</strong> -- enables/disables hearses based on efficiency</li>
+    <li>Updates <strong>facility flags</strong>: HasAvailableHearses, HasRoomForBodies,
+      CanProcessCorpses, CanStoreCorpses</li>
+    <li>Shows <strong>IsFull notification</strong> when cemetery reaches storage capacity</li>
+    <li>Creates <strong>reverse requests</strong> when hearses and room are available, proactively
+      seeking corpses</li>
+  </ol>
+
+  <h3>Stage 4: Hearse Lifecycle</h3>
+
+  <p>
+    <code>HearseAISystem</code> manages the hearse state machine through these states:
+  </p>
+
+  <ol>
+    <li><strong>Dispatched</strong> -- navigate to corpse location</li>
+    <li><strong>AtTarget</strong> -- arrived at corpse; pick up as Passenger</li>
+    <li><strong>Transporting</strong> -- carry corpse back to facility</li>
+    <li><strong>Disembarking</strong> -- corpse unloaded, added to Patient buffer</li>
+    <li><strong>Returning</strong> -- empty hearse navigates back to home facility</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>DeathCheckSystem, DeathcareFacilityAISystem, HearseAISystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>DeathcareFacility, DeathcareFacilityFlags, Patient (shared with hospitals)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Vehicles</td>
+        <td>Hearse, HearseFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Citizens</td>
+        <td>HealthProblem, HealthProblemFlags (Dead flag)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>DeathcareFacilityData, HearseData, HealthcareParameterData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>DeathcareFacility (Game.Buildings)</h3>
+
+  <p>Runtime component on cemetery and crematorium building entities.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TargetRequest</td><td>Entity</td><td>Current reverse service request (facility seeking corpses)</td></tr>
+      <tr><td>m_Flags</td><td>DeathcareFacilityFlags</td><td>Capability flags updated each tick</td></tr>
+      <tr><td>m_ProcessingState</td><td>float</td><td>Accumulated processing progress (corpses processed when &gt;= 1.0)</td></tr>
+      <tr><td>m_LongTermStoredCount</td><td>int</td><td>Number of bodies in long-term storage (cemetery graves)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>DeathcareFacilityFlags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>HasAvailableHearses</td><td>1</td><td>Has idle hearses available for dispatch</td></tr>
+      <tr><td>HasRoomForBodies</td><td>2</td><td>Current stored count &lt; storage capacity</td></tr>
+      <tr><td>CanProcessCorpses</td><td>4</td><td>Has processing rate &gt; 0 (crematorium)</td></tr>
+      <tr><td>CanStoreCorpses</td><td>8</td><td>Has storage capacity &gt; 0 (cemetery)</td></tr>
+      <tr><td>IsFull</td><td>16</td><td>Storage at capacity (triggers notification icon)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Hearse (Game.Vehicles)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_State</td><td>HearseFlags</td><td>Current operational state</td></tr>
+      <tr><td>m_TargetCorpse</td><td>Entity</td><td>Citizen entity (corpse) being picked up or transported</td></tr>
+      <tr><td>m_TargetRequest</td><td>Entity</td><td>Service request being fulfilled</td></tr>
+      <tr><td>m_PathElementTime</td><td>float</td><td>Path timing for travel</td></tr>
+    </tbody>
+  </table>
+
+  <h3>HearseFlags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Returning</td><td>1</td><td>Heading back to facility</td></tr>
+      <tr><td>Dispatched</td><td>2</td><td>En route to pick up corpse</td></tr>
+      <tr><td>Transporting</td><td>4</td><td>Carrying corpse to facility</td></tr>
+      <tr><td>AtTarget</td><td>8</td><td>Arrived at corpse location</td></tr>
+      <tr><td>Disembarking</td><td>16</td><td>Corpse being unloaded at facility</td></tr>
+      <tr><td>Disabled</td><td>32</td><td>Hearse disabled (over capacity)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>DeathcareFacilityData (Game.Prefabs)</h3>
+
+  <p>Prefab configuration for cemeteries and crematoriums. Supports <code>Combine()</code> for
+    upgrade stacking.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_HearseCapacity</td><td>int</td><td>Maximum number of hearses</td></tr>
+      <tr><td>m_StorageCapacity</td><td>int</td><td>Max bodies stored (graves for cemetery, processing queue for crematorium)</td></tr>
+      <tr><td>m_ProcessingRate</td><td>float</td><td>Cremation/processing speed per tick (0 = storage only)</td></tr>
+      <tr><td>m_LongTermStorage</td><td>bool</td><td>True for cemeteries (bodies stay), false for crematoriums (bodies consumed)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>HearseData (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_CorpseCapacity</td><td>int</td><td>Number of corpses the hearse can carry</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+DEATH DETERMINATION (DeathCheckSystem, per citizen per UpdateFrame)
+  Natural death: age-based curve from HealthcareParameterData.m_DeathRate
+  Sick/injured death: (10 - health/10)^2 + 8 vs random(kUpdatesPerDay * 1000)
+  Recovery check: Logistic(3, 1000, 6, severity - 0.35) - 10*treatmentBonus
+  If death: set HealthProblemFlags.Dead | RequireTransport
+            remove Worker, Student, ResourceBuyer, Leisure
+          |
+          v
+CORPSE ROUTING (HealthProblemSystem -- shared with Healthcare)
+  Dead + RequireTransport -&gt; create HealthcareRequest(Hearse)
+  Timer-based notification for waiting corpses
+          |
+          v
+DISPATCH (HealthcareDispatchSystem -- shared with Healthcare)
+  Match Hearse request to nearest DeathcareFacility
+  District-based spatial quad tree search
+  Add ServiceDispatch to facility buffer
+          |
+          v
+FACILITY PROCESSING (DeathcareFacilityAISystem, every 256 frames offset 32)
+  processingState += efficiency * processingRate * 0.0009765625
+  For pending ServiceDispatches: spawn hearse
+  For Patient buffer entries:
+    If processingState &gt;= 1.0: delete corpse entity (cremation)
+    Else if longTermStorage: move to m_LongTermStoredCount (burial)
+  Process long-term stored: if processingState &gt;= 1.0, decrement count
+  Update flags: hearses, room, processing capability
+  IsFull notification for cemeteries at capacity
+          |
+          v
+HEARSE LIFECYCLE (HearseAISystem)
+  Dispatched -&gt; navigate to corpse location
+  AtTarget -&gt; pick up corpse (Passenger)
+  Transporting -&gt; navigate to facility
+  Disembarking -&gt; corpse unloaded, added to Patient buffer
+  Returning -&gt; navigate back to home facility
+          |
+          v
+CORPSE DISPOSAL
+  Crematorium: processingState accumulates, corpse entity deleted when &gt;= 1.0
+  Cemetery: corpse moved to m_LongTermStoredCount, entity deleted
+            Long-term stored gradually processed (consumed) over time
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Check Deathcare Facility Status</h3>
+
+  <pre><code class="language-csharp">public partial class DeathcareMonitorSystem : GameSystemBase
+{
+    private EntityQuery _facilityQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _facilityQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;DeathcareFacility&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _facilityQuery.ToEntityArray(Allocator.Temp);
+        foreach (Entity entity in entities)
+        {
+            var facility = EntityManager.GetComponentData&lt;DeathcareFacility&gt;(entity);
+            var prefabRef = EntityManager.GetComponentData&lt;PrefabRef&gt;(entity);
+            var data = EntityManager.GetComponentData&lt;DeathcareFacilityData&gt;(prefabRef.m_Prefab);
+
+            int totalStored = facility.m_LongTermStoredCount;
+            if (EntityManager.HasBuffer&lt;Patient&gt;(entity))
+                totalStored += EntityManager.GetBuffer&lt;Patient&gt;(entity).Length;
+
+            Log.Info($"Deathcare {entity}: {totalStored}/{data.m_StorageCapacity}");
+            Log.Info($"  Processing: {facility.m_ProcessingState:F3}, Rate: {data.m_ProcessingRate}");
+            Log.Info($"  Long-term: {data.m_LongTermStorage}, Hearses: {(facility.m_Flags &amp; DeathcareFacilityFlags.HasAvailableHearses) != 0}");
+            Log.Info($"  Full: {(facility.m_Flags &amp; DeathcareFacilityFlags.IsFull) != 0}");
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Modify Deathcare Facility Prefabs</h3>
+
+  <pre><code class="language-csharp">public partial class DeathcareBoostSystem : GameSystemBase
+{
+    private EntityQuery _prefabQuery;
+    private bool _applied;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _prefabQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;DeathcareFacilityData&gt;(),
+            ComponentType.ReadOnly&lt;PrefabData&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_applied) return;
+        _applied = true;
+
+        var entities = _prefabQuery.ToEntityArray(Allocator.Temp);
+        foreach (Entity entity in entities)
+        {
+            DeathcareFacilityData data = EntityManager.GetComponentData&lt;DeathcareFacilityData&gt;(entity);
+            data.m_StorageCapacity *= 2;         // Double storage
+            data.m_ProcessingRate *= 1.5f;        // 50% faster processing
+            data.m_HearseCapacity += 2;           // 2 extra hearses
+            EntityManager.SetComponentData(entity, data);
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Track Hearse Fleet</h3>
+
+  <pre><code class="language-csharp">public partial class HearseTrackerSystem : GameSystemBase
+{
+    private EntityQuery _hearseQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _hearseQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Hearse&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var hearses = _hearseQuery.ToComponentDataArray&lt;Hearse&gt;(Allocator.Temp);
+        int dispatched = 0, transporting = 0, returning = 0, idle = 0;
+        for (int i = 0; i &lt; hearses.Length; i++)
+        {
+            HearseFlags s = hearses[i].m_State;
+            if ((s &amp; HearseFlags.Transporting) != 0) transporting++;
+            else if ((s &amp; HearseFlags.Dispatched) != 0) dispatched++;
+            else if ((s &amp; HearseFlags.Returning) != 0) returning++;
+            else idle++;
+        }
+        Log.Info($"Hearses: {hearses.Length} - D:{dispatched} T:{transporting} R:{returning} I:{idle}");
+        hearses.Dispose();
+    }
+}</code></pre>
+
+  <h3>Count Dead Citizens Awaiting Pickup</h3>
+
+  <pre><code class="language-csharp">public void CountDeadCitizens(EntityManager em)
+{
+    EntityQuery deadQuery = em.CreateEntityQuery(
+        ComponentType.ReadOnly&lt;HealthProblem&gt;(),
+        ComponentType.ReadOnly&lt;Citizen&gt;(),
+        ComponentType.Exclude&lt;Deleted&gt;()
+    );
+    var problems = deadQuery.ToComponentDataArray&lt;HealthProblem&gt;(Allocator.Temp);
+    int dead = 0, awaitingPickup = 0;
+    for (int i = 0; i &lt; problems.Length; i++)
+    {
+        if ((problems[i].m_Flags &amp; HealthProblemFlags.Dead) != 0)
+        {
+            dead++;
+            if ((problems[i].m_Flags &amp; HealthProblemFlags.RequireTransport) != 0)
+                awaitingPickup++;
+        }
+    }
+    Log.Info($"Dead citizens: {dead}, awaiting hearse: {awaitingPickup}");
+    problems.Dispose();
+    deadQuery.Dispose();
+}</code></pre>
+
+  <h3>Understanding the Recovery Formula</h3>
+
+  <pre><code class="language-csharp">// The DeathCheckSystem recovery formula explained:
+// For a sick/injured citizen each UpdateFrame:
+//
+// 1. Death chance: (10 - health/10)^2 + 8 out of kUpdatesPerDay * 1000
+//    At health=50: (10-5)^2 + 8 = 33 / (kUpdatesPerDay * 1000)
+//    At health=10: (10-1)^2 + 8 = 89 / (kUpdatesPerDay * 1000)
+//
+// 2. Recovery chance (if no death):
+//    recoveryFail = Logistic(3, 1000, 6, severity - 0.35)
+//    where severity = (10 - health/10) / 10
+//    recoveryFail -= 10 * hospital.m_TreatmentBonus
+//    ApplyModifier(recoveryFail, RecoveryFailChange)
+//    Recover if random.NextFloat(1000) &gt;= recoveryFail
+//
+// Hospital treatment bonus directly reduces recovery failure chance.
+// A treatmentBonus of 100 subtracts 1000 from recoveryFail, guaranteeing recovery.</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Hearse capacity</td>
+        <td>DeathcareFacilityData.m_HearseCapacity</td>
+        <td>Varies per building</td>
+        <td>Max hearses per facility</td>
+      </tr>
+      <tr>
+        <td>Storage capacity</td>
+        <td>DeathcareFacilityData.m_StorageCapacity</td>
+        <td>Varies per building</td>
+        <td>Max bodies stored (graves or processing queue)</td>
+      </tr>
+      <tr>
+        <td>Processing rate</td>
+        <td>DeathcareFacilityData.m_ProcessingRate</td>
+        <td>Varies (0 = storage only)</td>
+        <td>Speed of cremation/decomposition per 256-frame tick</td>
+      </tr>
+      <tr>
+        <td>Long-term storage</td>
+        <td>DeathcareFacilityData.m_LongTermStorage</td>
+        <td>true (cemetery), false (crematorium)</td>
+        <td>Whether corpses are stored permanently or consumed</td>
+      </tr>
+      <tr>
+        <td>Corpse capacity (vehicle)</td>
+        <td>HearseData.m_CorpseCapacity</td>
+        <td>Varies</td>
+        <td>Corpses a single hearse can carry</td>
+      </tr>
+      <tr>
+        <td>Death rate curve</td>
+        <td>HealthcareParameterData.m_DeathRate</td>
+        <td>AnimationCurve1</td>
+        <td>Age-based natural death probability</td>
+      </tr>
+      <tr>
+        <td>Recovery modifier</td>
+        <td>CityModifier RecoveryFailChange</td>
+        <td>0 (no change)</td>
+        <td>City-wide adjustment to recovery failure rate</td>
+      </tr>
+      <tr>
+        <td>Facility update interval</td>
+        <td>DeathcareFacilityAISystem.GetUpdateInterval</td>
+        <td>256 frames (offset 32)</td>
+        <td>How often facilities process corpses and dispatch hearses</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Cemetery vs Crematorium</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Cemetery</th><th>Crematorium</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>m_LongTermStorage</td>
+        <td>true</td>
+        <td>false</td>
+      </tr>
+      <tr>
+        <td>m_ProcessingRate</td>
+        <td>Low (gradual decomposition)</td>
+        <td>Higher (active cremation)</td>
+      </tr>
+      <tr>
+        <td>Corpse handling</td>
+        <td>Moved to m_LongTermStoredCount on arrival</td>
+        <td>Deleted when processingState &gt;= 1.0</td>
+      </tr>
+      <tr>
+        <td>Capacity</td>
+        <td>Fixed graves; IsFull notification when full</td>
+        <td>Processing queue; throughput-limited</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>kMaxAgeInGameYear:</strong> The exact value of this constant in the natural death
+      curve normalization -- it determines how the AnimationCurve1 maps to citizen age.
+    </li>
+    <li>
+      <strong>Cemetery decomposition:</strong> Whether cemetery graves are naturally emptied over
+      time. The processing logic runs on long-term stored count, suggesting gradual decomposition.
+    </li>
+    <li>
+      <strong>Facility selection:</strong> How the hearse determines which deathcare facility to
+      deliver to when multiple are available -- likely handled by the pathfinding setup.
+    </li>
+    <li>
+      <strong>kUpdatesPerDay:</strong> The exact value of this constant which scales the death
+      probability for sick/injured citizens.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.DeathCheckSystem, Game.Simulation.DeathcareFacilityAISystem, Game.Simulation.HearseAISystem</li>
+    <li>Runtime components: Game.Buildings.DeathcareFacility, Game.Vehicles.Hearse, Game.Citizens.HealthProblem</li>
+    <li>Prefab types: Game.Prefabs.DeathcareFacilityData, Game.Prefabs.HearseData, Game.Prefabs.HealthcareParameterData</li>
+    <li>Enums: DeathcareFacilityFlags, HearseFlags, HealthProblemFlags</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- DeathCheckSystem, DeathcareFacilityAISystem, HearseAISystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
