@@ -735,6 +735,125 @@ namespace MyMod.Systems
 }
 ```
 
+## Community Mod ISerializable Pattern
+
+Community mods like RealisticWorkplacesAndHouseholds demonstrate a robust pattern for persisting custom per-entity data across save/load. The key elements are:
+
+1. **Version byte as first field**: Always write a version byte first so older saves can be deserialized correctly when the mod adds new fields.
+2. **Begin/End blocks**: Use `writer.Begin()` / `writer.End(block)` and `reader.Begin()` / `reader.End(block)` for forward-compatible size-prefixed sections. If a newer save has more data than the reader expects, `End(block)` skips the excess bytes.
+3. **Defensive defaults**: When loading an older save that lacks newer fields, set sensible defaults rather than leaving them uninitialized.
+
+### Complete Versioned Component Example
+
+```csharp
+using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// <summary>
+/// Per-building component that tracks custom workplace/household adjustments.
+/// Uses versioned serialization for safe mod updates.
+/// </summary>
+public struct CustomBuildingData : IComponentData, ISerializable
+{
+    public int m_CustomWorkplaces;
+    public float m_EfficiencyModifier;
+
+    // v2 additions
+    public bool m_IsManualOverride;
+    public int m_OriginalWorkplaces;
+
+    private const byte kCurrentVersion = 2;
+
+    public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        writer.Write(m_CustomWorkplaces);
+        writer.Write(m_EfficiencyModifier);
+        // v2 fields
+        writer.Write(m_IsManualOverride);
+        writer.Write(m_OriginalWorkplaces);
+    }
+
+    public void Deserialize<TReader>(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+
+        // v1 fields (always present)
+        reader.Read(out m_CustomWorkplaces);
+        reader.Read(out m_EfficiencyModifier);
+
+        if (version >= 2)
+        {
+            reader.Read(out m_IsManualOverride);
+            reader.Read(out m_OriginalWorkplaces);
+        }
+        else
+        {
+            // Defaults for saves from before v2
+            m_IsManualOverride = false;
+            m_OriginalWorkplaces = m_CustomWorkplaces;
+        }
+    }
+}
+```
+
+### System-Level State with IDefaultSerializable
+
+For mod-wide singleton state (e.g., tracking whether the mod has already processed building prefabs on this save), combine `IDefaultSerializable` with the same versioning pattern:
+
+```csharp
+using Colossal.Serialization.Entities;
+using Game;
+
+public partial class ModStateTracker : GameSystemBase, IDefaultSerializable
+{
+    private bool m_PrefabsProcessed;
+    private int m_ProcessedBuildingCount;
+    private float m_GlobalMultiplier;
+
+    private const byte kCurrentVersion = 1;
+
+    public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        writer.Write(m_PrefabsProcessed);
+        writer.Write(m_ProcessedBuildingCount);
+        writer.Write(m_GlobalMultiplier);
+    }
+
+    public void Deserialize<TReader>(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out m_PrefabsProcessed);
+        reader.Read(out m_ProcessedBuildingCount);
+        reader.Read(out m_GlobalMultiplier);
+    }
+
+    public void SetDefaults(Context context)
+    {
+        m_PrefabsProcessed = false;
+        m_ProcessedBuildingCount = 0;
+        m_GlobalMultiplier = 1.0f;
+    }
+
+    protected override void OnUpdate()
+    {
+        // Use m_PrefabsProcessed to avoid re-processing on every update
+        if (!m_PrefabsProcessed)
+        {
+            // Process building prefabs...
+            m_PrefabsProcessed = true;
+        }
+    }
+}
+```
+
+This pattern ensures that:
+- New games get clean defaults via `SetDefaults`
+- Existing saves restore their state correctly
+- Future mod versions can add fields without breaking older saves
+- The system tracks whether initialization work has been done on this save
+
 ## Open Questions
 
 - [ ] How does the serialization handle entity references in custom components when the referenced entity doesn't exist in an older save? (Likely remapped to Entity.Null)

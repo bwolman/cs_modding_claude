@@ -713,6 +713,135 @@ public struct Citizen : IComponentData, ISerializable
   </p>
 
   <!-- ============================================================ -->
+  <h2>Community Mod ISerializable Pattern</h2>
+
+  <p>
+    Community mods like RealisticWorkplacesAndHouseholds demonstrate a robust pattern for persisting
+    custom per-entity data across save/load. The key elements are:
+  </p>
+
+  <ol>
+    <li><strong>Version byte as first field</strong>: Always write a version byte first so older saves
+    can be deserialized correctly when the mod adds new fields.</li>
+    <li><strong>Begin/End blocks</strong>: Use <code>writer.Begin()</code> / <code>writer.End(block)</code>
+    and <code>reader.Begin()</code> / <code>reader.End(block)</code> for forward-compatible size-prefixed
+    sections. If a newer save has more data than the reader expects, <code>End(block)</code> skips the
+    excess bytes.</li>
+    <li><strong>Defensive defaults</strong>: When loading an older save that lacks newer fields, set
+    sensible defaults rather than leaving them uninitialized.</li>
+  </ol>
+
+  <h3>Complete Versioned Component Example</h3>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Per-building component that tracks custom workplace/household adjustments.
+/// Uses versioned serialization for safe mod updates.
+/// &lt;/summary&gt;
+public struct CustomBuildingData : IComponentData, ISerializable
+{
+    public int m_CustomWorkplaces;
+    public float m_EfficiencyModifier;
+
+    // v2 additions
+    public bool m_IsManualOverride;
+    public int m_OriginalWorkplaces;
+
+    private const byte kCurrentVersion = 2;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        writer.Write(m_CustomWorkplaces);
+        writer.Write(m_EfficiencyModifier);
+        // v2 fields
+        writer.Write(m_IsManualOverride);
+        writer.Write(m_OriginalWorkplaces);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+
+        // v1 fields (always present)
+        reader.Read(out m_CustomWorkplaces);
+        reader.Read(out m_EfficiencyModifier);
+
+        if (version &gt;= 2)
+        {
+            reader.Read(out m_IsManualOverride);
+            reader.Read(out m_OriginalWorkplaces);
+        }
+        else
+        {
+            // Defaults for saves from before v2
+            m_IsManualOverride = false;
+            m_OriginalWorkplaces = m_CustomWorkplaces;
+        }
+    }
+}</code></pre>
+
+  <h3>System-Level State with IDefaultSerializable</h3>
+
+  <p>
+    For mod-wide singleton state (e.g., tracking whether the mod has already processed building prefabs
+    on this save), combine <code>IDefaultSerializable</code> with the same versioning pattern:
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Game;
+
+public partial class ModStateTracker : GameSystemBase, IDefaultSerializable
+{
+    private bool m_PrefabsProcessed;
+    private int m_ProcessedBuildingCount;
+    private float m_GlobalMultiplier;
+
+    private const byte kCurrentVersion = 1;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        writer.Write(m_PrefabsProcessed);
+        writer.Write(m_ProcessedBuildingCount);
+        writer.Write(m_GlobalMultiplier);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out m_PrefabsProcessed);
+        reader.Read(out m_ProcessedBuildingCount);
+        reader.Read(out m_GlobalMultiplier);
+    }
+
+    public void SetDefaults(Context context)
+    {
+        m_PrefabsProcessed = false;
+        m_ProcessedBuildingCount = 0;
+        m_GlobalMultiplier = 1.0f;
+    }
+
+    protected override void OnUpdate()
+    {
+        // Use m_PrefabsProcessed to avoid re-processing on every update
+        if (!m_PrefabsProcessed)
+        {
+            // Process building prefabs...
+            m_PrefabsProcessed = true;
+        }
+    }
+}</code></pre>
+
+  <p>
+    This pattern ensures that new games get clean defaults via <code>SetDefaults</code>, existing saves
+    restore their state correctly, future mod versions can add fields without breaking older saves, and
+    the system tracks whether initialization work has been done on this save.
+  </p>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
