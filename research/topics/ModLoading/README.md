@@ -465,6 +465,51 @@ public class MyMod : IMod
 }
 ```
 
+### Example 6: Find Mod Assembly Path via SearchFilter (Alternative)
+
+An alternative to `TryGetExecutableAsset` for finding the mod's assembly path. Uses `SearchFilter<ExecutableAsset>` to query the asset database directly. This is useful when you don't have a reference to the `ModManager` or need to search for other mods' assets.
+
+```csharp
+using Colossal.IO.AssetDatabase;
+using Game;
+using Game.Modding;
+using Game.SceneFlow;
+
+public class MyMod : IMod
+{
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // SearchFilter<ExecutableAsset> queries the AssetDatabase for
+        // mod DLLs. Each result is an ExecutableAsset with path, name,
+        // and metadata.
+        foreach (var asset in AssetDatabase.global.GetAsset<ExecutableAsset>(
+            SearchFilter<ExecutableAsset>.ByCondition(
+                a => a.isLoaded && a.isMod)))
+        {
+            // Find our own mod's asset by assembly name match
+            if (asset.assembly == typeof(MyMod).Assembly)
+            {
+                string modPath = asset.path;
+                string modDir = System.IO.Path.GetDirectoryName(modPath);
+                Log.Info($"Mod directory: {modDir}");
+                break;
+            }
+        }
+
+        // You can also search for a specific mod by name:
+        // AssetDatabase.global.GetAsset<ExecutableAsset>(
+        //     SearchFilter<ExecutableAsset>.ByCondition(
+        //         a => a.name == "OtherModName"))
+    }
+
+    public void OnDispose() { }
+}
+```
+
+**When to use which approach:**
+- **`TryGetExecutableAsset`** (Example 5): Simplest way to find your own mod's asset. Requires access to `GameManager.instance.modManager` and passes `this` (the IMod instance).
+- **`SearchFilter<ExecutableAsset>`** (Example 6): More flexible -- can search for any mod's assets by arbitrary conditions. Useful for inter-mod discovery or when you need to enumerate all loaded mods.
+
 ## Open Questions
 
 - [ ] **Load order guarantees**: The order mods are loaded depends on the order they appear in the AssetDatabase scan. There is no explicit load-order declaration. Mods that depend on other mods should use assembly references to ensure correct ordering.
