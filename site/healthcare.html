@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Healthcare System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html" class="active">Healthcare</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Healthcare System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 handle the full healthcare pipeline -- from citizens
+      getting sick or injured, through hospital treatment and recovery, to ambulance dispatch and
+      patient transport?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Healthcare operates through a multi-system pipeline. The
+      <code>SicknessCheckSystem</code> probabilistically generates health events based on citizen
+      health levels. Citizens with health problems are routed by <code>HealthProblemSystem</code>,
+      which either sends them walking to a hospital or creates a <code>HealthcareRequest</code> for
+      ambulance pickup. The <code>HealthcareDispatchSystem</code> matches requests to hospitals,
+      and <code>HospitalAISystem</code> (running every 256 frames) manages vehicle spawning, patient
+      lists, and treatment effectiveness. Treatment bonus is computed from building efficiency,
+      resource availability, and city modifiers.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Deathcare (hearses, cemeteries, crematoriums) is a separate
+      research topic. Pathfinding internals are not covered.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The healthcare pipeline has five distinct stages: sickness generation, problem routing,
+    dispatch, hospital processing, and ambulance lifecycle.
+  </p>
+
+  <h3>Stage 1: Sickness Generation</h3>
+
+  <p>
+    <code>SicknessCheckSystem</code> runs per citizen on their UpdateFrame. It computes a base
+    sickness probability using an <strong>exponential formula</strong> tied to the citizen's
+    current health:
+  </p>
+
+  <pre><code class="language-csharp">float probability = math.saturate(math.pow(2f, 10f - health * 0.1f) * 0.001f);</code></pre>
+
+  <p>
+    At full health (100), the exponent is 0, giving probability near 0.001 (0.1%). At low health
+    (10), the exponent is 9, giving probability near 0.512 (51.2%). The system iterates over all
+    unlocked <code>HealthEventData</code> prefabs (Disease, Injury, Death), lerps between each
+    event's min/max probability, applies the <code>DiseaseProbability</code> city modifier for
+    disease events, and does a random check.
+  </p>
+
+  <h3>Stage 2: Problem Routing</h3>
+
+  <p>
+    <code>HealthProblemSystem</code> processes every citizen with a <code>HealthProblem</code>
+    component. Its routing logic depends on the problem type and transport needs:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Condition</th><th>Action</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Flags = 0 (only NoHealthcare or nothing)</td>
+        <td>Remove HealthProblem -- citizen recovered</td>
+      </tr>
+      <tr>
+        <td>InDanger or Trapped (fire/collapse)</td>
+        <td>Escape logic: health vs fire intensity check. May become Trapped, may die</td>
+      </tr>
+      <tr>
+        <td>Dead + RequireTransport</td>
+        <td>Route to DeathcareFacility or Hospital with CanProcessCorpses; create Hearse request</td>
+      </tr>
+      <tr>
+        <td>Injured + RequireTransport</td>
+        <td>Route to Hospital with CanCureInjury; create Ambulance request</td>
+      </tr>
+      <tr>
+        <td>Sick + RequireTransport</td>
+        <td>Route to Hospital with CanCureDisease; create Ambulance request</td>
+      </tr>
+      <tr>
+        <td>Sick (no transport)</td>
+        <td>Citizen walks to hospital on their own</td>
+      </tr>
+      <tr>
+        <td>Injured (no transport)</td>
+        <td>Citizen walks to hospital on their own</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The system manages a <strong>notification timer</strong> (<code>m_Timer</code>). Each update
+    where transport hasn't arrived, the timer increments. When it reaches the
+    <code>m_TransportWarningTime</code> threshold, a warning icon appears over the citizen.
+  </p>
+
+  <h3>Stage 3: Dispatch</h3>
+
+  <p>
+    <code>HealthcareDispatchSystem</code> matches <code>HealthcareRequest</code> entities to the
+    nearest hospital with available ambulances using a <strong>district-based spatial search</strong>
+    via quad tree. Matched requests are added to the hospital's <code>ServiceDispatch</code> buffer.
+  </p>
+
+  <h3>Stage 4: Hospital Processing</h3>
+
+  <p>
+    <code>HospitalAISystem</code> runs <strong>every 256 frames</strong> (offset 16). For each
+    hospital building, it:
+  </p>
+
+  <ol>
+    <li>Computes the <strong>effective treatment bonus</strong>:
+      <code>efficiency * resourcePenalty * prefabTreatmentBonus</code> (capped at 255)</li>
+    <li>Applies city modifier <code>HospitalEfficiency</code> (efficiency slot 26)</li>
+    <li>Manages <strong>vehicle capacity</strong> based on efficiency</li>
+    <li>Processes <strong>service dispatches</strong> -- spawns ambulances (car or helicopter)</li>
+    <li>Manages the <strong>patient list</strong> -- removes dead patients, ejects untreatable ones</li>
+    <li>Updates <strong>hospital flags</strong>: ambulances, room, capabilities</li>
+    <li>Creates <strong>reverse requests</strong> -- hospitals proactively seek patients</li>
+  </ol>
+
+  <h3>Stage 5: Ambulance Lifecycle</h3>
+
+  <p>
+    <code>AmbulanceAISystem</code> manages the ambulance state machine:
+  </p>
+
+  <ol>
+    <li><strong>Dispatched</strong> -- navigate to patient's location</li>
+    <li><strong>AtTarget</strong> -- arrived; pick up patient (add as Passenger)</li>
+    <li><strong>Transporting</strong> -- carry patient to hospital (AnyHospital flag allows flexibility)</li>
+    <li><strong>FindHospital</strong> -- search for hospital with room if original is full</li>
+    <li><strong>Disembarking</strong> -- patient exits ambulance at hospital</li>
+    <li><strong>Returning</strong> -- empty ambulance navigates back to home hospital</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>HealthProblemSystem, SicknessCheckSystem, HospitalAISystem, HealthcareDispatchSystem, AmbulanceAISystem, MedicalAircraftAISystem, HealthcareRequest</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Citizens</td>
+        <td>HealthProblem, HealthProblemFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>Hospital, Patient, HospitalFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Vehicles</td>
+        <td>Ambulance, AmbulanceFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>HospitalData, HealthcareParameterData, HealthEventData, HealthcareVehicleSelectData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>HealthProblem (Game.Citizens)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Event</td><td>Entity</td><td>The event entity that caused this problem</td></tr>
+      <tr><td>m_HealthcareRequest</td><td>Entity</td><td>Associated HealthcareRequest entity</td></tr>
+      <tr><td>m_Flags</td><td>HealthProblemFlags</td><td>Sick, Dead, Injured, RequireTransport, InDanger, Trapped, NoHealthcare</td></tr>
+      <tr><td>m_Timer</td><td>byte</td><td>Notification timer -- triggers warning icon at threshold</td></tr>
+    </tbody>
+  </table>
+
+  <h3>HealthProblemFlags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>None</td><td>0</td><td>No active problem</td></tr>
+      <tr><td>Sick</td><td>1</td><td>Citizen has a disease</td></tr>
+      <tr><td>Dead</td><td>2</td><td>Citizen is dead</td></tr>
+      <tr><td>Injured</td><td>4</td><td>Citizen is injured</td></tr>
+      <tr><td>RequireTransport</td><td>8</td><td>Needs ambulance or hearse pickup</td></tr>
+      <tr><td>InDanger</td><td>16</td><td>In a dangerous building (fire)</td></tr>
+      <tr><td>Trapped</td><td>32</td><td>Trapped in collapsed/burning building</td></tr>
+      <tr><td>NoHealthcare</td><td>64</td><td>No healthcare available</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Hospital (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TargetRequest</td><td>Entity</td><td>Current reverse service request</td></tr>
+      <tr><td>m_Flags</td><td>HospitalFlags</td><td>Capability flags (ambulances, treatment, room)</td></tr>
+      <tr><td>m_TreatmentBonus</td><td>byte</td><td>Effective treatment bonus (0-255)</td></tr>
+      <tr><td>m_MinHealth</td><td>byte</td><td>Minimum health range from prefab</td></tr>
+      <tr><td>m_MaxHealth</td><td>byte</td><td>Maximum health range from prefab</td></tr>
+    </tbody>
+  </table>
+
+  <h3>HospitalFlags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>HasAvailableAmbulances</td><td>1</td><td>Has idle ground ambulances</td></tr>
+      <tr><td>HasAvailableMedicalHelicopters</td><td>2</td><td>Has idle medical helicopters</td></tr>
+      <tr><td>CanCureDisease</td><td>4</td><td>Can treat diseases (efficiency &gt; 0 and prefab flag)</td></tr>
+      <tr><td>HasRoomForPatients</td><td>16</td><td>Patients &lt; capacity</td></tr>
+      <tr><td>CanProcessCorpses</td><td>32</td><td>Has patient capacity for corpse holding</td></tr>
+      <tr><td>CanCureInjury</td><td>64</td><td>Can treat injuries</td></tr>
+    </tbody>
+  </table>
+
+  <h3>HospitalData (Game.Prefabs)</h3>
+
+  <p>Prefab configuration. Supports <code>Combine()</code> for upgrade stacking.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_AmbulanceCapacity</td><td>int</td><td>Max ground ambulances</td></tr>
+      <tr><td>m_MedicalHelicopterCapacity</td><td>int</td><td>Max medical helicopters</td></tr>
+      <tr><td>m_PatientCapacity</td><td>int</td><td>Max admitted patients</td></tr>
+      <tr><td>m_TreatmentBonus</td><td>int</td><td>Base treatment bonus</td></tr>
+      <tr><td>m_HealthRange</td><td>int2</td><td>Min/max health range</td></tr>
+      <tr><td>m_TreatDiseases</td><td>bool</td><td>Can treat diseases</td></tr>
+      <tr><td>m_TreatInjuries</td><td>bool</td><td>Can treat injuries</td></tr>
+    </tbody>
+  </table>
+
+  <h3>HealthcareParameterData (Game.Prefabs)</h3>
+
+  <p>Global singleton controlling healthcare behavior.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TransportWarningTime</td><td>float</td><td>Time before transport warning icon</td></tr>
+      <tr><td>m_NoResourceTreatmentPenalty</td><td>float</td><td>Treatment penalty without resources</td></tr>
+      <tr><td>m_BuildingDestoryDeathRate</td><td>float</td><td>Death rate on building destruction</td></tr>
+      <tr><td>m_DeathRate</td><td>AnimationCurve1</td><td>Age-based death rate curve</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+SICKNESS GENERATION (SicknessCheckSystem, per UpdateFrame)
+  probability = saturate(pow(2, 10 - health * 0.1) * 0.001)
+  For each HealthEventData prefab (Disease/Injury/Death):
+    Apply DiseaseProbability city modifier (diseases only)
+    Random check -&gt; create health event entity
+          |
+          v
+EVENT APPLICATION (AddHealthProblemSystem)
+  Add HealthProblem to citizen: Sick | Injured | Dead
+  Set RequireTransport based on TransportProbability
+          |
+          v
+PROBLEM ROUTING (HealthProblemSystem, per UpdateFrame)
+  Dead + RequireTransport -&gt; create Hearse request
+  Injured + RequireTransport -&gt; create Ambulance request
+  Sick + RequireTransport -&gt; create Ambulance request
+  Sick/Injured (no transport) -&gt; walk to hospital
+  Manage notification timer -&gt; warning icon
+          |
+          v
+DISPATCH (HealthcareDispatchSystem)
+  Match HealthcareRequest to nearest hospital
+  District-based spatial quad tree search
+  Add ServiceDispatch to hospital buffer
+          |
+          v
+HOSPITAL PROCESSING (HospitalAISystem, every 256 frames)
+  treatmentBonus = efficiency * resourcePenalty * prefabBonus
+  Spawn ambulance (car or helicopter) for dispatches
+  Manage patient list: remove dead, eject untreatable
+  Update flags: ambulances, room, capabilities
+  Create reverse requests if ambulances available
+          |
+          v
+AMBULANCE LIFECYCLE (AmbulanceAISystem)
+  Dispatched -&gt; AtTarget -&gt; Transporting -&gt; Disembarking -&gt; Returning
+          |
+          v
+PATIENT RECOVERY
+  Patient in Hospital's Patient buffer
+  Treatment bonus applied through efficiency
+  HealthProblem removed when resolved
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read a Citizen's Health Problem Status</h3>
+
+  <pre><code class="language-csharp">public void CheckCitizenHealthProblem(EntityManager em, Entity citizen)
+{
+    if (!em.HasComponent&lt;HealthProblem&gt;(citizen)) return;
+
+    HealthProblem hp = em.GetComponentData&lt;HealthProblem&gt;(citizen);
+    Log.Info($"Health problem for {citizen}:");
+    Log.Info($"  Flags: {hp.m_Flags}");
+    Log.Info($"  Is Sick: {(hp.m_Flags &amp; HealthProblemFlags.Sick) != 0}");
+    Log.Info($"  Is Injured: {(hp.m_Flags &amp; HealthProblemFlags.Injured) != 0}");
+    Log.Info($"  Is Dead: {(hp.m_Flags &amp; HealthProblemFlags.Dead) != 0}");
+    Log.Info($"  Needs Transport: {(hp.m_Flags &amp; HealthProblemFlags.RequireTransport) != 0}");
+    Log.Info($"  Timer: {hp.m_Timer}");
+}</code></pre>
+
+  <h3>Query Hospital Capacity and Status</h3>
+
+  <pre><code class="language-csharp">public partial class HospitalMonitorSystem : GameSystemBase
+{
+    private EntityQuery _hospitalQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _hospitalQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Buildings.Hospital&gt;(),
+            ComponentType.ReadOnly&lt;Patient&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _hospitalQuery.ToEntityArray(Allocator.Temp);
+        foreach (Entity entity in entities)
+        {
+            var hospital = EntityManager.GetComponentData&lt;Game.Buildings.Hospital&gt;(entity);
+            var patients = EntityManager.GetBuffer&lt;Patient&gt;(entity);
+            var prefabRef = EntityManager.GetComponentData&lt;PrefabRef&gt;(entity);
+            var prefabData = EntityManager.GetComponentData&lt;HospitalData&gt;(prefabRef.m_Prefab);
+            float usage = (float)patients.Length / math.max(1f, prefabData.m_PatientCapacity);
+
+            Log.Info($"Hospital {entity}: {patients.Length}/{prefabData.m_PatientCapacity} ({usage:P0})");
+            Log.Info($"  Treatment: {hospital.m_TreatmentBonus}");
+            Log.Info($"  Ambulances: {(hospital.m_Flags &amp; HospitalFlags.HasAvailableAmbulances) != 0}");
+            Log.Info($"  Disease: {(hospital.m_Flags &amp; HospitalFlags.CanCureDisease) != 0}");
+            Log.Info($"  Injury: {(hospital.m_Flags &amp; HospitalFlags.CanCureInjury) != 0}");
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Modify Global Healthcare Parameters</h3>
+
+  <pre><code class="language-csharp">public void ModifyHealthcareParameters(EntityManager em)
+{
+    EntityQuery paramQuery = em.CreateEntityQuery(
+        ComponentType.ReadWrite&lt;HealthcareParameterData&gt;()
+    );
+    if (paramQuery.CalculateEntityCount() == 0) return;
+
+    Entity paramEntity = paramQuery.GetSingletonEntity();
+    HealthcareParameterData data = em.GetComponentData&lt;HealthcareParameterData&gt;(paramEntity);
+
+    // Reduce penalty when hospital lacks resources
+    data.m_NoResourceTreatmentPenalty = 0.1f;
+    // More patience before transport warning
+    data.m_TransportWarningTime *= 2f;
+
+    em.SetComponentData(paramEntity, data);
+    paramQuery.Dispose();
+}</code></pre>
+
+  <h3>Boost Hospital Treatment via Prefab</h3>
+
+  <pre><code class="language-csharp">public partial class HealthcareBoostSystem : GameSystemBase
+{
+    private EntityQuery _hospitalPrefabQuery;
+    private bool _applied;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _hospitalPrefabQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;HospitalData&gt;(),
+            ComponentType.ReadOnly&lt;PrefabData&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_applied) return;
+        _applied = true;
+
+        var entities = _hospitalPrefabQuery.ToEntityArray(Allocator.Temp);
+        foreach (Entity entity in entities)
+        {
+            HospitalData data = EntityManager.GetComponentData&lt;HospitalData&gt;(entity);
+            data.m_TreatmentBonus *= 2;
+            data.m_PatientCapacity = (int)(data.m_PatientCapacity * 1.5f);
+            data.m_TreatDiseases = true;
+            data.m_TreatInjuries = true;
+            EntityManager.SetComponentData(entity, data);
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Track Ambulance Fleet Status</h3>
+
+  <pre><code class="language-csharp">public partial class AmbulanceTrackerSystem : GameSystemBase
+{
+    private EntityQuery _ambulanceQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _ambulanceQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Vehicles.Ambulance&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var ambulances = _ambulanceQuery.ToComponentDataArray&lt;Game.Vehicles.Ambulance&gt;(Allocator.Temp);
+        int dispatched = 0, transporting = 0, returning = 0, idle = 0, disabled = 0;
+
+        for (int i = 0; i &lt; ambulances.Length; i++)
+        {
+            AmbulanceFlags state = ambulances[i].m_State;
+            if ((state &amp; AmbulanceFlags.Disabled) != 0) disabled++;
+            else if ((state &amp; AmbulanceFlags.Transporting) != 0) transporting++;
+            else if ((state &amp; AmbulanceFlags.Dispatched) != 0) dispatched++;
+            else if ((state &amp; AmbulanceFlags.Returning) != 0) returning++;
+            else idle++;
+        }
+
+        Log.Info($"Ambulances: {ambulances.Length} total");
+        Log.Info($"  Dispatched: {dispatched}, Transporting: {transporting}");
+        Log.Info($"  Returning: {returning}, Idle: {idle}, Disabled: {disabled}");
+        ambulances.Dispose();
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Disease probability</td>
+        <td>HealthEventData.m_OccurenceProbability</td>
+        <td>Varies per event</td>
+        <td>Min/max range lerped by citizen health level</td>
+      </tr>
+      <tr>
+        <td>Transport requirement</td>
+        <td>HealthEventData.m_TransportProbability</td>
+        <td>Varies per event</td>
+        <td>Chance citizen needs ambulance vs walks</td>
+      </tr>
+      <tr>
+        <td>Hospital update interval</td>
+        <td>HospitalAISystem.GetUpdateInterval</td>
+        <td>256 frames</td>
+        <td>How often hospitals process dispatches</td>
+      </tr>
+      <tr>
+        <td>Treatment bonus</td>
+        <td>HospitalData.m_TreatmentBonus</td>
+        <td>Varies</td>
+        <td>Scaled by efficiency; higher = faster recovery</td>
+      </tr>
+      <tr>
+        <td>Resource penalty</td>
+        <td>HealthcareParameterData.m_NoResourceTreatmentPenalty</td>
+        <td>Varies</td>
+        <td>Treatment reduction without resources</td>
+      </tr>
+      <tr>
+        <td>Hospital efficiency modifier</td>
+        <td>CityModifier HospitalEfficiency</td>
+        <td>100%</td>
+        <td>City-wide modifier on efficiency slot 26</td>
+      </tr>
+      <tr>
+        <td>Disease probability modifier</td>
+        <td>CityModifier DiseaseProbability</td>
+        <td>100%</td>
+        <td>City-wide modifier for disease events</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Health recovery rate:</strong> The treatment bonus is stored on the Hospital
+      component, but the system that restores citizen health needs further tracing.
+    </li>
+    <li>
+      <strong>Health range filtering:</strong> <code>HospitalData.m_HealthRange</code> is stored
+      but the admission filter logic is in the pathfinding setup.
+    </li>
+    <li>
+      <strong>Medical helicopter landing:</strong> <code>MedicalAircraftAISystem</code> handles
+      helicopter behavior but landing pad requirements need investigation.
+    </li>
+    <li>
+      <strong>NoHealthcare flag:</strong> Conditions that set this flag on citizens need tracing.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.HospitalAISystem, Game.Simulation.HealthProblemSystem, Game.Simulation.SicknessCheckSystem, Game.Simulation.HealthcareDispatchSystem, Game.Simulation.AmbulanceAISystem</li>
+    <li>Runtime components: Game.Citizens.HealthProblem, Game.Buildings.Hospital, Game.Buildings.Patient, Game.Vehicles.Ambulance</li>
+    <li>Prefab types: Game.Prefabs.HospitalData, Game.Prefabs.HealthcareParameterData, Game.Prefabs.HealthEventData</li>
+    <li>Enums: HealthProblemFlags, HospitalFlags, AmbulanceFlags, HealthcareRequestType, HealthEventType</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- HospitalAISystem, HealthProblemSystem, SicknessCheckSystem, HealthcareDispatchSystem, AmbulanceAISystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
