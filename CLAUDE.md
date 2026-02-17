@@ -15,7 +15,7 @@ ModName/
 ├── CHANGELOG.md
 ├── src/
 │   └── ModName/
-│       ├── ModName.csproj   # .NET Standard 2.1
+│       ├── ModName.csproj   # .NET Framework (see Target Framework below)
 │       ├── Mod.cs           # Entry point (implements IMod)
 │       ├── Settings/        # Mod settings classes
 │       ├── Systems/         # ECS game systems (one per file)
@@ -54,7 +54,7 @@ ModName/
 ## CS2-Specific Patterns
 
 - Entry point: class implementing `IMod` with `OnLoad`/`OnDispose`
-- Target: **.NET Standard 2.1** (game uses Unity 2022.3.7f1 Mono runtime)
+- Target: **net472** (community standard -- Unity 2022.3.7f1 Mono runtime is .NET Framework-compatible). `netstandard2.1` also works since .NET Framework 4.7.2 implements .NET Standard 2.0, but most community mods (RealisticWorkplacesAndHouseholds, TransportPolicyAdjuster, RealisticParking, etc.) target `net472` because it provides access to the full .NET Framework API surface that Unity's Mono runtime supports, including types like `System.Drawing` and `System.Net.Http` not available in .NET Standard 2.1.
 - Reference game assemblies from `Cities2_Data/Managed/` with Copy Local = No
 - Use ECS systems (`GameSystemBase`) for simulation logic
 - Use Harmony (`HarmonyLib`) for patching existing game methods

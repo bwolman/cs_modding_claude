@@ -17,7 +17,7 @@
 
 Key settings in your `.csproj`:
 
-- **TargetFramework**: `netstandard2.1`
+- **TargetFramework**: `net472` (community standard). Unity 2022.3.7f1's Mono runtime is .NET Framework-compatible, and most community mods (RealisticWorkplacesAndHouseholds, TransportPolicyAdjuster, RealisticParking, etc.) target `net472`. This gives access to the full .NET Framework API surface that Unity's Mono runtime supports, including types like `System.Drawing` and `System.Net.Http`. The alternative `netstandard2.1` also compiles and loads correctly, but provides a smaller API surface. Use `net472` unless you have a specific reason to target .NET Standard.
 - **Game references**: Point to `Cities2_Data/Managed/`, set `Private="false"` (don't copy game DLLs)
 - **Post-build**: Copy output DLL to the game's Mods folder
 
