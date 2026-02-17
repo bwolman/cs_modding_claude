@@ -575,7 +575,14 @@ The core problem is `FindVehicleSource()` in `PoliceEmergencyDispatchSystem`. It
 
 4. **Path routing**: Even if district resolution works, the destination is `SetupTargetType.AccidentLocation` which requires the site entity to be on or near a road network. Arbitrary entities may not satisfy this.
 
-### Path D: Direct Vehicle Manipulation (RECOMMENDED)
+### Path D: Direct Vehicle Manipulation (Incomplete Without ServiceDispatch)
+
+> **Warning**: Setting flags alone is NOT sufficient. When `PoliceCarAISystem.Tick()` detects
+> that the path has been updated, it calls `ResetPath()`, which checks the first entry in the
+> `ServiceDispatch` buffer to determine what flags to set. If the buffer is empty or does not
+> contain a `PoliceEmergencyRequest`, `ResetPath()` clears `CarFlags.Emergency` and sets
+> `CarFlags.AnyLaneTarget` (patrol mode). This means the lights and sirens turn off immediately
+> after pathfinding completes. You MUST inject a `ServiceDispatch` buffer entry (see Path D2 below).
 
 ```
 1. Mod finds an available police car (on patrol, not returning, not at target)
@@ -603,17 +610,50 @@ The core problem is `FindVehicleSource()` in `PoliceEmergencyDispatchSystem`. It
 6. Mod triggers visual update:
    EntityManager.AddComponent<EffectsUpdated>(policeCarEntity);
 
-7. PoliceCarAISystem processes normally:
-   -> Sees AccidentTarget flag and Emergency flag
-   -> FindNewPath() uses AccidentLocation destination type with 30m radius
-   -> Navigation proceeds with emergency privileges
+7. **FAILURE POINT**: PoliceCarAISystem.Tick() runs:
+   -> Path was recalculated, calls ResetPath()
+   -> ResetPath() reads ServiceDispatch buffer
+   -> Buffer is empty or has no PoliceEmergencyRequest
+   -> ResetPath() CLEARS CarFlags.Emergency, sets AnyLaneTarget
+   -> Lights and sirens turn off; car reverts to patrol mode
 
-8. Potential issue: PoliceCarAISystem.Tick() may call SelectNextDispatch()
-   which could override the manually-set Emergency flag if the ServiceDispatch
-   buffer doesn't contain a matching PoliceEmergencyRequest.
+8. This approach REQUIRES ServiceDispatch buffer injection (Path D2) to work.
+```
 
-   Mitigation: Clear the ServiceDispatch buffer or ensure it contains a
-   valid PoliceEmergencyRequest entry pointing to the target.
+### Path D2: Direct Vehicle Manipulation + ServiceDispatch Injection (RECOMMENDED)
+
+The working approach for direct dispatch. Creates a `PoliceEmergencyRequest` entity and injects it into the vehicle's `ServiceDispatch` buffer so that `ResetPath()` and `SelectNextDispatch()` correctly recognize the dispatch as an emergency and maintain `CarFlags.Emergency`.
+
+```
+1. Mod creates a PoliceEmergencyRequest entity:
+   Entity request = EntityManager.CreateEntity();
+   EntityManager.AddComponentData(request, new ServiceRequest());
+   EntityManager.AddComponentData(request, new PoliceEmergencyRequest {
+       m_Site = targetEntity,
+       m_Target = targetEntity,
+       m_Priority = 1f,
+       m_Purpose = PolicePurpose.Emergency
+   });
+
+2. Mod injects the request into the vehicle's ServiceDispatch buffer:
+   DynamicBuffer<ServiceDispatch> dispatches =
+       EntityManager.GetBuffer<ServiceDispatch>(policeCarEntity);
+   dispatches.Clear();  // Remove existing patrol dispatches
+   dispatches.Add(new ServiceDispatch { m_Request = request });
+
+3. Mod sets emergency flags (same as Path D steps 2-6)
+
+4. PoliceCarAISystem.Tick() runs:
+   -> Path was recalculated, calls ResetPath()
+   -> ResetPath() reads ServiceDispatch[0] -> finds PoliceEmergencyRequest
+   -> Sets CarFlags.Emergency | StayOnRoad (LIGHTS AND SIRENS STAY ON)
+   -> Adds EffectsUpdated
+
+5. On arrival, SelectNextDispatch() also reads ServiceDispatch buffer:
+   -> Finds PoliceEmergencyRequest, sets AccidentTarget
+   -> Emergency flags remain active throughout the journey
+
+6. When done, mod should clean up the request entity
 ```
 
 ### Path E: Fake Crime Event (ALTERNATIVE APPROACH)
@@ -707,14 +747,16 @@ This is complex and fragile. **Direct vehicle manipulation (Path D) is strongly 
 
 ### 4. Is direct vehicle manipulation reliable?
 
-**Yes, with one caveat.** Setting `CarFlags.Emergency`, `PoliceCarFlags.AccidentTarget`, `Target`, and triggering path recalculation works reliably. The car will drive with full emergency privileges (lights, sirens, yielding, lane exemptions).
+**Only with ServiceDispatch buffer injection.** Setting `CarFlags.Emergency`, `PoliceCarFlags.AccidentTarget`, `Target`, and triggering path recalculation is NOT sufficient on its own. When `PoliceCarAISystem.Tick()` detects the path update, it calls `ResetPath()`, which reads the first `ServiceDispatch` buffer entry to determine what flags to set:
 
-**The caveat**: `PoliceCarAISystem.Tick()` runs every 16 frames and may interfere:
-- `CheckServiceDispatches()` validates dispatches against the ServiceDispatch buffer
-- `SelectNextDispatch()` may be called if the car reaches its destination, which reads from the ServiceDispatch buffer
-- If the buffer doesn't contain a matching `PoliceEmergencyRequest`, the car may clear `Emergency` and return to station
+- If the first dispatch is a `PoliceEmergencyRequest`: sets `CarFlags.Emergency | StayOnRoad` (lights and sirens ON)
+- If the first dispatch is a `PolicePatrolRequest` or buffer is empty: clears `CarFlags.Emergency`, sets `AnyLaneTarget` (lights and sirens OFF)
 
-**Mitigation**: After setting the emergency flags, also add a `ServiceDispatch` entry to the car's buffer pointing to a valid `PoliceEmergencyRequest` entity. Or use a custom system running after `PoliceCarAISystem` that re-applies the Emergency flag each tick.
+**This means direct flag manipulation without ServiceDispatch injection will fail** -- the Emergency flag is immediately cleared by `ResetPath()` after the path is recalculated.
+
+**Required fix**: Create a `PoliceEmergencyRequest` entity and inject it into the vehicle's `ServiceDispatch` buffer before triggering path recalculation. This ensures `ResetPath()` and `SelectNextDispatch()` both recognize the dispatch as an emergency. See Path D2 above for the complete working approach.
+
+Alternatively, use a custom "Emergency Flag Guardian" system (Example 6) running after `PoliceCarAISystem` that re-applies the Emergency flag each tick. This is simpler but less clean since it fights the AI every frame.
 
 ### 5. Is there a third approach nobody has tried?
 
@@ -836,28 +878,22 @@ public void ActivateEmergencyLights(EntityManager em, Entity policeCarEntity)
 }
 ```
 
-### Example 2: Full Direct Dispatch -- Send Police Car to Target with Sirens
+### Example 2: Full Direct Dispatch -- Send Police Car to Target with Sirens (RECOMMENDED)
 
-The RECOMMENDED approach for reliably sending a police car to a specific entity with lights and sirens. Bypasses the dispatch pipeline entirely.
+The RECOMMENDED approach for reliably sending a police car to a specific entity with lights and sirens. **Critical**: Injects a `ServiceDispatch` buffer entry so that `ResetPath()` maintains the `CarFlags.Emergency` flag after path recalculation.
 
 ```csharp
 using Game.Common;
 using Game.Objects;
 using Game.Pathfind;
+using Game.Prefabs;
 using Game.Simulation;
 using Game.Vehicles;
 using Unity.Entities;
 
 public partial class ForcePoliceToLocationSystem : GameSystemBase
 {
-    private PathfindSetupSystem m_PathfindSetupSystem;
-
-    protected override void OnCreate()
-    {
-        base.OnCreate();
-        m_PathfindSetupSystem = World.GetOrCreateSystemManaged<PathfindSetupSystem>();
-    }
-
+    protected override void OnCreate() { base.OnCreate(); }
     protected override void OnUpdate() { }
 
     /// <summary>
@@ -866,31 +902,62 @@ public partial class ForcePoliceToLocationSystem : GameSystemBase
     /// </summary>
     public void SendPoliceCarTo(Entity policeCarEntity, Entity targetEntity)
     {
-        // 1. Set emergency flags on Car component
+        // 1. Create a PoliceEmergencyRequest entity for the ServiceDispatch buffer.
+        //    ResetPath() reads ServiceDispatch[0] to decide whether to set Emergency
+        //    or patrol flags. Without this, ResetPath() clears Emergency.
+        Entity request = EntityManager.CreateEntity();
+        EntityManager.AddComponentData(request, new ServiceRequest());
+        EntityManager.AddComponentData(request, new PoliceEmergencyRequest
+        {
+            m_Site = targetEntity,
+            m_Target = targetEntity,
+            m_Priority = 1f,
+            m_Purpose = PolicePurpose.Emergency
+        });
+
+        // 2. Inject the request into the vehicle's ServiceDispatch buffer
+        DynamicBuffer<ServiceDispatch> dispatches =
+            EntityManager.GetBuffer<ServiceDispatch>(policeCarEntity);
+        dispatches.Clear();
+        dispatches.Add(new ServiceDispatch { m_Request = request });
+
+        // 3. Set emergency flags on Car component
         Car car = EntityManager.GetComponentData<Car>(policeCarEntity);
         car.m_Flags |= CarFlags.Emergency | CarFlags.StayOnRoad | CarFlags.UsePublicTransportLanes;
         car.m_Flags &= ~CarFlags.AnyLaneTarget;
         EntityManager.SetComponentData(policeCarEntity, car);
 
-        // 2. Set AccidentTarget state on PoliceCar component
+        // 4. Set AccidentTarget state on PoliceCar component
         PoliceCar policeCar = EntityManager.GetComponentData<PoliceCar>(policeCarEntity);
         policeCar.m_State |= PoliceCarFlags.AccidentTarget;
         policeCar.m_State &= ~(PoliceCarFlags.Returning | PoliceCarFlags.AtTarget
                                | PoliceCarFlags.Cancelled);
         EntityManager.SetComponentData(policeCarEntity, policeCar);
 
-        // 3. Set navigation target
+        // 5. Set navigation target
         EntityManager.SetComponentData(policeCarEntity, new Target(targetEntity));
 
-        // 4. Request new path calculation
+        // 6. Request new path calculation
         PathOwner pathOwner = EntityManager.GetComponentData<PathOwner>(policeCarEntity);
         pathOwner.m_State |= PathFlags.Updated;
         EntityManager.SetComponentData(policeCarEntity, pathOwner);
 
-        // 5. Trigger rendering update for lights/sirens
+        // 7. Trigger rendering update for lights/sirens
         if (!EntityManager.HasComponent<EffectsUpdated>(policeCarEntity))
         {
             EntityManager.AddComponent<EffectsUpdated>(policeCarEntity);
+        }
+    }
+
+    /// <summary>
+    /// Clean up the request entity when the dispatch is complete.
+    /// Call after the car has arrived or the dispatch is cancelled.
+    /// </summary>
+    public void CleanUpRequest(Entity requestEntity)
+    {
+        if (requestEntity != Entity.Null && EntityManager.Exists(requestEntity))
+        {
+            EntityManager.DestroyEntity(requestEntity);
         }
     }
 }
