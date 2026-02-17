@@ -119,9 +119,13 @@ Upgrade = 1  // Upgrade an existing object
 Move = 2     // Move an existing object
 Brush = 3    // Paint objects with brush
 Stamp = 4    // Stamp a group of objects
-Line = 5     // Place objects along a line
-Curve = 6    // Place objects along a curve
+Line = 5     // Place objects along a straight line between two control points
+Curve = 6    // Place objects along a curved path defined by three control points
 ```
+
+**Line mode (5)**: The user places two control points defining the start and end of a straight line. The tool uses `NetCourse` entities (the same system used by `NetToolSystem` for roads) to define the path. `CreateDefinitionsJob` then distributes objects evenly along the line based on the object's size from `ObjectGeometryData`. The spacing between objects equals the object's size along the placement axis, ensuring objects are placed edge-to-edge without overlap. The tool registers the "Place Net Edge" and "Undo Net Control Point" input actions to support this mode.
+
+**Curve mode (6)**: The user places three control points defining a Bezier curve -- start, midpoint, and end. Like Line mode, this uses `NetCourse` entities to represent the curved path. `CreateDefinitionsJob` distributes objects evenly along the curve's arc length, again spacing them based on `ObjectGeometryData` size. Objects are rotated to follow the curve tangent at each placement point. Both Line and Curve modes require the `Brushable` flag on the prefab's `ObjectGeometryData` to be available.
 
 ### `CreationFlags`
 
