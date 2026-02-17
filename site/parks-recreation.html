@@ -1,0 +1,704 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parks, Recreation &amp; Leisure</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html" class="active">Parks &amp; Recreation</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="localization.html">Localization</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Parks, Recreation &amp; Leisure</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 handle citizen leisure behavior -- how are leisure
+      providers scored for residents, how do parks improve happiness, and how does the leisure
+      economy work?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Citizen leisure operates through a weighted selection system in
+      <code>LeisureSystem</code>. Citizens choose from 10 leisure types (Meals, Entertainment,
+      Commercial, CityPark, CityBeach, Travel, etc.) using weights based on age, wealth, and
+      weather. The <code>ParkAISystem</code> manages park maintenance decay and service coverage,
+      while <code>AttractionSystem</code> computes building attractiveness from base values,
+      efficiency, park maintenance, and terrain bonuses (forest, shore, height). Leisure visits
+      increment the citizen's <code>m_LeisureCounter</code> (capped at 255) and consume resources
+      from the provider, creating economic flow from households to commercial businesses.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Tourist-specific leisure routing is covered in the
+      <a href="tourism-economy.html">Tourism Economy</a> research. This topic focuses on the
+      resident leisure pipeline.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The leisure pipeline has four stages: leisure type selection, pathfinding to a provider,
+    spending leisure time, and the economic transaction.
+  </p>
+
+  <h3>Stage 1: Leisure Type Selection</h3>
+
+  <p>
+    When a citizen's <code>m_LeisureCounter</code> drops low enough, <code>LeisureSystem</code>
+    calls <code>FindLeisure()</code> which uses <code>SelectLeisureType()</code> to perform a
+    <strong>weighted random selection</strong> from 10 leisure types. The weight for each type
+    is computed by:
+  </p>
+
+  <pre><code class="language-csharp">weight = ageWeight * weatherModifier * wealthScale * smoothstep(wealthMin, 1, (wealth + 5000) / 10000)</code></pre>
+
+  <p>
+    Each factor contributes differently per type:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Child</th><th>Teen</th><th>Adult</th><th>Elderly</th><th>Wealth Min</th><th>Weather</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Meals</td><td>10</td><td>25</td><td>35</td><td>35</td><td>0.2</td><td>None</td></tr>
+      <tr><td>Entertainment</td><td>0</td><td>45</td><td>45</td><td>10</td><td>0.3</td><td>None</td></tr>
+      <tr><td>Commercial</td><td>20</td><td>25</td><td>30</td><td>25</td><td>0.4</td><td>None</td></tr>
+      <tr><td>CityIndoors</td><td>30</td><td>25</td><td>30</td><td>15</td><td>0.0</td><td>None</td></tr>
+      <tr><td>Travel</td><td>15</td><td>15</td><td>40</td><td>30</td><td>0.5</td><td>Prefers cool</td></tr>
+      <tr><td>CityPark</td><td>30</td><td>25</td><td>30</td><td>15</td><td>0.0</td><td>Rain penalizes</td></tr>
+      <tr><td>CityBeach</td><td>30</td><td>25</td><td>30</td><td>15</td><td>0.0</td><td>Needs warm &amp; clear</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Weather effects</strong> on outdoor types are significant:
+  </p>
+
+  <ul>
+    <li><strong>CityPark:</strong> <code>2.0 * (1 - 0.95 * weatherBadness)</code> -- nearly
+      eliminated by heavy rain</li>
+    <li><strong>CityBeach:</strong> <code>0.05 + 4 * saturate(0.35 - weather) * saturate((temp - 20) / 30)</code>
+      -- requires temperature above 20C and low rain</li>
+    <li><strong>Travel:</strong> <code>0.5 + saturate((30 - temp) / 50)</code> -- slightly
+      prefers cooler weather</li>
+  </ul>
+
+  <p>
+    Tourists have a 30% chance of selecting <code>Attractions</code> type regardless of weights.
+    For Travel, Sightseeing, and Attractions types, the system creates a group meeting via
+    <code>AddMeetingSystem</code> rather than individual pathfinding.
+  </p>
+
+  <h3>Stage 2: Pathfinding to Provider</h3>
+
+  <p>
+    For non-meeting leisure types, <code>FindLeisure()</code> queues a pathfinding request to the
+    nearest provider of the selected type. The pathfinding target includes:
+  </p>
+
+  <ul>
+    <li><code>SetupTargetType.Leisure</code> with the leisure type as the value</li>
+    <li><strong>Urgency</strong>: <code>255 - leisureCounter</code> (lower counter = higher urgency)</li>
+    <li>Considers personal car and bicycle availability for transport</li>
+    <li>Checks work/school schedule -- cancels leisure if time to work/study</li>
+  </ul>
+
+  <h3>Stage 3: Spending Leisure</h3>
+
+  <p>
+    When the citizen arrives at the provider building, <code>SpendLeisure()</code> is called each
+    update frame:
+  </p>
+
+  <pre><code class="language-csharp">// Enqueue economic event
+m_LeisureQueue.Enqueue(new LeisureEvent {
+    m_Citizen = entity,
+    m_Provider = providerEntity,
+    m_Efficiency = provider.m_Efficiency
+});
+
+// Check if leisure is complete
+if (citizen.m_LeisureCounter &gt; 255 - efficiency / kUpdateInterval
+    || simulationFrame &gt;= leisure.m_LastPossibleFrame
+    || providerInactive)
+{
+    RemoveComponent&lt;Leisure&gt;(entity);
+}</code></pre>
+
+  <h3>Stage 4: Economic Transaction</h3>
+
+  <p>
+    The <code>SpendLeisureJob</code> processes the leisure event queue:
+  </p>
+
+  <ol>
+    <li>Increments <code>citizen.m_LeisureCounter</code> by
+      <code>ceil(efficiency / kUpdateInterval)</code>, capped at 255</li>
+    <li>For service companies: consumes service resources, calculates price with market rate and
+      supply/demand multiplier</li>
+    <li>Transfers money from household to provider company</li>
+    <li>Tracks consumption in city-wide statistics</li>
+  </ol>
+
+  <h3>Park Maintenance</h3>
+
+  <p>
+    <code>ParkAISystem</code> manages park upkeep with 256 updates per day:
+  </p>
+
+  <pre><code class="language-csharp">park.m_Maintenance -= (400 + 50 * renters.Length) / kUpdatesPerDay;</code></pre>
+
+  <p>
+    More renters (buildings in the park's area) cause faster maintenance decay. When maintenance
+    drops below a threshold, a <code>MaintenanceRequest</code> is created to summon maintenance
+    vehicles. Park maintenance directly affects <strong>service coverage</strong>:
+  </p>
+
+  <pre><code class="language-csharp">float maintenanceRatio = park.m_Maintenance / parkData.m_MaintenancePool;
+int tier = floor(maintenanceRatio / 0.3);
+magnitude *= 0.95 + 0.05 * min(1, tier) + 0.1 * max(0, tier - 1);
+range *= 0.95 + 0.05 * tier;
+ApplyModifier(ref magnitude, cityModifiers, CityModifierType.ParkEntertainment);</code></pre>
+
+  <h3>Attractiveness Calculation</h3>
+
+  <p>
+    <code>AttractionSystem</code> computes building attractiveness every 16 frames:
+  </p>
+
+  <pre><code class="language-csharp">float attractiveness = baseAttraction;    // From AttractionData (supports upgrade combining)
+attractiveness *= buildingEfficiency;      // From Efficiency buffer (skipped for Signature buildings)
+attractiveness *= 0.8 + 0.2 * parkMaintenanceRatio;  // Park maintenance bonus
+attractiveness *= 1 + 0.01 * terrainAttractiveness;   // Terrain bonus</code></pre>
+
+  <p>
+    <strong>Terrain attractiveness</strong> is computed per 128x128 cell map by
+    <code>TerrainAttractivenessSystem</code>:
+  </p>
+
+  <pre><code class="language-csharp">terrainAttractiveness = forestEffect * forestBonus    // Proximity to forests
+                      + shoreEffect * shoreBonus      // Proximity to water (depth &gt; 2m)
+                      + min(heightMax, max(0, height - heightThreshold) * heightMultiplier);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>LeisureSystem, ParkAISystem, AttractionSystem, TerrainAttractivenessSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>Park, ParkMaintenance, LeisureProvider, AttractivenessProvider</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Citizens</td>
+        <td>Leisure, Citizen (m_LeisureCounter)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Agents</td>
+        <td>LeisureType (enum: Meals, Entertainment, Commercial, CityIndoors, Travel, CityPark, CityBeach, Attractions, Relaxation, Sightseeing)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>LeisureProviderData, ParkData, AttractionData, AttractivenessParameterData, LeisureParametersData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Leisure (Game.Citizens)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TargetAgent</td><td>Entity</td><td>The leisure provider entity the citizen is heading to or at</td></tr>
+      <tr><td>m_LastPossibleFrame</td><td>uint</td><td>Simulation frame deadline (must return for work/school)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LeisureProviderData (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Efficiency</td><td>int</td><td>Leisure counter increment per visit (scaled by kUpdateInterval)</td></tr>
+      <tr><td>m_Resources</td><td>Resource</td><td>Resource type consumed during leisure</td></tr>
+      <tr><td>m_LeisureType</td><td>LeisureType</td><td>Category of leisure provided</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Park (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Maintenance</td><td>short</td><td>Current maintenance level (decays over time)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ParkData (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_MaintenancePool</td><td>short</td><td>Maximum maintenance level (supports upgrade combining)</td></tr>
+      <tr><td>m_AllowHomeless</td><td>bool</td><td>Whether park allows homeless citizens</td></tr>
+    </tbody>
+  </table>
+
+  <h3>AttractivenessProvider (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Attractiveness</td><td>int</td><td>Computed attractiveness score (updated every 16 frames)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>AttractionData (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Attractiveness</td><td>int</td><td>Base attractiveness value (supports upgrade combining)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+LEISURE NEED (Citizen.m_LeisureCounter decreases over time)
+  Counter decremented by CitizenBehaviorSystem
+  Low counter triggers leisure-seeking
+          |
+          v
+LEISURE SELECTION (LeisureSystem.FindLeisure, per UpdateFrame)
+  SelectLeisureType(): weighted random based on:
+    - Age: Child/Teen/Adult/Elderly preferences per type
+    - Wealth: smoothstep threshold per type
+    - Weather: CityPark penalized by rain, CityBeach by cold
+  Travel/Sightseeing/Attractions -&gt; AddMeetingSystem (group activity)
+  Other types -&gt; pathfind to nearest provider
+          |
+          v
+PATHFINDING (CitizenPathfindSetup)
+  SetupTargetType.Leisure with type and urgency (255 - counter)
+  Considers car/bicycle availability
+  Checks work/school schedule -- cancels if time conflict
+          |
+          v
+ARRIVAL &amp; SPENDING (LeisureSystem.SpendLeisure)
+  leisureCounter += ceil(efficiency / kUpdateInterval), cap at 255
+  Enqueue LeisureEvent for economic processing
+  Remove Leisure component when counter full or deadline reached
+          |
+          v
+ECONOMIC TRANSACTION (LeisureSystem.SpendLeisureJob)
+  Consume service resources from provider
+  price = quantity * marketPrice * supplyDemandMultiplier
+  Transfer money: household -&gt; provider company
+  Track consumption statistics
+          |
+          v
+PARK MAINTENANCE (ParkAISystem, 256 updates/day)
+  maintenance -= (400 + 50 * renters) / kUpdatesPerDay
+  Below threshold -&gt; MaintenanceRequest for maintenance vehicles
+  Service coverage scaled by maintenance tier
+          |
+          v
+ATTRACTIVENESS (AttractionSystem, every 16 frames)
+  base * efficiency * (0.8 + 0.2 * parkMaintRatio) * (1 + 0.01 * terrain)
+  Terrain = forest proximity + shore proximity + elevation bonus
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Monitor Citizen Leisure Activity</h3>
+
+  <pre><code class="language-csharp">public partial class LeisureMonitorSystem : GameSystemBase
+{
+    private EntityQuery _leisureQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _leisureQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Leisure&gt;(),
+            ComponentType.ReadOnly&lt;Citizen&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _leisureQuery.ToEntityArray(Allocator.Temp);
+        var citizens = _leisureQuery.ToComponentDataArray&lt;Citizen&gt;(Allocator.Temp);
+        int seekingLeisure = 0, atProvider = 0;
+        float totalCounter = 0;
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            Leisure leisure = EntityManager.GetComponentData&lt;Leisure&gt;(entities[i]);
+            if (leisure.m_TargetAgent != Entity.Null)
+                atProvider++;
+            else
+                seekingLeisure++;
+            totalCounter += citizens[i].m_LeisureCounter;
+        }
+
+        float avg = entities.Length &gt; 0 ? totalCounter / entities.Length : 0;
+        Log.Info($"Leisure: {entities.Length} active ({seekingLeisure} seeking, {atProvider} at provider)");
+        Log.Info($"  Average leisure counter: {avg:F1}");
+        entities.Dispose();
+        citizens.Dispose();
+    }
+}</code></pre>
+
+  <h3>Modify Park Maintenance via Prefabs</h3>
+
+  <pre><code class="language-csharp">public partial class ParkBoostSystem : GameSystemBase
+{
+    private EntityQuery _parkPrefabQuery;
+    private bool _applied;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _parkPrefabQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;ParkData&gt;(),
+            ComponentType.ReadOnly&lt;PrefabData&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_applied) return;
+        _applied = true;
+
+        var entities = _parkPrefabQuery.ToEntityArray(Allocator.Temp);
+        foreach (Entity entity in entities)
+        {
+            ParkData data = EntityManager.GetComponentData&lt;ParkData&gt;(entity);
+            data.m_MaintenancePool *= 2;    // Double maintenance pool (slower effective decay)
+            data.m_AllowHomeless = true;     // All parks allow homeless
+            EntityManager.SetComponentData(entity, data);
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Track Attractiveness by Building</h3>
+
+  <pre><code class="language-csharp">public partial class AttractivenessTrackerSystem : GameSystemBase
+{
+    private EntityQuery _attractionQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _attractionQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;AttractivenessProvider&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _attractionQuery.ToEntityArray(Allocator.Temp);
+        int totalAttractiveness = 0;
+
+        foreach (Entity entity in entities)
+        {
+            var provider = EntityManager.GetComponentData&lt;AttractivenessProvider&gt;(entity);
+            totalAttractiveness += provider.m_Attractiveness;
+
+            if (EntityManager.HasComponent&lt;Park&gt;(entity))
+            {
+                var park = EntityManager.GetComponentData&lt;Park&gt;(entity);
+                var prefabRef = EntityManager.GetComponentData&lt;PrefabRef&gt;(entity);
+                if (EntityManager.HasComponent&lt;ParkData&gt;(prefabRef.m_Prefab))
+                {
+                    var parkData = EntityManager.GetComponentData&lt;ParkData&gt;(prefabRef.m_Prefab);
+                    float ratio = (float)park.m_Maintenance / math.max(1, parkData.m_MaintenancePool);
+                    Log.Info($"Park {entity}: attract={provider.m_Attractiveness}, maint={ratio:P0}");
+                }
+            }
+        }
+
+        Log.Info($"Total city attractiveness: {totalAttractiveness}");
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Boost Leisure Provider Efficiency</h3>
+
+  <pre><code class="language-csharp">public partial class LeisureBoostSystem : GameSystemBase
+{
+    private EntityQuery _providerPrefabQuery;
+    private bool _applied;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _providerPrefabQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;LeisureProviderData&gt;(),
+            ComponentType.ReadOnly&lt;PrefabData&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_applied) return;
+        _applied = true;
+
+        var entities = _providerPrefabQuery.ToEntityArray(Allocator.Temp);
+        foreach (Entity entity in entities)
+        {
+            LeisureProviderData data = EntityManager.GetComponentData&lt;LeisureProviderData&gt;(entity);
+
+            // Boost park and beach types for outdoor leisure focus
+            if (data.m_LeisureType == LeisureType.CityPark ||
+                data.m_LeisureType == LeisureType.CityBeach)
+            {
+                data.m_Efficiency = (int)(data.m_Efficiency * 1.5f);
+            }
+            EntityManager.SetComponentData(entity, data);
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Understanding the Leisure Weight Formula</h3>
+
+  <pre><code class="language-csharp">// LeisureSystem.GetWeight() formula explained:
+// Each leisure type has four factors:
+//
+// 1. ageWeight: Base preference by citizen age
+//    Meals: Child=10, Teen=25, Adult=35, Elderly=35
+//    Entertainment: Child=0, Teen=45, Adult=45, Elderly=10
+//    CityPark: Child=30, Teen=25, Adult=30, Elderly=15
+//
+// 2. weatherModifier: Environmental conditions
+//    CityPark: 2.0 * (1 - 0.95 * rain) -- nearly zero in heavy rain
+//    CityBeach: 0.05 + 4 * saturate(0.35 - rain) * saturate((temp - 20) / 30)
+//    Travel: 0.5 + saturate((30 - temp) / 50)
+//    Others: 1.0 (no weather effect)
+//
+// 3. wealthScale: Fixed multiplier (most = 10, Travel = 1)
+//
+// 4. wealthThreshold: smoothstep(wealthMin, 1, (wealth + 5000) / 10000)
+//    CityPark/Indoor/Beach: min=0 (free, always accessible)
+//    Meals: min=0.2; Entertainment: min=0.3
+//    Commercial: min=0.4; Travel: min=0.5 (most expensive)
+//
+// Final: ageWeight * weatherMod * wealthScale * wealthThreshold
+// All 10 weights normalized, then random selection</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Leisure efficiency</td>
+        <td>LeisureProviderData.m_Efficiency</td>
+        <td>Varies per provider</td>
+        <td>How fast leisure counter fills per visit</td>
+      </tr>
+      <tr>
+        <td>Leisure type</td>
+        <td>LeisureProviderData.m_LeisureType</td>
+        <td>Varies</td>
+        <td>Category determines age/wealth/weather weight</td>
+      </tr>
+      <tr>
+        <td>Park maintenance pool</td>
+        <td>ParkData.m_MaintenancePool</td>
+        <td>Varies per park</td>
+        <td>Higher pool = slower effective maintenance decay</td>
+      </tr>
+      <tr>
+        <td>Base attractiveness</td>
+        <td>AttractionData.m_Attractiveness</td>
+        <td>Varies per building</td>
+        <td>Multiplied by efficiency, maintenance, terrain</td>
+      </tr>
+      <tr>
+        <td>Forest attractiveness effect</td>
+        <td>AttractivenessParameterData.m_ForestEffect</td>
+        <td>Global</td>
+        <td>Bonus from proximity to forests</td>
+      </tr>
+      <tr>
+        <td>Shore attractiveness effect</td>
+        <td>AttractivenessParameterData.m_ShoreEffect</td>
+        <td>Global</td>
+        <td>Bonus from proximity to water (depth &gt; 2m)</td>
+      </tr>
+      <tr>
+        <td>Height bonus</td>
+        <td>AttractivenessParameterData.m_HeightBonus</td>
+        <td>(threshold, multiplier, max)</td>
+        <td>Elevation-based attractiveness bonus</td>
+      </tr>
+      <tr>
+        <td>Park entertainment modifier</td>
+        <td>CityModifier ParkEntertainment</td>
+        <td>100%</td>
+        <td>City-wide modifier on park coverage magnitude</td>
+      </tr>
+      <tr>
+        <td>Attraction update interval</td>
+        <td>AttractionSystem.GetUpdateInterval</td>
+        <td>16 frames</td>
+        <td>How often attractiveness is recalculated</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Leisure counter decay:</strong> How <code>m_LeisureCounter</code> naturally decreases
+      -- likely handled by <code>CitizenBehaviorSystem</code> using
+      <code>ChanceCitizenDecreaseLeisureCounter</code> from <code>LeisureParametersData</code>.
+    </li>
+    <li>
+      <strong>kUpdateInterval:</strong> The exact value of this constant used in the LeisureSystem
+      for scaling efficiency values.
+    </li>
+    <li>
+      <strong>Group meetings:</strong> How <code>AddMeetingSystem</code> organizes group leisure
+      activities for Travel, Sightseeing, and Attractions types.
+    </li>
+    <li>
+      <strong>Maintenance vehicles:</strong> Whether park maintenance vehicles affect maintenance
+      restoration rate or just trigger dispatch through the <code>ParkMaintenance</code> component.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.LeisureSystem, Game.Simulation.ParkAISystem, Game.Simulation.AttractionSystem, Game.Simulation.TerrainAttractivenessSystem</li>
+    <li>Runtime components: Game.Buildings.Park, Game.Buildings.LeisureProvider, Game.Buildings.AttractivenessProvider, Game.Citizens.Leisure</li>
+    <li>Prefab types: Game.Prefabs.LeisureProviderData, Game.Prefabs.ParkData, Game.Prefabs.AttractionData, Game.Prefabs.AttractivenessParameterData, Game.Prefabs.LeisureParametersData</li>
+    <li>Enums: Game.Agents.LeisureType, Game.Simulation.AttractionSystem.AttractivenessFactor</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- LeisureSystem, ParkAISystem, AttractionSystem, TerrainAttractivenessSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
