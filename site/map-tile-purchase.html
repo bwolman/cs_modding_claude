@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Map Tile Purchase System</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+      <a href="map-tile-purchase.html" class="active">Map Tile Purchase</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Map Tile Purchase System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 handle map tile unlocking and purchasing -- what
+      constrains available tiles, how are costs calculated, and how does city boundary expansion work?
+    </p>
+    <p>
+      <strong>Verdict:</strong> The map is a fixed <strong>23x23 grid of 529 tiles</strong>, each
+      623.3 units per side. Unpurchased tiles are marked with the <code>Native</code> component.
+      <code>MapTilePurchaseSystem</code> manages the purchase flow: milestones gate how many tiles
+      can be purchased (starting at 9), tile cost is computed from map features (area, resources,
+      etc.) weighted by baseline modifiers, and each additional tile costs more based on how many
+      are already owned. Purchasing simply removes the <code>Native</code> component from the
+      tile entity.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Natural resource extraction and terrain modification after
+      purchase are separate systems.
+    </p>
+  </div>
+
+  <h2>How It Works</h2>
+
+  <p>
+    The map tile system has four stages: grid initialization, milestone gating, cost calculation,
+    and purchase execution.
+  </p>
+
+  <h3>Grid Structure</h3>
+
+  <p>
+    <code>MapTileSystem</code> creates a 23x23 grid of 529 tile entities on map load. Each tile
+    is a rectangular area of <strong>623.3 x 623.3 units</strong>, centered at the map origin.
+    All tiles start with the <code>Native</code> component (unpurchased), except for start tiles
+    defined by the map editor.
+  </p>
+
+  <h3>Milestone Gating</h3>
+
+  <p>
+    Available tile permits are calculated as:
+  </p>
+
+  <pre><code class="language-csharp">available = max(kAutoUnlockedTiles, startTiles.Length) + sum(unlockedMilestones.m_MapTiles) - ownedTiles</code></pre>
+
+  <p>
+    The constant <code>kAutoUnlockedTiles = 9</code> provides a baseline. Each unlocked milestone
+    adds <code>m_MapTiles</code> additional permits. If all milestones are reached and all permits
+    used, the status becomes <code>NoAvailable</code>.
+  </p>
+
+  <h3>Cost Calculation</h3>
+
+  <p>
+    Each tile's value is computed from its <code>MapFeatureElement</code> buffer (9 features):
+  </p>
+
+  <pre><code class="language-csharp">// Per feature on the tile
+featureCost = featureAmount * baselineModifier * 10.0 * prefabFeatureCost * globalCostFactor
+
+// Baseline modifiers normalize different feature types:
+// Area, BuildableLand, SurfaceWater: 1.0 / (623.304)^2  (area-based)
+// FertileLand, Forest, Oil, Ore, GroundWater, Fish: 8.07e-7  (resource-based)
+
+// Total across all tiles (sorted expensive-first):
+totalCost = sum(tileValue[k] * (ownedTileCount + k))</code></pre>
+
+  <p>
+    The multiplication by <code>(ownedTileCount + k)</code> means each additional tile is
+    progressively more expensive. The most valuable tiles contribute the highest per-tile cost.
+  </p>
+
+  <h3>Upkeep</h3>
+
+  <pre><code class="language-csharp">totalFeatureValue = sum of all feature costs across owned + selected tiles
+upkeep = totalFeatureValue * MapTileUpkeepCostMultiplier(totalTileCount) - currentUpkeep
+// First 9 tiles (kAutoUnlockedTiles) have 0 upkeep multiplier</code></pre>
+
+  <h3>Purchase Execution</h3>
+
+  <p>
+    <code>PurchaseSelection()</code> validates the status flags, subtracts cost from
+    <code>PlayerMoney</code>, then for each selected tile calls <code>UnlockTile()</code> which
+    simply <strong>removes the <code>Native</code> component</strong> and adds <code>Updated</code>.
+    Achievement progress is tracked for <em>TheExplorer</em> and <em>EverythingTheLightTouches</em>.
+  </p>
+
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Game.dll</td><td>Game.Simulation</td><td>MapTilePurchaseSystem, TilePurchaseErrorFlags</td></tr>
+      <tr><td>Game.dll</td><td>Game.Areas</td><td>MapTileSystem, MapTile, MapFeature, MapFeatureElement</td></tr>
+      <tr><td>Game.dll</td><td>Game.Prefabs</td><td>MapTileData, TilePurchaseCostFactor, MapFeatureData, MilestoneData</td></tr>
+      <tr><td>Game.dll</td><td>Game.Common</td><td>Native (marks unpurchased tiles)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>MapFeature (enum)</h3>
+
+  <table>
+    <thead><tr><th>Value</th><th>Name</th><th>Baseline Modifier</th></tr></thead>
+    <tbody>
+      <tr><td>0</td><td>Area</td><td>1/623.3^2 (area-based)</td></tr>
+      <tr><td>1</td><td>BuildableLand</td><td>1/623.3^2 (area-based)</td></tr>
+      <tr><td>2</td><td>FertileLand</td><td>8.07e-7 (resource-based)</td></tr>
+      <tr><td>3</td><td>Forest</td><td>8.07e-7 (resource-based)</td></tr>
+      <tr><td>4</td><td>Oil</td><td>8.07e-7 (resource-based)</td></tr>
+      <tr><td>5</td><td>Ore</td><td>8.07e-7 (resource-based)</td></tr>
+      <tr><td>6</td><td>SurfaceWater</td><td>1/623.3^2 (area-based)</td></tr>
+      <tr><td>7</td><td>GroundWater</td><td>8.07e-7 (resource-based)</td></tr>
+      <tr><td>8</td><td>Fish</td><td>8.07e-7 (resource-based)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TilePurchaseErrorFlags</h3>
+
+  <table>
+    <thead><tr><th>Flag</th><th>Value</th><th>Meaning</th></tr></thead>
+    <tbody>
+      <tr><td>None</td><td>0</td><td>Purchase allowed</td></tr>
+      <tr><td>NoCurrentlyAvailable</td><td>1</td><td>No permits now, milestones remain</td></tr>
+      <tr><td>NoAvailable</td><td>2</td><td>All milestones reached, no more tiles</td></tr>
+      <tr><td>NoSelection</td><td>4</td><td>No tiles selected</td></tr>
+      <tr><td>InsufficientFunds</td><td>8</td><td>City cannot afford selected tiles</td></tr>
+      <tr><td>InsufficientPermits</td><td>16</td><td>Selected more than available permits</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+GRID INITIALIZATION (MapTileSystem)
+  23x23 = 529 tile entities with MapTile + Native + MapFeatureElement[9]
+  Start tiles: Native removed (unlocked by map editor)
+  Cell size: 623.3 x 623.3 units, grid centered at origin
+          |
+          v
+MILESTONE GATING (MilestoneData.m_MapTiles)
+  available = max(9, startTiles) + sum(unlockedMilestones) - ownedTiles
+  kAutoUnlockedTiles = 9 (baseline)
+          |
+          v
+TILE SELECTION (SelectionToolSystem, SelectionType.MapTiles)
+  Player selects Native tiles via selection tool
+  Selection stored in SelectionElement buffer
+          |
+          v
+COST CALCULATION (MapTilePurchaseSystem.UpdateStatus)
+  Per feature: amount * baselineModifier * 10 * featureCost * globalFactor
+  Tiles sorted expensive-first
+  totalCost = sum(tileValue[k] * (ownedCount + k))
+  Upkeep = totalValue * UpkeepCurve(totalCount) - currentUpkeep
+          |
+          v
+VALIDATION (TilePurchaseErrorFlags)
+  Check: permits, funds, selection, milestones
+          |
+          v
+PURCHASE (MapTilePurchaseSystem.PurchaseSelection)
+  Subtract cost from PlayerMoney
+  Remove Native component from selected tiles
+  Track achievement progress
+</pre>
+  </div>
+
+  <h2>Examples</h2>
+
+  <h3>List All Map Tile Features</h3>
+
+  <pre><code class="language-csharp">public partial class TileInfoSystem : GameSystemBase
+{
+    private EntityQuery _tileQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _tileQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;MapTile&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _tileQuery.ToEntityArray(Allocator.Temp);
+        int owned = 0, native = 0;
+        foreach (Entity entity in entities)
+        {
+            bool isNative = EntityManager.HasComponent&lt;Native&gt;(entity);
+            if (isNative) native++; else owned++;
+
+            if (!isNative &amp;&amp; EntityManager.HasBuffer&lt;MapFeatureElement&gt;(entity))
+            {
+                var features = EntityManager.GetBuffer&lt;MapFeatureElement&gt;(entity);
+                Log.Info($"Tile {entity}: Area={features[0].m_Amount:F0}, " +
+                         $"Build={features[1].m_Amount:F0}, Fertile={features[2].m_Amount:F0}");
+            }
+        }
+        Log.Info($"Tiles: {owned} owned, {native} native, {entities.Length} total");
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Unlock All Map Tiles</h3>
+
+  <pre><code class="language-csharp">public partial class UnlockAllTilesSystem : GameSystemBase
+{
+    private EntityQuery _lockedQuery;
+    private bool _applied;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _lockedQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;MapTile&gt;(),
+            ComponentType.ReadOnly&lt;Native&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_applied) return;
+        _applied = true;
+
+        var entities = _lockedQuery.ToEntityArray(Allocator.Temp);
+        foreach (Entity entity in entities)
+        {
+            MapTilePurchaseSystem.UnlockTile(EntityManager, entity);
+        }
+        Log.Info($"Unlocked {entities.Length} map tiles");
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Check Available Tile Permits</h3>
+
+  <pre><code class="language-csharp">public void CheckTilePermits(World world)
+{
+    var purchaseSystem = world.GetExistingSystemManaged&lt;MapTilePurchaseSystem&gt;();
+    int available = purchaseSystem.GetAvailableTiles();
+    bool milestonesLeft = purchaseSystem.IsMilestonesLeft();
+    var status = purchaseSystem.status;
+
+    Log.Info($"Available permits: {available}");
+    Log.Info($"Milestones remaining: {milestonesLeft}");
+    Log.Info($"Status: {status}");
+    Log.Info($"Current cost: {purchaseSystem.cost}");
+    Log.Info($"Upkeep: {purchaseSystem.upkeep}");
+}</code></pre>
+
+  <h3>Modify Tile Purchase Cost Factors</h3>
+
+  <pre><code class="language-csharp">public partial class CheapTilesSystem : GameSystemBase
+{
+    private EntityQuery _costQuery;
+    private bool _applied;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _costQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;TilePurchaseCostFactor&gt;(),
+            ComponentType.ReadOnly&lt;PrefabData&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_applied) return;
+        _applied = true;
+
+        var entities = _costQuery.ToEntityArray(Allocator.Temp);
+        foreach (Entity entity in entities)
+        {
+            TilePurchaseCostFactor factor = EntityManager.GetComponentData&lt;TilePurchaseCostFactor&gt;(entity);
+            factor.m_Amount *= 0.5f;  // 50% cheaper tiles
+            EntityManager.SetComponentData(entity, factor);
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Understanding the Cost Formula</h3>
+
+  <pre><code class="language-csharp">// MapTilePurchaseSystem cost calculation:
+//
+// Constants:
+//   kMapTileSizeModifier = 1.0 / (623.304)^2 -- normalizes land area
+//   kResourceModifier = 8.07e-7 -- normalizes resource amounts
+//   kAutoUnlockedTiles = 9 -- minimum tiles at game start
+//
+// Per-tile cost:
+//   tileValue = sum_features(amount * baselineMod * 10 * featureCost * globalFactor)
+//
+// Total cost (tiles sorted expensive-first):
+//   totalCost = sum_k(tileValue[k] * (ownedTiles + k))
+//   Each additional tile costs more based on owned count
+//
+// Upkeep:
+//   totalFeatureValue * UpkeepCurve(totalTileCount)
+//   First 9 tiles: 0 upkeep multiplier</code></pre>
+
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Auto-unlocked tiles</td><td>kAutoUnlockedTiles</td><td>9</td><td>Minimum tiles at game start</td></tr>
+      <tr><td>Grid size</td><td>MapTileSystem constant</td><td>23x23 (529)</td><td>Total tiles in the map</td></tr>
+      <tr><td>Tile size</td><td>LEGACY_CELL_SIZE</td><td>623.3043 units</td><td>Physical size of each tile</td></tr>
+      <tr><td>Global cost factor</td><td>TilePurchaseCostFactor.m_Amount</td><td>Varies</td><td>Scales all tile costs</td></tr>
+      <tr><td>Feature costs</td><td>MapFeatureData.m_Cost</td><td>Per-feature</td><td>Cost weight per resource type</td></tr>
+      <tr><td>Milestone tiles</td><td>MilestoneData.m_MapTiles</td><td>Varies</td><td>Permits unlocked per milestone</td></tr>
+      <tr><td>Upkeep curve</td><td>EconomyParameterData.m_MapTileUpkeepCostMultiplier</td><td>AnimationCurve</td><td>Upkeep scaling by tile count</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li><strong>Sandbox flag:</strong> How <code>CityConfigurationSystem.unlockMapTiles</code> disables upkeep and unlocks all tiles.</li>
+    <li><strong>Upkeep curve shape:</strong> The exact shape of <code>m_MapTileUpkeepCostMultiplier</code> -- it is an AnimationCurve evaluated by tile count.</li>
+    <li><strong>Map editor start tiles:</strong> How the map editor defines which tiles are initially unlocked.</li>
+    <li><strong>Grid configurability:</strong> Whether the 23x23 grid (529 tiles) is fixed or configurable.</li>
+  </ul>
+
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.MapTilePurchaseSystem, Game.Areas.MapTileSystem</li>
+    <li>Runtime components: Game.Areas.MapTile, Game.Common.Native, Game.Areas.MapFeatureElement</li>
+    <li>Prefab types: Game.Prefabs.MapTileData, Game.Prefabs.TilePurchaseCostFactor, Game.Prefabs.MapFeatureData, Game.Prefabs.MilestoneData</li>
+    <li>Enums: Game.Simulation.TilePurchaseErrorFlags, Game.Areas.MapFeature</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- MapTilePurchaseSystem, MapTileSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
