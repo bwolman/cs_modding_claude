@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-15
+> **Last updated**: 2026-02-16
 
 ## Scope
 
@@ -23,6 +23,36 @@
 | Game.dll | Game.Vehicles | PoliceCar, FireEngine, Ambulance, Hearse |
 | Game.dll | Game.Prefabs | PolicePurpose, FireRescueRequestType, HealthcareRequestType |
 | Game.dll | Game.Pathfind | PathInformation, PathElement, SetupQueueItem |
+
+## Namespace Disambiguation: `Game.Common.Event` vs `Game.Events.Event`
+
+CS2 has two different empty marker structs both named `Event` in different namespaces. Several components in this research (e.g., `AccidentSite.m_Event`, `OnFire.m_Event`, `HealthProblem.m_Event`) store an `Entity` reference to an event entity. Understanding which `Event` type that entity carries is critical for mods that create or query event entities.
+
+| Type | Namespace | Purpose | Lifetime |
+|------|-----------|---------|----------|
+| `Game.Common.Event` | `Game.Common` | Tag component on short-lived command/notification entities (Impact, AddAccidentSite, Ignite, AddHealthProblem) | Created and destroyed within 1-2 frames |
+| `Game.Events.Event` | `Game.Events` | Tag component on persistent accident/disaster event entities (TrafficAccident, etc.) with duration, flags, and target tracking | Persists for the full duration of the accident or disaster |
+
+**The `m_Event` fields on `AccidentSite`, `OnFire`, `HealthProblem`, and `InvolvedInAccident` point to persistent `Game.Events.Event` entities** (the long-lived TrafficAccident event entity), not the short-lived `Game.Common.Event` command entities.
+
+**Ambiguity warning:** If your mod imports both `using Game.Common;` and `using Game.Events;`, the bare name `Event` becomes ambiguous and will cause a compiler error. Always use fully-qualified names when both namespaces are in scope:
+
+```csharp
+// BAD: ambiguous if both namespaces are imported
+using Game.Common;
+using Game.Events;
+
+// ...
+ComponentType.ReadWrite<Event>()  // Compiler error: 'Event' is ambiguous
+
+// GOOD: use fully-qualified names
+ComponentType.ReadWrite<Game.Events.Event>()     // persistent event entity
+ComponentType.ReadWrite<Game.Common.Event>()      // short-lived command entity
+```
+
+Using the wrong `Event` type is a silent failure at runtime -- the entity will be created but will not match the queries that downstream systems use, so the entire pipeline silently does nothing.
+
+For full details on the TrafficAccident event entity archetype and how these two `Event` types are used in the accident pipeline, see [`research/topics/EventEntityArchetype/README.md`](../EventEntityArchetype/README.md).
 
 ## Component Map
 
@@ -461,7 +491,7 @@ ServiceRequestSystem.HandleRequestJob: destroys the request entity
 - **Patch type**: N/A (ECS system)
 - **What it enables**: Create any request type (PoliceEmergencyRequest, FireRescueRequest, HealthcareRequest) for any target entity. The dispatch systems process requests based on their component types, not on what originally triggered them.
 - **Risk level**: Low
-- **Side effects**: Must ensure the target entity has the expected validation component (AccidentSite for police, OnFire/RescueTarget for fire, HealthProblem with RequireTransport for healthcare)
+- **Side effects**: Must ensure the target entity has the expected validation component (AccidentSite for police, OnFire/RescueTarget for fire, HealthProblem with RequireTransport for healthcare). **Important**: HealthProblem must be added via the `AddHealthProblem` event pipeline, not directly -- see the [Mod Blueprint warning](#how-to-dispatch-an-emergency-vehicle-programmatically-no-event-needed).
 
 ## Modding Warning: UpdateBefore vs UpdateAfter for RequirePolice
 
@@ -587,9 +617,37 @@ Create the appropriate request entity with the right archetype. The dispatch sys
 
 - Police: target needs `AccidentSite` with `RequirePolice` flag
 - Fire: target needs `OnFire` or `RescueTarget`
-- Healthcare: target (citizen) needs `HealthProblem` with `RequireTransport`
+- Healthcare: target (citizen) needs `HealthProblem` with `RequireTransport` -- but **do NOT add `HealthProblem` directly** (see warning below; use the `AddHealthProblem` event-based approach instead)
 
-If you want to dispatch without a real event, add the validation component to a target entity, then create the request.
+If you want to dispatch without a real event, ensure the validation component exists on the target entity, then create the request. **Exception**: for healthcare, you must use the `AddHealthProblem` event pipeline to add `HealthProblem` to a citizen rather than adding it directly -- see the warning immediately below.
+
+> **WARNING: Do NOT directly add `HealthProblem` via `EntityManager.AddComponentData()`.** Directly adding `HealthProblem` to a citizen bypasses `AddHealthProblemSystem`, which performs critical side effects:
+>
+> 1. **Stops citizen movement** (`StopMoving()` clears pathfinding on the citizen's transport) -- without this, the citizen keeps walking/driving and ambulances may never reach a moving target.
+> 2. **Fires trigger events** (`CitizenGotSick`, `CitizenGotInjured`, `CitizenGotTrapped`, `CitizenGotInDanger`) -- other systems and mods rely on these.
+> 3. **Creates journal data** for statistics tracking.
+> 4. **Merges flags properly** via `MergeProblems()` (Dead > RequireTransport > non-null Event > flag union) -- direct addition can clobber existing flags.
+>
+> **The correct approach** is to create an `AddHealthProblem` event entity (with `Game.Common.Event` tag + `Game.Events.AddHealthProblem` component) and let `AddHealthProblemSystem` handle it:
+>
+> ```csharp
+> // CORRECT: Create an event entity for AddHealthProblemSystem to process
+> var archetype = EntityManager.CreateArchetype(
+>     ComponentType.ReadWrite<Game.Common.Event>(),
+>     ComponentType.ReadWrite<AddHealthProblem>()
+> );
+> Entity cmd = EntityManager.CreateEntity(archetype);
+> EntityManager.SetComponentData(cmd, new AddHealthProblem
+> {
+>     m_Event = Entity.Null,
+>     m_Target = citizenEntity,
+>     m_Flags = HealthProblemFlags.Sick | HealthProblemFlags.RequireTransport
+> });
+> // AddHealthProblemSystem processes this next frame -- stops movement,
+> // fires triggers, creates journal data, and merges flags correctly.
+> ```
+>
+> See the [CitizenSickness research topic](../CitizenSickness/README.md) for full details on `AddHealthProblemSystem`, the event-based approach, and code examples for making citizens sick.
 
 ### What controls which service responds to which event
 

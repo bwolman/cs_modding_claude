@@ -76,8 +76,11 @@
       <strong>Verdict:</strong> Each service type has a completely independent request/dispatch
       pipeline. Dispatch is triggered by specific ECS components on target entities (AccidentSite
       for police, OnFire/RescueTarget for fire, HealthProblem for healthcare). A mod can create
-      request entities directly and add the required validation components to force any service
-      to respond to any event.
+      request entities directly and ensure the required validation components exist on the target
+      to force any service to respond to any event. Note: for healthcare,
+      <code>HealthProblem</code> must be added through the event-based
+      <code>AddHealthProblem</code> pipeline, not directly -- see the warning in the Examples
+      section.
     </p>
     <p>
       <strong>Out of scope:</strong> Vehicle AI after dispatch, patrol route generation,
@@ -100,6 +103,73 @@
     They validate the request by checking that the target still has the expected component
     (OnFire, AccidentSite, HealthProblem). This means a mod can create request entities
     programmatically, as long as the validation component exists on the target.
+  </p>
+
+  <h3>Namespace Disambiguation: <code>Game.Common.Event</code> vs <code>Game.Events.Event</code></h3>
+
+  <p>
+    CS2 has two different empty marker structs both named <code>Event</code> in different namespaces.
+    Several components referenced in this page (e.g., <code>AccidentSite.m_Event</code>,
+    <code>OnFire.m_Event</code>, <code>HealthProblem.m_Event</code>) store an <code>Entity</code>
+    reference to an event entity. Understanding which <code>Event</code> type that entity carries is
+    critical for mods that create or query event entities.
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Type</th>
+        <th>Namespace</th>
+        <th>Purpose</th>
+        <th>Lifetime</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Game.Common.Event</code></td>
+        <td><code>Game.Common</code></td>
+        <td>Tag component on short-lived command/notification entities (Impact, AddAccidentSite, Ignite, AddHealthProblem)</td>
+        <td>Created and destroyed within 1-2 frames</td>
+      </tr>
+      <tr>
+        <td><code>Game.Events.Event</code></td>
+        <td><code>Game.Events</code></td>
+        <td>Tag component on persistent accident/disaster event entities (TrafficAccident, etc.) with duration, flags, and target tracking</td>
+        <td>Persists for the full duration of the accident or disaster</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The <code>m_Event</code> fields on <code>AccidentSite</code>, <code>OnFire</code>,
+    <code>HealthProblem</code>, and <code>InvolvedInAccident</code> point to persistent
+    <code>Game.Events.Event</code> entities (the long-lived TrafficAccident event entity), not the
+    short-lived <code>Game.Common.Event</code> command entities.
+  </p>
+
+  <p>
+    <strong>Ambiguity warning:</strong> If your mod imports both <code>using Game.Common;</code> and
+    <code>using Game.Events;</code>, the bare name <code>Event</code> becomes ambiguous and will cause
+    a compiler error. Always use fully-qualified names when both namespaces are in scope:
+  </p>
+
+  <pre><code class="language-csharp">// BAD: ambiguous if both namespaces are imported
+using Game.Common;
+using Game.Events;
+
+// ...
+ComponentType.ReadWrite&lt;Event&gt;()  // Compiler error: 'Event' is ambiguous
+
+// GOOD: use fully-qualified names
+ComponentType.ReadWrite&lt;Game.Events.Event&gt;()     // persistent event entity
+ComponentType.ReadWrite&lt;Game.Common.Event&gt;()      // short-lived command entity</code></pre>
+
+  <p>
+    Using the wrong <code>Event</code> type is a silent failure at runtime -- the entity will be
+    created but will not match the queries that downstream systems use, so the entire pipeline
+    silently does nothing. For full details on the TrafficAccident event entity archetype and how
+    these two <code>Event</code> types are used in the accident pipeline, see the
+    <a href="event-entity-archetype.html">Event Entity Archetype</a> topic.
   </p>
 
   <h3>The Three Dispatch Pipelines</h3>
@@ -637,7 +707,8 @@ public partial class FireToAccidentsSystem : GameSystemBase
   <p>
     Healthcare dispatch requires <code>HealthProblem</code> with <code>RequireTransport</code>
     on the citizen. If the citizen already has this (e.g., from a sickness event), just create
-    the request entity.
+    the request entity. The example below assumes the citizen already has
+    <code>HealthProblem</code> -- see the warning below about how to add it correctly.
   </p>
 
   <pre><code class="language-csharp">using Game.Citizens;
@@ -669,6 +740,53 @@ private void DispatchAmbulanceTo(Entity citizen)
         new HealthcareRequest(citizen, type));
     EntityManager.AddComponentData(request, new RequestGroup(16u));
 }</code></pre>
+
+  <h3>Warning: Do NOT Directly Add HealthProblem to Citizens</h3>
+
+  <p>
+    If you need a citizen to have <code>HealthProblem</code> (e.g., to satisfy
+    <code>HealthcareDispatchSystem</code> validation), <strong>do not add it directly</strong>
+    via <code>EntityManager.AddComponentData()</code>. Directly adding <code>HealthProblem</code>
+    bypasses <code>AddHealthProblemSystem</code>, which performs critical side effects:
+  </p>
+
+  <ol>
+    <li><strong>Stops citizen movement</strong> (<code>StopMoving()</code> clears pathfinding on
+        the citizen's transport) -- without this, the citizen keeps walking/driving and
+        ambulances may never reach a moving target.</li>
+    <li><strong>Fires trigger events</strong> (<code>CitizenGotSick</code>,
+        <code>CitizenGotInjured</code>, etc.) -- other systems and mods rely on these.</li>
+    <li><strong>Creates journal data</strong> for statistics tracking.</li>
+    <li><strong>Merges flags properly</strong> via <code>MergeProblems()</code> (Dead &gt;
+        RequireTransport &gt; non-null Event &gt; flag union) -- direct addition can clobber
+        existing flags.</li>
+  </ol>
+
+  <p>
+    <strong>The correct approach</strong> is to create an <code>AddHealthProblem</code> event
+    entity (with <code>Game.Common.Event</code> tag + <code>Game.Events.AddHealthProblem</code>
+    component) and let <code>AddHealthProblemSystem</code> handle it:
+  </p>
+
+  <pre><code class="language-csharp">// CORRECT: Create an event entity for AddHealthProblemSystem to process
+var archetype = EntityManager.CreateArchetype(
+    ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+    ComponentType.ReadWrite&lt;AddHealthProblem&gt;()
+);
+Entity cmd = EntityManager.CreateEntity(archetype);
+EntityManager.SetComponentData(cmd, new AddHealthProblem
+{
+    m_Event = Entity.Null,
+    m_Target = citizenEntity,
+    m_Flags = HealthProblemFlags.Sick | HealthProblemFlags.RequireTransport
+});
+// AddHealthProblemSystem processes this next frame -- stops movement,
+// fires triggers, creates journal data, and merges flags correctly.</code></pre>
+
+  <p>
+    See the <a href="citizen-sickness.html">Citizen Sickness</a> topic for full details on
+    <code>AddHealthProblemSystem</code>, the event-based approach, and code examples.
+  </p>
 
   <!-- ============================================================ -->
   <h2>Configuration</h2>
