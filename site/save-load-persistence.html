@@ -713,6 +713,76 @@ public struct Citizen : IComponentData, ISerializable
   </p>
 
   <!-- ============================================================ -->
+  <h2>Concrete Versioning Pattern: DeciduousData (Tree_Controller)</h2>
+
+  <p>
+    The <a href="https://github.com/yenyang/Tree_Controller">Tree_Controller mod by yenyang</a>
+    demonstrates a production-ready versioning pattern for <code>ISerializable</code> with several
+    key techniques: writing a version byte as the first field, casting enums to <code>byte</code>
+    for compact serialization, and implementing <code>IQueryTypeParameter</code> alongside
+    <code>IComponentData</code> for <code>SystemAPI.QueryBuilder</code> compatibility.
+  </p>
+
+  <h3>DeciduousData Component</h3>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Stores per-tree deciduous state that persists across save/load.
+/// Implements IQueryTypeParameter for SystemAPI.QueryBuilder compatibility.
+/// Source: Tree_Controller mod by yenyang.
+/// &lt;/summary&gt;
+public struct DeciduousData : IComponentData, ISerializable, IQueryTypeParameter
+{
+    public TreeState m_PreviousTreeState;
+    public bool m_TechnicolorTreeRandomly;
+
+    private const byte kCurrentVersion = 1;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        // Cast enum to byte for compact serialization
+        writer.Write((byte)m_PreviousTreeState);
+        writer.Write(m_TechnicolorTreeRandomly);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out byte previousTreeState);
+        m_PreviousTreeState = (TreeState)previousTreeState;
+        reader.Read(out m_TechnicolorTreeRandomly);
+    }
+}</code></pre>
+
+  <h3>Evergreen Tag Component</h3>
+
+  <p>
+    The same mod uses <code>IEmptySerializable</code> for a zero-data marker that also implements
+    <code>IQueryTypeParameter</code>:
+  </p>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Marks a tree as evergreen. Persists across save/load.
+/// &lt;/summary&gt;
+public struct Evergreen : IComponentData, IEmptySerializable, IQueryTypeParameter { }</code></pre>
+
+  <h3>Key Takeaways</h3>
+
+  <ul>
+    <li><strong>Always write version first</strong> -- even with one version, writing the version byte
+    from the start means you can add fields later without breaking existing saves.</li>
+    <li><strong>Cast enums to byte</strong> -- <code>writer.Write((byte)m_PreviousTreeState)</code>
+    is smaller than writing the enum's default underlying type (int) and safer against enum changes.</li>
+    <li><strong>Add IQueryTypeParameter</strong> -- if your component will be used with
+    <code>SystemAPI.QueryBuilder</code> (the source-generated ECS query API), add this marker interface.</li>
+    <li><strong>IEmptySerializable + IQueryTypeParameter</strong> -- tag components can combine both
+    interfaces for zero-data persistence with query compatibility.</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Community Mod ISerializable Pattern</h2>
 
   <p>
