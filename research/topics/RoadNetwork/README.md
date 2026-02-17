@@ -165,6 +165,34 @@ Computed geometry for node intersections.
 
 *Source: `Game.dll` -> `Game.Net.NodeGeometry`*
 
+### `StartNodeGeometry` / `EndNodeGeometry` (Game.Net)
+
+Per-edge components that store the geometry contribution of this edge to its start and end intersection nodes. While `NodeGeometry` lives on the node itself and represents the combined result, these per-edge components describe how each individual edge shapes the intersection.
+
+**`StartNodeGeometry`**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Geometry | EdgeNodeGeometry | Geometry data for how this edge connects to its start node |
+
+**`EndNodeGeometry`**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Geometry | EdgeNodeGeometry | Geometry data for how this edge connects to its end node |
+
+**`EdgeNodeGeometry`** struct:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Left | Segment | Left-side Bezier curve and length at the node junction |
+| m_Right | Segment | Right-side Bezier curve and length at the node junction |
+| m_Middle | Bezier4x3 | Center-line Bezier curve at the node junction |
+
+`GeometrySystem` computes these components for each edge. They are consumed by `LaneSystem` to generate accurate lane curves through intersections and by the rendering pipeline to draw smooth node geometry where multiple edges meet.
+
+*Source: `Game.dll` -> `Game.Net.StartNodeGeometry`, `Game.Net.EndNodeGeometry`, `Game.Net.EdgeNodeGeometry`*
+
 ### `Upgraded` (Game.Net)
 
 Marks an edge that has been upgraded (e.g., added lanes, changed surface type).
@@ -445,6 +473,31 @@ Buffer on composition prefabs defining lane positions.
 | m_Group | byte | Lane group index |
 | m_Index | byte | Lane index within group |
 
+### `CarLane` (Game.Prefabs)
+
+Prefab component on lane prefab entities that defines car-specific lane behavior.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_RoadTypes | RoadTypes | Which road types this lane supports (Car, Maintenance, etc.) |
+| m_SpeedLimit | float | Default speed limit in game units (not km/h) |
+| m_MaxSpeed | float | Maximum allowable speed on this lane |
+| m_SafeSpeed | float | Safe cruising speed used for traffic safety calculations |
+| m_GasUsage | float | Fuel consumption rate multiplier for vehicles using this lane |
+
+*Source: `Game.dll` -> `Game.Prefabs.CarLane`*
+
+### `TrackLane` (Game.Prefabs)
+
+Prefab component on lane prefab entities that defines track-specific lane behavior (trains, trams, subways).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_SpeedLimit | float | Default speed limit for track vehicles |
+| m_TrackTypes | TrackTypes | Which track types this lane supports (Train, Tram, Subway) |
+
+*Source: `Game.dll` -> `Game.Prefabs.TrackLane`*
+
 ## Harmony Patch Points
 
 ### Recommended: ECS Queries (No Patches Needed)
@@ -637,7 +690,7 @@ public bool HasTrafficLights(Entity nodeEntity)
 - How does `NetToolSystem` handle the Grid mode internally? The control point collection differs from curve modes but the exact grid generation logic was not fully traced.
 - What is the full lifecycle of `Temp` entities? They appear to use `TempFlags` (Delete, Replace, Combine, Cancel) but the state machine transitions need more investigation.
 - How does edge splitting work when a new node is placed on an existing edge mid-segment? `GenerateEdgesSystem` handles this but the exact split logic is complex.
-- How are `Aggregate` entities used? They appear to group connected edges of the same type but the aggregation rules need investigation.
+- ~~How are `Aggregate` entities used?~~ **Resolved**: `Aggregate` entities group contiguous edges that share the same network prefab (e.g., all connected segments of the same road type). `AggregateSystem` merges edges into aggregates when they share a node and have the same prefab, and splits aggregates when edges are deleted or change type. The `Aggregated` component on each edge stores a reference to its parent aggregate entity. Aggregates are used by the naming system (road name labels span the entire aggregate), by the Traffic mod for road-level statistics, and by the UI to display aggregate-level info (e.g., total road length, average condition). Each aggregate carries a `DynamicBuffer<AggregateElement>` listing its member edges.
 - What triggers `CompositionSelectSystem` to choose different compositions? The selection logic based on connected edges, upgrade flags, and context is complex.
 - How do parallel roads (from `NetToolSystem.parallelCount`) interact with the generation pipeline?
 
