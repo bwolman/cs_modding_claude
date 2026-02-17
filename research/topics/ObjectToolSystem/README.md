@@ -532,6 +532,43 @@ public void CheckToolState(ToolSystem toolSystem)
 }
 ```
 
+## Tree/Vegetation Tool Properties
+
+### `ObjectToolSystem.allowAge` (bool)
+
+Controls whether the tree age slider appears in the tool UI panel. Set automatically:
+- **true** when the selected prefab has a `TreeData` component AND the game is in Game mode (not editor)
+- **false** otherwise
+
+The property has a public getter but private setter. Tree_Controller uses reflection to force it on for street trees:
+
+```csharp
+// Force age slider for street trees (owned by network edges)
+if (placingStreetTrees && !m_ObjectToolSystem.allowAge)
+{
+    m_ObjectToolSystem.SetMemberValue("allowAge", true);
+}
+```
+
+### `ToolBaseSystem.brushStrength` (float)
+
+Public get/set property on the base tool class. Defaults to `0.5f` in ObjectToolSystem. Controls the placement density/intensity when using brush mode (mode 4).
+
+Tree_Controller patches `ToolUISystem.SetBrushStrength` to allow values above 1.0 (100%) for faster vegetation scattering:
+
+```csharp
+[HarmonyPatch(typeof(ToolUISystem), "SetBrushStrength")]
+public static class SetBrushStrengthPatch
+{
+    static void Postfix(ToolSystem ___m_ToolSystem)
+    {
+        // Allow up to 300% brush strength for vegetation
+        if (___m_ToolSystem.activeTool.brushStrength >= 1.0f)
+            ___m_ToolSystem.activeTool.brushStrength = 3.0f;
+    }
+}
+```
+
 ## Open Questions
 
 - [ ] How does the `ToolOutputBarrier` process definition entities to create real game entities? The barrier likely uses an `EntityCommandBuffer` pattern but the exact creation pipeline is unclear.

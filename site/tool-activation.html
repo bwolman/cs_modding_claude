@@ -430,6 +430,47 @@
     }
 }</code></pre>
 
+  <h3>Example 5: Guard Pattern for ActivatePrefabTool (FindIt Pattern)</h3>
+  <p>Check <code>activePrefab</code> before calling <code>ActivatePrefabTool</code> to avoid redundant switches.
+  Use a flag to distinguish mod-initiated changes from user actions:</p>
+
+  <pre><code>private bool _settingPrefab;
+
+internal void TryActivatePrefabTool(PrefabBase prefab)
+{
+    if (prefab != null &amp;&amp; _toolSystem.activePrefab != prefab)
+    {
+        _settingPrefab = true;
+        _toolSystem.ActivatePrefabTool(prefab);
+        _settingPrefab = false;
+    }
+}
+
+private void OnPrefabChanged(PrefabBase prefab)
+{
+    if (_settingPrefab) return; // We initiated this, ignore
+    // User changed prefab via vanilla UI -- update mod state
+}</code></pre>
+
+  <h3>Example 6: ToolbarUISystem.Apply Postfix for Theme Tracking</h3>
+  <p>Patch <code>ToolbarUISystem.Apply</code> to detect toolbar theme/category changes:</p>
+
+  <pre><code>[HarmonyPatch(typeof(Game.UI.InGame.ToolbarUISystem), "Apply")]
+public static class ToolbarApplyPatch
+{
+    // Apply(List&lt;Entity&gt; themes, List&lt;Entity&gt; packs,
+    //   Entity assetMenuEntity, Entity assetCategoryEntity,
+    //   Entity assetEntity, bool updateTool)
+    static void Postfix(List&lt;Entity&gt; themes, Entity assetEntity)
+    {
+        if (themes.Count != _lastThemeCount)
+        {
+            _lastThemeCount = themes.Count;
+            UpdateSelectionSet = true;
+        }
+    }
+}</code></pre>
+
   <!-- ============================================================ -->
   <h2>Open Questions</h2>
 

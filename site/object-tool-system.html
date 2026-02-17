@@ -428,6 +428,30 @@ Stamping = 0x80000   // Part of stamp</code></pre>
     </li>
   </ul>
 
+  <h2>Tree/Vegetation Tool Properties</h2>
+
+  <h3>ObjectToolSystem.allowAge</h3>
+  <p>
+    Controls whether the tree age slider appears in the tool UI. Set to <code>true</code>
+    when the selected prefab has <code>TreeData</code> and the game is in Game mode.
+    Has public getter but private setter — mods use reflection to force it on:
+  </p>
+  <pre><code>// Force age slider for street trees (Tree_Controller pattern)
+if (placingStreetTrees &amp;&amp; !m_ObjectToolSystem.allowAge)
+    m_ObjectToolSystem.SetMemberValue("allowAge", true);</code></pre>
+
+  <h3>ToolBaseSystem.brushStrength</h3>
+  <p>
+    Public get/set property, defaults to <code>0.5f</code>. Controls placement density in brush mode.
+    Tree_Controller patches <code>ToolUISystem.SetBrushStrength</code> to allow values above 100%:
+  </p>
+  <pre><code>[HarmonyPatch(typeof(ToolUISystem), "SetBrushStrength")]
+static void Postfix(ToolSystem ___m_ToolSystem)
+{
+    if (___m_ToolSystem.activeTool.brushStrength &gt;= 1.0f)
+        ___m_ToolSystem.activeTool.brushStrength = 3.0f; // 300%
+}</code></pre>
+
   <!-- ============================================================ -->
   <h2>Open Questions</h2>
 

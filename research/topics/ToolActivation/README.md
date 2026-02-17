@@ -407,6 +407,61 @@ public void ActivateToolForPrefab(ToolSystem toolSystem, PrefabBase prefab)
 }
 ```
 
+### Example 5: Guard Pattern for ActivatePrefabTool (FindIt Pattern)
+
+When activating a prefab from mod UI, always check `activePrefab` first to avoid redundant tool switches. Use a flag to distinguish mod-initiated prefab changes from user-initiated ones:
+
+```csharp
+private bool _settingPrefab;
+
+internal void TryActivatePrefabTool(PrefabBase prefab)
+{
+    // Guard: don't re-activate if already selected
+    if (prefab != null && _toolSystem.activePrefab != prefab)
+    {
+        _settingPrefab = true;
+        _toolSystem.ActivatePrefabTool(prefab);
+        _settingPrefab = false;
+    }
+}
+
+// In EventPrefabChanged handler:
+private void OnPrefabChanged(PrefabBase prefab)
+{
+    if (_settingPrefab) return; // We initiated this, ignore
+    // User changed prefab via vanilla UI -- update mod state
+}
+```
+
+Key patterns:
+- `activePrefab` returns `activeTool?.GetPrefab()` -- use it for comparison before calling `ActivatePrefabTool`
+- `ActivatePrefabTool` returns `false` if no tool accepted the prefab -- caller may need fallback behavior
+- The `_settingPrefab` flag pattern lets the mod distinguish its own prefab changes from user actions
+
+### Example 6: ToolbarUISystem.Apply Postfix for Theme Tracking
+
+Patch `ToolbarUISystem.Apply` to detect toolbar theme/category changes for multi-select support:
+
+```csharp
+[HarmonyPatch(typeof(Game.UI.InGame.ToolbarUISystem), "Apply")]
+public static class ToolbarApplyPatch
+{
+    // Apply signature: void Apply(List<Entity> themes, List<Entity> packs,
+    //     Entity assetMenuEntity, Entity assetCategoryEntity,
+    //     Entity assetEntity, bool updateTool = false)
+    static void Postfix(List<Entity> themes, Entity assetEntity)
+    {
+        // Track theme changes
+        if (themes.Count != _lastThemeCount)
+        {
+            _lastThemeCount = themes.Count;
+            UpdateSelectionSet = true; // flag for deferred UI update
+        }
+        // assetEntity is the currently selected asset in the toolbar
+    }
+}
+```
+
 ## Open Questions
 
 - [x] Is `activeTool` safe to set from TriggerBinding callbacks? — Yes, fully safe
