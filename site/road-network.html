@@ -231,6 +231,20 @@ ApplyNetSystem
     <h3>EdgeGeometry / NodeGeometry</h3>
     <p><code>EdgeGeometry</code> contains left/right <code>Segment</code> Bezier curves and a bounding box. <code>NodeGeometry</code> contains bounds, flatness, and offset. Both are computed by <code>GeometrySystem</code>.</p>
 
+    <h3>StartNodeGeometry / EndNodeGeometry</h3>
+    <p>Per-edge components that store how each edge contributes to its start and end intersection nodes. While <code>NodeGeometry</code> lives on the node itself and represents the combined result, these per-edge components describe each individual edge's shape at the junction.</p>
+
+    <p><strong>StartNodeGeometry</strong> / <strong>EndNodeGeometry</strong> each contain a single <code>EdgeNodeGeometry</code> struct:</p>
+
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_Left</code></td><td><code>Segment</code></td><td>Left-side Bezier curve and length at the node junction</td></tr>
+      <tr><td><code>m_Right</code></td><td><code>Segment</code></td><td>Right-side Bezier curve and length at the node junction</td></tr>
+      <tr><td><code>m_Middle</code></td><td><code>Bezier4x3</code></td><td>Center-line Bezier curve at the node junction</td></tr>
+    </table>
+
+    <p><code>GeometrySystem</code> computes these for each edge. They are consumed by <code>LaneSystem</code> to generate accurate lane curves through intersections and by the rendering pipeline to draw smooth node geometry where multiple edges meet.</p>
+
     <h3>Upgraded</h3>
     <p>Marks an edge that has been upgraded (added lanes, changed surface). Contains <code>CompositionFlags</code> describing the upgrade.</p>
 
@@ -480,6 +494,25 @@ public bool HasTrafficLights(Entity nodeEntity)
       <tr><td><code>underground</code></td><td><code>bool</code></td><td>false</td><td>Whether building underground</td></tr>
     </table>
 
+    <h3>CarLane (Prefab)</h3>
+    <p>Prefab component on lane prefab entities defining car-specific lane behavior.</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_RoadTypes</code></td><td><code>RoadTypes</code></td><td>Which road types this lane supports (Car, Maintenance, etc.)</td></tr>
+      <tr><td><code>m_SpeedLimit</code></td><td><code>float</code></td><td>Default speed limit in game units</td></tr>
+      <tr><td><code>m_MaxSpeed</code></td><td><code>float</code></td><td>Maximum allowable speed on this lane</td></tr>
+      <tr><td><code>m_SafeSpeed</code></td><td><code>float</code></td><td>Safe cruising speed for traffic safety calculations</td></tr>
+      <tr><td><code>m_GasUsage</code></td><td><code>float</code></td><td>Fuel consumption rate multiplier for vehicles</td></tr>
+    </table>
+
+    <h3>TrackLane (Prefab)</h3>
+    <p>Prefab component on lane prefab entities defining track-specific lane behavior (trains, trams, subways).</p>
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><td><code>m_SpeedLimit</code></td><td><code>float</code></td><td>Default speed limit for track vehicles</td></tr>
+      <tr><td><code>m_TrackTypes</code></td><td><code>TrackTypes</code></td><td>Which track types this lane supports (Train, Tram, Subway)</td></tr>
+    </table>
+
     <!-- ============================================================ -->
     <h2>Patch Points</h2>
 
@@ -522,7 +555,7 @@ EntityManager.AddComponent&lt;Updated&gt;(edgeEntity);</code></pre>
       <li>How does <code>NetToolSystem</code> handle Grid mode internally? The grid generation from 3 control points was not fully traced.</li>
       <li>What is the full lifecycle of <code>Temp</code> entities? The <code>TempFlags</code> (Delete, Replace, Combine, Cancel) state machine needs more investigation.</li>
       <li>How does edge splitting work when a new node is placed on an existing edge mid-segment? The split logic in <code>GenerateEdgesSystem</code> is complex.</li>
-      <li>How are <code>Aggregate</code> entities used? They group connected edges of the same type but the rules need investigation.</li>
+      <li><strong>Resolved:</strong> <code>Aggregate</code> entities group contiguous edges sharing the same network prefab. <code>AggregateSystem</code> merges edges into aggregates when they share a node and have the same prefab, and splits them when edges are deleted or change type. Each edge has an <code>Aggregated</code> component referencing its parent aggregate. Aggregates carry a <code>DynamicBuffer&lt;AggregateElement&gt;</code> listing member edges. Used by the naming system (road name labels span the aggregate), by the Traffic mod for road-level statistics, and by the UI for aggregate-level info such as total road length.</li>
       <li>How do parallel roads (from <code>parallelCount</code>) interact with the generation pipeline?</li>
     </ul>
 
