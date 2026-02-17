@@ -215,6 +215,41 @@
     <code>GetArchetypeComponents()</code>.
   </p>
 
+  <h3>ObjectGeometryData (ECS)</h3>
+  <p>Stores geometry bounds for prefab entities. Controls collision zones during placement.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Size</code></td><td>float3</td><td>Full bounding box (e.g., tree canopy)</td></tr>
+      <tr><td><code>m_LegSize</code></td><td>float3</td><td>Base/trunk footprint (smaller for trees)</td></tr>
+    </tbody>
+  </table>
+  <p>
+    <strong>Tree Anarchy</strong>: Copy <code>m_LegSize</code> to <code>m_Size</code> to reduce
+    conflict zone to trunk only. <strong>Tree vs bush</strong>: <code>SubMesh</code> buffer
+    length &gt; 5 = tree (6 growth stages), &le; 5 = bush.
+  </p>
+
+  <h3>PseudoRandomSeed (ECS)</h3>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Seed</code></td><td>ushort</td><td>Controls visual variation (mesh variant, color, rotation)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Prefab Metadata Components (ComponentBase)</h3>
+  <table>
+    <thead><tr><th>Component</th><th>Key Fields</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>EditorAssetCategoryOverride</code></td><td><code>m_IncludeCategories</code>, <code>m_ExcludeCategories</code> (string[])</td><td>Override toolbar categorization</td></tr>
+      <tr><td><code>ThemeObject</code></td><td><code>m_Theme</code> (ThemePrefab)</td><td>Link to city theme (EU, NA)</td></tr>
+      <tr><td><code>AssetPackItem</code></td><td><code>m_Packs</code> (AssetPackPrefab[])</td><td>Group into asset packs</td></tr>
+      <tr><td><code>ContentPrerequisite</code></td><td><code>m_ContentPrerequisite</code> (PrefabBase)</td><td>DLC/content gating</td></tr>
+      <tr><td><code>UIObject</code></td><td><code>m_Priority</code> (int), <code>m_Group</code> (UIAssetMenuPrefab)</td><td>Toolbar sort order and grouping</td></tr>
+    </tbody>
+  </table>
+
   <h2>PrefabSystem API</h2>
 
   <table>
@@ -359,6 +394,103 @@ public bool isSubscribedMod =&gt; asset?.database is AssetDatabase&lt;ParadoxMod
     </tbody>
   </table>
 
+  <h2>GetPrefabComponents Override</h2>
+
+  <p>
+    Custom <code>PrefabBase</code> subclasses can override <code>GetPrefabComponents()</code> to
+    register mod-specific ECS components on prefab entities, enabling efficient entity queries:
+  </p>
+
+  <pre><code class="language-csharp">public class RoadBuilderPrefab : NetPrefab
+{
+    public override void GetPrefabComponents(HashSet&lt;ComponentType&gt; components)
+    {
+        base.GetPrefabComponents(components);
+        components.Add(ComponentType.ReadWrite&lt;RoadBuilderPrefabData&gt;());
+    }
+}
+
+// Efficiently query all RoadBuilder prefab entities:
+EntityQuery query = SystemAPI.QueryBuilder()
+    .WithAll&lt;RoadBuilderPrefabData&gt;()
+    .Build();</code></pre>
+
+  <h2>Prefab Icon &amp; Name Resolution</h2>
+
+  <pre><code class="language-csharp">// Icon resolution via ImageSystem
+var imageSystem = World.GetOrCreateSystemManaged&lt;Game.UI.ImageSystem&gt;();
+string thumbnail = imageSystem.GetThumbnail(prefab);
+string icon = imageSystem.GetIcon(prefab);
+
+// Localized name via PrefabUISystem
+var prefabUI = World.GetOrCreateSystemManaged&lt;PrefabUISystem&gt;();
+prefabUI.GetTitleAndDescription(entity, out string titleId, out string descId);
+// titleId = "Assets.NAME[PrefabName]"
+GameManager.instance.localizationManager.activeDictionary
+    .TryGetValue(titleId, out string displayName);</code></pre>
+
+  <h2>ECS Query Patterns for Prefab Detection</h2>
+
+  <table>
+    <thead><tr><th>Category</th><th>All Components</th><th>None Components</th></tr></thead>
+    <tbody>
+      <tr><td>Service buildings</td><td>BuildingData, ServiceObjectData</td><td></td></tr>
+      <tr><td>Zoned buildings</td><td>BuildingData, SpawnableBuildingData</td><td></td></tr>
+      <tr><td>Props</td><td>StaticObjectData</td><td>BuildingData, TreeData, NetObjectData</td></tr>
+      <tr><td>Trees</td><td>TreeData, GrowthScaleData</td><td></td></tr>
+      <tr><td>Vehicles</td><td>VehicleData</td><td></td></tr>
+      <tr><td>Networks</td><td>NetData</td><td></td></tr>
+      <tr><td>Net objects (pillars)</td><td>NetObjectData</td><td></td></tr>
+      <tr><td>Areas</td><td>AreaData</td><td></td></tr>
+    </tbody>
+  </table>
+
+  <h2>Runtime Prefab Creation</h2>
+
+  <p>Full pattern for creating prefabs at runtime. Use <code>OnGamePreload</code> for timing:</p>
+
+  <pre><code class="language-csharp">protected override void OnGamePreload(Purpose purpose, GameMode mode)
+{
+    base.OnGamePreload(purpose, mode);
+    var newPrefab = ScriptableObject.CreateInstance&lt;StaticObjectPrefab&gt;();
+    newPrefab.name = "MyMod_CustomProp";
+
+    // Copy components from template
+    if (m_PrefabSystem.TryGetPrefab(templateId, out var template))
+        if (template.Has&lt;ObjectGeometryPrefab&gt;())
+            newPrefab.AddComponentFrom(template.GetComponent&lt;ObjectGeometryPrefab&gt;());
+
+    newPrefab.AddComponent&lt;ObsoleteIdentifiers&gt;(); // Save compatibility
+    m_PrefabSystem.AddPrefab(newPrefab);
+}</code></pre>
+
+  <h2>CreationDefinition Prefab Substitution</h2>
+
+  <p>
+    Substitute the prefab being placed by modifying <code>CreationDefinition.m_Prefab</code>
+    during <code>Modification1</code> phase:
+  </p>
+
+  <pre><code class="language-csharp">m_CreationQuery = SystemAPI.QueryBuilder()
+    .WithAllRW&lt;CreationDefinition, ObjectDefinition&gt;()
+    .WithAll&lt;Updated&gt;()
+    .WithNone&lt;Deleted, Overridden&gt;()
+    .Build();
+
+// In OnUpdate: swap the prefab entity reference
+var def = EntityManager.GetComponentData&lt;CreationDefinition&gt;(entity);
+def.m_Prefab = alternativePrefabEntity;
+EntityManager.SetComponentData(entity, def);</code></pre>
+
+  <h2>ActivatePrefabTool</h2>
+
+  <p>
+    <code>ToolSystem.ActivatePrefabTool(PrefabBase)</code> programmatically switches to placement
+    mode. Iterates <code>ToolSystem.tools</code> calling <code>TrySetPrefab()</code> on each.
+    In Editor mode, set <code>EditorToolUISystem.activeTool = EditorPrefabTool</code> first and
+    defer via <code>RegisterUpdater</code>.
+  </p>
+
   <h2>Warnings &amp; Pitfalls</h2>
 
   <ul>
@@ -374,8 +506,8 @@ public bool isSubscribedMod =&gt; asset?.database is AssetDatabase&lt;ParadoxMod
   <ul>
     <li>How does the asset database load PrefabAsset objects from disk at startup?</li>
     <li>How does <code>ReplacePrefabSystem</code> handle entity replacement when prefabs are updated?</li>
-    <li>What is the complete list of <code>ComponentBase</code> subclasses that mods can attach?</li>
-    <li>How does the content prerequisite system gate DLC/mod content availability?</li>
+    <li><strong>[Answered]</strong> ComponentBase subclasses documented above: PlaceableObject, EditorAssetCategoryOverride, ThemeObject, AssetPackItem, ContentPrerequisite, UIObject, ObjectGeometryPrefab, and many type-specific subclasses.</li>
+    <li><strong>[Answered]</strong> <code>ContentPrerequisite.m_ContentPrerequisite.TryGet&lt;DlcRequirement&gt;()</code> chains to get the <code>DlcId</code> enum value. The check runs during <code>PrefabInitializeSystem</code>.</li>
   </ul>
 
   <h2>Sources</h2>

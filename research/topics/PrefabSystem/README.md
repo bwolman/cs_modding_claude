@@ -108,6 +108,81 @@ ECS component on prefab entities that stores the archetype for game instances.
 |-------|------|-------------|
 | `m_Archetype` | EntityArchetype | The archetype used when instantiating game objects from this prefab |
 
+### `ObjectGeometryData` (ECS Component)
+
+Stores geometry bounds for prefab entities. Controls collision zones during object placement.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Size` | float3 | Full bounding box (e.g., tree canopy extent) |
+| `m_LegSize` | float3 | Base/trunk footprint (smaller than m_Size for trees) |
+| `m_Pivot` | float3 | Pivot point offset |
+| `m_Flags` | GeometryFlags | Geometry behavior flags |
+
+**Tree Anarchy Pattern**: Copying `m_LegSize` to `m_Size` reduces the conflict zone to just the trunk, enabling dense tree placement. **Tree vs bush detection**: `SubMesh` buffer length > 5 = tree (6 entries: child, teen, adult, elderly, dead, stump), ≤ 5 = bush.
+
+*Source: `Game.dll` -> `Game.Prefabs.ObjectGeometryData`*
+
+### `PseudoRandomSeed` (ECS Component)
+
+Controls visual variation for placed objects (mesh variant, color, rotation).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Seed` | ushort | Random seed for variation selection |
+
+Modifying `m_Seed` on `Temp` entities before permanent placement ensures visual diversity. In brush mode, incrementing seeds per object avoids identical-looking trees.
+
+*Source: `Game.dll` -> `Game.Objects.PseudoRandomSeed`*
+
+### `EditorAssetCategoryOverride` (ComponentBase)
+
+Controls prefab categorization in editor toolbar/browser. Added to prefabs to override default category placement.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_IncludeCategories` | string[] | Categories to add (e.g., "Props/Decorations/Industrial") |
+| `m_ExcludeCategories` | string[] | Categories to exclude from |
+
+Mods can write custom include categories (e.g., `"FindIt/{category}/{subcategory}"`) for custom categorization schemes.
+
+*Source: `Game.dll` -> `Game.Prefabs.EditorAssetCategoryOverride`*
+
+### `ThemeObject` (ComponentBase)
+
+Links a prefab to a city theme (European, North American).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Theme` | ThemePrefab | Reference to theme prefab |
+
+### `AssetPackItem` (ComponentBase)
+
+Groups prefabs into asset packs (bundled content collections).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Packs` | AssetPackPrefab[] | Asset packs containing this prefab |
+
+### `ContentPrerequisite` (ComponentBase)
+
+Gates prefab availability based on content prerequisites (DLC, mods).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_ContentPrerequisite` | PrefabBase | Prerequisite prefab (chain to DlcRequirement) |
+
+Access DLC ID: `contentPrerequisite.m_ContentPrerequisite.TryGet<DlcRequirement>(out var dlc)` → `dlc.m_Dlc` is the `DlcId` enum value.
+
+### `UIObject` (ComponentBase)
+
+Controls toolbar presentation for prefabs.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Priority` | int | Sort order in toolbar (lower = appears first) |
+| `m_Group` | UIAssetMenuPrefab | Toolbar group/category |
+
 ## Prefab Type Hierarchy
 
 ```
@@ -490,12 +565,252 @@ EntityQuery deletedQuery = SystemAPI.QueryBuilder()
 
 The `Created` component is added by `PrefabInitializeSystem` when a prefab entity is first created. `Updated` is added when a prefab is modified. Both are removed the frame after processing. `Deleted` marks entities being destroyed.
 
+## GetPrefabComponents Override
+
+Custom `PrefabBase` subclasses can override `GetPrefabComponents()` to register mod-specific ECS components on prefab entities. This enables efficient entity queries without iterating all prefabs:
+
+```csharp
+public class RoadBuilderPrefab : NetPrefab
+{
+    public override void GetPrefabComponents(HashSet<ComponentType> components)
+    {
+        base.GetPrefabComponents(components);
+        components.Add(ComponentType.ReadWrite<RoadBuilderPrefabData>());
+    }
+}
+
+// Now efficiently query all RoadBuilder prefab entities:
+EntityQuery query = SystemAPI.QueryBuilder()
+    .WithAll<RoadBuilderPrefabData>()
+    .Build();
+```
+
+The same pattern works for `ComponentBase` subclasses -- each one has `GetPrefabComponents()` and `GetArchetypeComponents()` that declare which ECS components the prefab entity and game instances need.
+
+## Prefab Icon & Name Resolution
+
+### ImageSystem (Icon Resolution)
+
+`Game.UI.ImageSystem` resolves prefab icons and thumbnails for display in UI:
+
+```csharp
+var imageSystem = World.GetOrCreateSystemManaged<Game.UI.ImageSystem>();
+string thumbnail = imageSystem.GetThumbnail(prefab); // Large preview image path
+string icon = imageSystem.GetIcon(prefab);           // Small icon path
+// For entities: string icon = imageSystem.GetIconOrGroupIcon(entity);
+```
+
+### PrefabUISystem (Localized Names)
+
+`Game.UI.InGame.PrefabUISystem` resolves localized prefab display names:
+
+```csharp
+var prefabUI = World.GetOrCreateSystemManaged<PrefabUISystem>();
+prefabUI.GetTitleAndDescription(entity, out string titleId, out string descId);
+// titleId = "Assets.NAME[PrefabName]"
+
+// Resolve localized name:
+GameManager.instance.localizationManager.activeDictionary
+    .TryGetValue(titleId, out string displayName);
+
+// Fallback: prefab.name.Replace('_', ' ').FormatWords()
+```
+
+## ECS Entity Query Patterns for Prefab Type Detection
+
+Common entity query patterns for identifying and categorizing prefab types by their ECS components:
+
+| Category | All Components | None Components |
+|----------|---------------|-----------------|
+| Service buildings | BuildingData, ServiceObjectData | |
+| Zoned buildings | BuildingData, SpawnableBuildingData | |
+| Props | StaticObjectData | BuildingData, TreeData, NetObjectData |
+| Trees | TreeData, GrowthScaleData | |
+| Vehicles | VehicleData | |
+| Networks | NetData | |
+| Net objects (pillars) | NetObjectData | |
+| Areas | AreaData | |
+
+Additional categorization components: `PillarData`, `QuantityObjectData`, `PlaceableObjectData`, `ServiceObjectData`, `ServicePrefab`.
+
+```csharp
+// Example: query all tree prefab entities
+EntityQuery treePrefabs = SystemAPI.QueryBuilder()
+    .WithAll<PrefabData, TreeData, GrowthScaleData>()
+    .Build();
+
+// Example: query all prop prefab entities (exclude buildings, trees, etc.)
+EntityQuery propPrefabs = SystemAPI.QueryBuilder()
+    .WithAll<PrefabData, StaticObjectData>()
+    .WithNone<BuildingData, TreeData, NetObjectData, PlaceholderObjectData>()
+    .Build();
+```
+
+## Runtime Prefab Creation (Full Pattern)
+
+Complete pattern for creating prefabs at runtime using `ScriptableObject.CreateInstance`. Use `OnGamePreload` for timing — it runs before `PrefabInitializeSystem` processes entities:
+
+```csharp
+protected override void OnGamePreload(Purpose purpose, GameMode mode)
+{
+    base.OnGamePreload(purpose, mode);
+
+    // 1. Create prefab instance
+    var newPrefab = ScriptableObject.CreateInstance<StaticObjectPrefab>();
+    newPrefab.name = "MyMod_CustomProp";
+
+    // 2. Copy components from a template
+    PrefabID templateId = new PrefabID(nameof(StaticObjectPrefab), "TemplateProp");
+    if (m_PrefabSystem.TryGetPrefab(templateId, out var template))
+    {
+        // Copy geometry for mesh data
+        if (template.Has<ObjectGeometryPrefab>())
+            newPrefab.AddComponentFrom(template.GetComponent<ObjectGeometryPrefab>());
+    }
+
+    // 3. Add save compatibility identifier
+    newPrefab.AddComponent<ObsoleteIdentifiers>();
+
+    // 4. Register with PrefabSystem
+    m_PrefabSystem.AddPrefab(newPrefab);
+}
+```
+
+**Key details:**
+- `AddComponentFrom()` deep-copies a `ComponentBase` from one prefab to another
+- `ObsoleteIdentifiers` prevents save corruption when the game encounters unknown prefabs
+- `TryGetPrefab(new PrefabID(...))` for looking up existing prefabs to use as mesh sources
+
+## PlaceableObjectData Cost Modification
+
+Modify ECS component data on prefab entities at runtime. Use managed `PrefabBase.TryGet<ComponentBase>()` as source of truth for restoring original values:
+
+```csharp
+protected override void OnGameLoadingComplete(Purpose purpose, GameMode mode)
+{
+    base.OnGameLoadingComplete(purpose, mode);
+
+    // Make all trees free
+    var query = SystemAPI.QueryBuilder()
+        .WithAll<TreeData, PlaceableObjectData>()
+        .Build();
+    var entities = query.ToEntityArray(Allocator.Temp);
+    foreach (var entity in entities)
+    {
+        var data = EntityManager.GetComponentData<PlaceableObjectData>(entity);
+        data.m_ConstructionCost = 0;
+        EntityManager.SetComponentData(entity, data);
+    }
+    entities.Dispose();
+}
+
+// Restore original cost from managed ComponentBase (immutable original):
+PrefabBase prefab = m_PrefabSystem.GetPrefab<PrefabBase>(prefabData);
+if (prefab.TryGet<PlaceableObject>(out var original))
+{
+    // PlaceableObject (managed ComponentBase) = immutable original
+    // PlaceableObjectData (ECS component) = mutable runtime copy
+}
+```
+
+## PrefabRef-Based Entity Counting
+
+Count placed instances of each prefab in the game world using `PrefabRef`:
+
+```csharp
+private EntityQuery m_PlacedObjectQuery;
+
+protected override void OnCreate()
+{
+    base.OnCreate();
+    m_PlacedObjectQuery = SystemAPI.QueryBuilder()
+        .WithAll<PrefabRef>()
+        .WithAny<Game.Objects.Object, Game.Net.Edge>()
+        .WithNone<Owner, Controller, Overridden>()
+        .Build();
+}
+
+public Dictionary<int, int> CountPrefabInstances()
+{
+    var counts = new Dictionary<int, int>();
+    var chunks = m_PlacedObjectQuery.ToArchetypeChunkArray(Allocator.Temp);
+    var prefabRefHandle = GetComponentTypeHandle<PrefabRef>(true);
+
+    foreach (var chunk in chunks)
+    {
+        var prefabRefs = chunk.GetNativeArray(ref prefabRefHandle);
+        for (int i = 0; i < prefabRefs.Length; i++)
+        {
+            int key = prefabRefs[i].m_Prefab.Index;
+            counts.TryGetValue(key, out int count);
+            counts[key] = count + 1;
+        }
+    }
+    chunks.Dispose();
+    return counts;
+}
+```
+
+**Performance**: Run on a timer (e.g., every 60 seconds), not every frame. Exclude `Owner` and `Controller` to count only top-level placed entities.
+
+## CreationDefinition Prefab Substitution
+
+Substitute the prefab being placed by modifying `CreationDefinition.m_Prefab` during the definition phase. Register in `SystemUpdatePhase.Modification1`:
+
+```csharp
+public partial class PrefabSubstitutionSystem : GameSystemBase
+{
+    private EntityQuery m_CreationQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_CreationQuery = SystemAPI.QueryBuilder()
+            .WithAllRW<CreationDefinition, ObjectDefinition>()
+            .WithAll<Updated>()
+            .WithNone<Deleted, Overridden>()
+            .Build();
+        RequireForUpdate(m_CreationQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = m_CreationQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i < entities.Length; i++)
+        {
+            var def = EntityManager.GetComponentData<CreationDefinition>(entities[i]);
+            def.m_Prefab = GetRandomAlternativePrefab();
+            EntityManager.SetComponentData(entities[i], def);
+
+            // Optional: set tree age via ObjectDefinition
+            var objDef = EntityManager.GetComponentData<ObjectDefinition>(entities[i]);
+            objDef.m_Age = Game.Objects.TreeState.Adult;
+            EntityManager.SetComponentData(entities[i], objDef);
+        }
+        entities.Dispose();
+    }
+}
+```
+
+Subscribe to `ToolSystem.EventToolChanged` to only activate when the right tool is active (see ToolActivation research).
+
+## ActivatePrefabTool
+
+`ToolSystem.ActivatePrefabTool(PrefabBase)` programmatically switches the player to placement mode with a specific prefab:
+
+```csharp
+var toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+toolSystem.ActivatePrefabTool(myPrefab);
+```
+
+**How it works**: Iterates `ToolSystem.tools`, calling `TrySetPrefab()` on each until one accepts it. **Editor mode caveat**: Set `EditorToolUISystem.activeTool = EditorPrefabTool` first, then use `RegisterUpdater` to defer the `ActivatePrefabTool` call (timing dependency).
+
 ## Open Questions
 
 - [ ] How does the asset database load PrefabAsset objects from disk at startup?
 - [ ] How does `ReplacePrefabSystem` handle entity replacement when prefabs are updated?
-- [ ] What is the complete list of `ComponentBase` subclasses that mods can attach?
-- [ ] How does the content prerequisite system gate DLC/mod content availability?
+- [x] What is the complete list of `ComponentBase` subclasses that mods can attach? — Documented: PlaceableObject, EditorAssetCategoryOverride, ThemeObject, AssetPackItem, ContentPrerequisite, UIObject, PlaceholderObjectData, ObjectGeometryPrefab, and many more. Each prefab type has type-specific ComponentBase subclasses.
+- [x] How does the content prerequisite system gate DLC/mod content availability? — `ContentPrerequisite.m_ContentPrerequisite.TryGet<DlcRequirement>()` chains to get the `DlcId` enum value. The prerequisite check runs during `PrefabInitializeSystem`.
 
 ## Sources
 
