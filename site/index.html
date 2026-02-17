@@ -24,12 +24,14 @@
     <a href="citizen-sickness.html">Citizen Sickness</a>
     <a href="water-system.html">Water System</a>
     <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
 
     <h3>Infrastructure</h3>
     <a href="electricity-grid.html">Electricity Grid</a>
     <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
     <a href="road-network.html">Road &amp; Network Building</a>
     <a href="zoning.html">Zoning</a>
+    <a href="pathfinding.html">Pathfinding</a>
 
     <h3>Economy &amp; Population</h3>
     <a href="citizens-households.html">Citizens &amp; Households</a>
@@ -41,19 +43,28 @@
     <a href="land-value-property.html">Land Value &amp; Property</a>
     <a href="trade-connections.html">Trade &amp; Connections</a>
     <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
 
     <h3>City Services</h3>
     <a href="garbage-collection.html">Garbage Collection</a>
     <a href="education.html">Education</a>
     <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
 
     <h3>Governance</h3>
     <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
 
     <h3>Environment</h3>
     <a href="weather-climate.html">Weather &amp; Climate</a>
     <a href="pollution.html">Pollution</a>
     <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
 
     <h3>Tools &amp; Input</h3>
     <a href="tool-activation.html">Tool Activation</a>
@@ -65,12 +76,15 @@
     <h3>UI &amp; Settings</h3>
     <a href="mod-ui-buttons.html">Mod UI Buttons</a>
     <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
 
     <h3>Modding Framework</h3>
     <a href="save-load-persistence.html">Save/Load Persistence</a>
-    <a href="pathfinding.html">Pathfinding</a>
     <a href="prefab-system.html">Prefab System</a>
     <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
   </aside>
 
   <main class="content">
@@ -161,6 +175,16 @@
           <span class="tag">Game.Simulation</span>
           <span class="tag">Game.Events</span>
           <span class="tag">ServiceRequest</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="disaster-simulation.html">Disaster Simulation</a></h3>
+        <p>How CS2 handles non-fire disasters -- tornadoes, storms, floods, tsunamis, and lightning strikes. Building damage, citizen evacuation, and the full disaster pipeline from warning to cleanup.</p>
+        <div class="tags">
+          <span class="tag">Game.Events</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">EvacuationSystem</span>
         </div>
       </div>
 
@@ -318,6 +342,16 @@
         </div>
       </div>
 
+      <div class="topic-card">
+        <h3><a href="cargo-transport.html">Cargo Transport</a></h3>
+        <p>How cargo trains, ships, and planes transport resources between terminals, and how delivery trucks distribute goods from storage and industry to commercial buildings.</p>
+        <div class="tags">
+          <span class="tag">Game.Vehicles</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">CargoTransportStation</span>
+        </div>
+      </div>
+
     </div>
 
     <!-- ============================================================ -->
@@ -355,6 +389,46 @@
         </div>
       </div>
 
+      <div class="topic-card">
+        <h3><a href="healthcare.html">Healthcare</a></h3>
+        <p>The full healthcare pipeline from citizens getting sick or injured, through hospital treatment and recovery, to ambulance dispatch and patient transport.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">Game.Citizens</span>
+          <span class="tag">HealthcareDispatchSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="deathcare.html">Deathcare</a></h3>
+        <p>How CS2 handles citizen death, hearse dispatch, corpse transport, and processing at cemeteries and crematoriums.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">Game.Buildings</span>
+          <span class="tag">DeathcareDispatchSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="parks-recreation.html">Parks &amp; Recreation</a></h3>
+        <p>How CS2 handles citizen leisure behavior -- leisure provider scoring for residents, park happiness bonuses, maintenance costs, and the leisure economy.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">Game.Citizens</span>
+          <span class="tag">LeisureSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="police-dispatch.html">Police Dispatch</a></h3>
+        <p>How CS2 dispatches police cars with emergency lights and sirens, and how a mod can trigger police response to a specific location.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">Game.Vehicles</span>
+          <span class="tag">PoliceCarAISystem</span>
+        </div>
+      </div>
+
     </div>
 
     <!-- ============================================================ -->
@@ -369,6 +443,16 @@
           <span class="tag">Game.Areas</span>
           <span class="tag">Game.Policies</span>
           <span class="tag">DistrictModifier</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="map-tile-purchase.html">Map Tile Purchase</a></h3>
+        <p>How CS2 handles map tile unlocking and purchasing -- tile constraints, cost calculation, and city boundary expansion.</p>
+        <div class="tags">
+          <span class="tag">Game.Areas</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">MapTileSystem</span>
         </div>
       </div>
 
@@ -406,6 +490,23 @@
           <span class="tag">Game.Simulation</span>
           <span class="tag">TerrainSystem</span>
           <span class="tag">NaturalResourceSystem</span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>Vehicles &amp; Transport</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="vehicle-spawning.html">Vehicle Spawning &amp; Despawning</a></h3>
+        <p>How private cars appear in CS2, find routes, park, and get recycled. The full vehicle lifecycle from creation to deletion.</p>
+        <div class="tags">
+          <span class="tag">Game.Vehicles</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">PersonalCarAISystem</span>
         </div>
       </div>
 
@@ -488,8 +589,29 @@
         </div>
       </div>
 
+      <div class="topic-card">
+        <h3><a href="info-views-overlays.html">Info Views &amp; Overlays</a></h3>
+        <p>How CS2's info views and data overlays work -- the two-layer InfoviewPrefab/InfomodePrefab architecture, overlay rendering, and how mods can add custom overlays.</p>
+        <div class="tags">
+          <span class="tag">Game.UI</span>
+          <span class="tag">Game.Rendering</span>
+          <span class="tag">OverlayInfomodeSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="chirper-notifications.html">Chirper Notifications</a></h3>
+        <p>How CS2's Chirper social media system creates and displays citizen notifications -- the Twitter/X-like messaging system for city events and milestones.</p>
+        <div class="tags">
+          <span class="tag">Game.UI</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">ChirperSystem</span>
+        </div>
+      </div>
+
     </div>
 
+    <!-- ============================================================ -->
     <h2>Modding Framework</h2>
 
     <div class="topic-grid">
@@ -521,6 +643,26 @@
           <span class="tag">Colossal.Localization</span>
           <span class="tag">LocalizationManager</span>
           <span class="tag">MemorySource</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="harmony-transpilers.html">Harmony Transpilers</a></h3>
+        <p>How Harmony transpilers work at the IL level. When to use transpilers vs prefix/postfix, and key patterns for safely rewriting game method bodies in CS2.</p>
+        <div class="tags">
+          <span class="tag">HarmonyLib</span>
+          <span class="tag">Transpiler</span>
+          <span class="tag">CodeInstruction</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="mod-loading-dependencies.html">Mod Loading &amp; Dependencies</a></h3>
+        <p>How CS2 discovers, loads, and initializes mods. The IMod lifecycle, dependency resolution, and how mods register their ECS systems.</p>
+        <div class="tags">
+          <span class="tag">Game.Modding</span>
+          <span class="tag">IMod</span>
+          <span class="tag">ModManager</span>
         </div>
       </div>
 
