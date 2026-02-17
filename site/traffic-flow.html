@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Traffic Flow &amp; Lane Control</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html" class="active">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Traffic Flow &amp; Lane Control</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How do vehicles in CS2 select lanes, merge between lanes,
+      respond to traffic signals, detect congestion, and obey traffic rules like yield and stop signs?
+    </p>
+    <p>
+      <strong>Verdict:</strong> CS2 uses a <strong>per-frame cost-based lane selection system</strong>
+      running inside <code>CarNavigationSystem</code>. Each vehicle evaluates all parallel lanes using
+      a cost function that considers lane switch distance (cubic scaling), obstacles ahead, lane
+      reservations, and traffic rules. Traffic signals are managed by a <strong>state machine</strong>
+      on each intersection node that cycles through signal groups with demand-based extension.
+      Congestion is tracked via <strong>LaneFlow</strong> statistics (updated 32 times per day) that
+      feed back into pathfinder costs, and a separate <strong>TrafficBottleneckSystem</strong> detects
+      gridlocks using union-find on mutually-blocked vehicle groups.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Pathfinding route computation (A* algorithm, cost model) is covered
+      in <a href="pathfinding.html">Pathfinding</a>. Road network construction is covered in
+      <a href="road-network.html">Road &amp; Network Building</a>. Vehicle spawning is covered in
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    Traffic flow in CS2 is a layered system. The pathfinder produces a high-level route as a
+    sequence of lane entities. The <strong>CarNavigationSystem</strong> then handles per-frame
+    movement: choosing the optimal lane within a multi-lane road, responding to traffic signals,
+    detecting blockers ahead, and smoothly merging between lanes.
+  </p>
+
+  <h3>Two Distinct CarLaneFlags Enums</h3>
+
+  <p>
+    A critical detail for modders: there are <strong>two separate <code>CarLaneFlags</code> enums</strong>
+    in different namespaces:
+  </p>
+
+  <ul>
+    <li><strong><code>Game.Vehicles.CarLaneFlags</code></strong> -- per-vehicle state flags
+    (EndOfPath, IsBlocked, TurnLeft, Queue, Roundabout, etc.). These describe what the
+    vehicle is currently doing.</li>
+    <li><strong><code>Game.Net.CarLaneFlags</code></strong> -- per-lane network property flags
+    (Highway, Yield, Stop, TrafficLights, Roundabout, ForbidPassing, etc.). These define
+    the traffic rules for each lane.</li>
+  </ul>
+
+  <h3>Lane Selection: Cost-Based Optimization</h3>
+
+  <p>
+    The <code>CarLaneSelectIterator</code> evaluates all parallel lanes (within a
+    <code>SlaveLane</code> group) and assigns a cost to each. The vehicle picks the minimum-cost
+    lane. Cost factors include:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Cost Factor</th><th>Formula</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Lane switch</td>
+        <td>numLanes<sup>3</sup> * baseCost</td>
+        <td>Cubic scaling strongly discourages multi-lane changes</td>
+      </tr>
+      <tr>
+        <td>Lane objects</td>
+        <td>0.49 * segment length per vehicle ahead</td>
+        <td>Vehicles on the lane add cost; stationary objects cost ~9-10 million</td>
+      </tr>
+      <tr>
+        <td>Lane priority</td>
+        <td>max(0, lanePriority - vehiclePriority) * 1.0</td>
+        <td>Reserved lanes cost more for lower-priority vehicles</td>
+      </tr>
+      <tr>
+        <td>Forbidden lane</td>
+        <td>0.9 (normal) or 4.9 (low priority)</td>
+        <td>Lanes with forbidden flags are penalized</td>
+      </tr>
+      <tr>
+        <td>Preferred lane</td>
+        <td>+0.4 if no preferred flag match</td>
+        <td>Slight preference for lanes matching vehicle needs</td>
+      </tr>
+      <tr>
+        <td>Bicycle position</td>
+        <td>1.4 + 0.4 * laneOffset</td>
+        <td>Bicycles prefer rightmost lanes, penalized further from edge</td>
+      </tr>
+      <tr>
+        <td>No lane change allowed</td>
+        <td>baseCost * 5</td>
+        <td>SlaveLane.AllowChange flag multiplies switch cost 5x (solid line markings)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Lane Change Mechanics</h3>
+
+  <p>
+    When the optimal lane differs from the current lane, the vehicle initiates a lane change:
+  </p>
+
+  <ol>
+    <li><code>m_ChangeLane</code> is set to the target lane entity</li>
+    <li><code>m_ChangeProgress</code> starts at 0.0 and increases to 1.0</li>
+    <li>TurnLeft or TurnRight flag is set based on the Invert flag and index difference</li>
+    <li>When progress reaches 1.0, the vehicle completes the merge:
+    <code>m_Lane = m_ChangeLane; m_ChangeLane = Entity.Null</code></li>
+    <li>If the optimal lane changes mid-merge, the vehicle can reverse:
+    progress is flipped to <code>1.0 - currentProgress</code></li>
+  </ol>
+
+  <h3>Traffic Signal State Machine</h3>
+
+  <p>
+    Each signalized intersection has a <code>TrafficLights</code> component with a state machine:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>State</th><th>Duration</th><th>What Happens</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>None</td><td>1 tick</td><td>Initial state, transitions to Beginning</td></tr>
+      <tr><td>Beginning</td><td>1 tick</td><td>Green phase starting, current group set to next</td></tr>
+      <tr><td>Ongoing</td><td>2-6 ticks</td><td>Green phase active, checks demand for extension</td></tr>
+      <tr><td>Extending</td><td>2 ticks</td><td>Green extended due to waiting vehicles</td></tr>
+      <tr><td>Extended</td><td>2-4 ticks</td><td>Further extension, can re-extend or end</td></tr>
+      <tr><td>Ending</td><td>2+ ticks</td><td>Yellow/red transition, waits for intersection to clear</td></tr>
+      <tr><td>Changing</td><td>1 tick</td><td>All-red clearance phase between groups</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The system uses <strong>demand-based signal group selection</strong>: when deciding the
+    next group, it counts petitioners (waiting vehicles) per group and selects the group with
+    the highest demand. Signal extension is supported -- if vehicles are still arriving when
+    green would normally end, the phase extends via the Extending/Extended states.
+  </p>
+
+  <h3>Lane Signals Per Lane</h3>
+
+  <p>
+    Each lane at a signalized intersection has a <code>LaneSignal</code> component with a
+    <code>m_GroupMask</code> bitmask. When the intersection's current signal group matches
+    a lane's group mask, that lane gets <code>LaneSignalType.Go</code>. Otherwise it gets
+    <code>Stop</code> or <code>SafeStop</code>. Vehicles read this signal state and halt at
+    the stop line or proceed accordingly.
+  </p>
+
+  <h3>Congestion Detection: Two Mechanisms</h3>
+
+  <h4>Flow-Based (TrafficFlowSystem)</h4>
+  <p>
+    Every 512 frames (32 times per game-day), the system smooths lane flow statistics
+    (<code>LaneFlow.m_Duration</code> and <code>m_Distance</code>) and computes a
+    <code>m_FlowOffset</code> byte on each <code>CarLane</code>. The value ranges from
+    0 (free flow) to 255 (fully congested). The <strong>pathfinder reads this offset</strong>
+    to route vehicles away from congested roads.
+  </p>
+
+  <h4>Gridlock-Based (TrafficBottleneckSystem)</h4>
+  <p>
+    Every 64 frames, the system scans all vehicles with a <code>Blocker</code> component
+    (type = Continuing) and groups mutually-blocked vehicles using a union-find algorithm.
+    Groups of 10+ vehicles are potential bottlenecks; groups of 50+ trigger adding a
+    <code>Bottleneck</code> component to the affected lane. A timer system controls
+    notification icons: timer reaches 15 to show an icon, 20 for confirmed bottleneck.
+    The timer decays when blockage clears.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Vehicles</td>
+        <td>CarCurrentLane, CarNavigation, CarNavigationLane, CarLaneFlags (vehicle state), Blocker</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Net</td>
+        <td>CarLane, CarLaneFlags (network rules), TrafficLights, LaneSignal, LaneSignalType, LaneFlow, LaneReservation, LaneOverlap, Bottleneck</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>CarNavigationSystem, CarLaneSelectIterator, TrafficLightSystem, TrafficFlowSystem, TrafficBottleneckSystem, TrafficAmbienceSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>CarLaneData, TrafficConfigurationData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>CarCurrentLane (Game.Vehicles)</h3>
+
+  <p>The vehicle's current position on the lane graph, updated every frame.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Lane</td><td>Entity</td><td>Current lane entity the vehicle occupies</td></tr>
+      <tr><td>m_ChangeLane</td><td>Entity</td><td>Target lane during a lane change (Entity.Null if not changing)</td></tr>
+      <tr><td>m_CurvePosition</td><td>float3</td><td>Position along lane Bezier curve (x=start, y=current, z=end)</td></tr>
+      <tr><td>m_LaneFlags</td><td>CarLaneFlags (Vehicles)</td><td>Vehicle-level state flags</td></tr>
+      <tr><td>m_ChangeProgress</td><td>float</td><td>Lane change interpolation (0.0 to 1.0)</td></tr>
+      <tr><td>m_Duration</td><td>float</td><td>Time spent on current lane segment</td></tr>
+      <tr><td>m_Distance</td><td>float</td><td>Distance traveled on current segment</td></tr>
+      <tr><td>m_LanePosition</td><td>float</td><td>Lateral position within lane</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CarLane (Game.Net)</h3>
+
+  <p>Main lane component on road sub-lane entities. Holds speed limits, blockage data, and traffic rule flags.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_AccessRestriction</td><td>Entity</td><td>Entity defining access restrictions</td></tr>
+      <tr><td>m_Flags</td><td>CarLaneFlags (Net)</td><td>Lane property flags (traffic rules)</td></tr>
+      <tr><td>m_DefaultSpeedLimit</td><td>float</td><td>Original speed limit from road prefab</td></tr>
+      <tr><td>m_SpeedLimit</td><td>float</td><td>Current speed limit (can be modified by mods)</td></tr>
+      <tr><td>m_Curviness</td><td>float</td><td>Lane curvature (higher = tighter curves)</td></tr>
+      <tr><td>m_CarriagewayGroup</td><td>ushort</td><td>Groups lanes into carriageways</td></tr>
+      <tr><td>m_BlockageStart / m_BlockageEnd</td><td>byte</td><td>Blockage range (0-255 mapped to 0.0-1.0)</td></tr>
+      <tr><td>m_CautionStart / m_CautionEnd</td><td>byte</td><td>Caution zone range</td></tr>
+      <tr><td>m_FlowOffset</td><td>byte</td><td>Congestion level (0=free flow, 255=congested)</td></tr>
+      <tr><td>m_LaneCrossCount</td><td>byte</td><td>Number of crossing lanes</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TrafficLights (Game.Net)</h3>
+
+  <p>Attached to intersection nodes with traffic signals.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_State</td><td>TrafficLightState</td><td>Current signal cycle state</td></tr>
+      <tr><td>m_Flags</td><td>TrafficLightFlags</td><td>LevelCrossing, MoveableBridge, IsSubNode</td></tr>
+      <tr><td>m_SignalGroupCount</td><td>byte</td><td>Total signal groups at intersection</td></tr>
+      <tr><td>m_CurrentSignalGroup</td><td>byte</td><td>Group currently with green</td></tr>
+      <tr><td>m_NextSignalGroup</td><td>byte</td><td>Group that will get green next</td></tr>
+      <tr><td>m_Timer</td><td>byte</td><td>Frame counter within current state</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LaneSignal (Game.Net)</h3>
+
+  <p>Per-lane signal state at signalized intersections.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Petitioner</td><td>Entity</td><td>Vehicle requesting signal change</td></tr>
+      <tr><td>m_Blocker</td><td>Entity</td><td>Vehicle blocking this lane's signal</td></tr>
+      <tr><td>m_GroupMask</td><td>ushort</td><td>Bitmask of signal groups this lane belongs to</td></tr>
+      <tr><td>m_Priority</td><td>sbyte</td><td>Priority level for signal phasing</td></tr>
+      <tr><td>m_Signal</td><td>LaneSignalType</td><td>Current signal: None, Stop, SafeStop, Yield, Go</td></tr>
+      <tr><td>m_Flags</td><td>LaneSignalFlags</td><td>CanExtend, Physical</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Bottleneck (Game.Net)</h3>
+
+  <p>Added to lane entities experiencing gridlocks.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Position</td><td>byte</td><td>Curve position of bottleneck (0-255)</td></tr>
+      <tr><td>m_MinPos / m_MaxPos</td><td>byte</td><td>Extent of bottleneck along the lane</td></tr>
+      <tr><td>m_Timer</td><td>byte</td><td>Severity: 15+ shows icon, 20+ is confirmed, max 40</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LaneFlow (Game.Net)</h3>
+
+  <p>Traffic flow measurements per lane, split into four time-of-day quadrants.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Duration</td><td>float4</td><td>Average travel duration per quadrant (night, morning, afternoon, evening)</td></tr>
+      <tr><td>m_Distance</td><td>float4</td><td>Average travel distance per quadrant</td></tr>
+      <tr><td>m_Next</td><td>float2</td><td>Accumulator for next measurement cycle</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+VEHICLE NAVIGATION PIPELINE (every frame)
+  CarNavigationSystem.UpdateNavigationJob
+    For each vehicle with CarCurrentLane + PathOwner:
+          |
+          v
+    PATH ELEMENTS -&gt; NAVIGATION LANE BUFFER
+      Fill CarNavigationLane[] (capacity 8) from PathElement[]
+      Each entry: lane entity + curve position + flags
+          |
+          v
+    LANE COST CALCULATION (CarLaneSelectIterator)
+      For each upcoming lane group (parallel lanes):
+        For each parallel lane in the group:
+          cost = laneObjectCost (vehicles ahead on lane)
+               + laneSwitchCost (numLanes^3 * baseCost)
+               + lanePriorityCost (reservation priority)
+               + laneDriveCost (forbidden/preferred flags)
+        Select minimum-cost lane
+          |
+          v
+    OPTIMAL LANE UPDATE
+      If optimal != current:
+        Set m_ChangeLane = optimal, m_ChangeProgress = 0.0
+        Set TurnLeft/TurnRight flag
+      If change complete (progress = 1.0):
+        m_Lane = m_ChangeLane, m_ChangeLane = null
+          |
+          v
+    SIGNAL CHECK
+      Read LaneSignal.m_Signal on upcoming lanes:
+        Go -&gt; proceed normally
+        Yield -&gt; slow down, check cross traffic
+        Stop/SafeStop -&gt; halt at signal line
+          |
+          v
+    BLOCKER DETECTION
+      Check vehicles ahead on lane
+      Set Blocker.m_Blocker, adjust m_MaxSpeed
+          |
+          v
+    DEFERRED EFFECTS (CarNavigationSystem.Actions)
+      Queue: LaneEffects (flow, pollution, condition)
+      Queue: LaneReservation updates
+      Queue: LaneSignal petitioner updates
+      Queue: TrafficAmbience contributions
+
+
+TRAFFIC SIGNAL CYCLE (every frame)
+  TrafficLightSystem.UpdateTrafficLightsJob
+    For each node with TrafficLights:
+      None --(1 tick)--&gt; Beginning
+        Beginning --(1 tick)--&gt; Ongoing
+          Ongoing --(2-6 ticks)--&gt; check demand
+            If waiting vehicles &amp; can extend: Extending -&gt; Extended
+            Else: Ending --(2+ ticks)--&gt; Changing
+          Changing --(1 tick)--&gt; Beginning (new group)
+      Update LaneSignal.m_Signal = Stop/Go per group
+
+
+FLOW &amp; CONGESTION (periodic)
+  TrafficFlowSystem (every 512 frames = 32/day)
+    Smooth LaneFlow.m_Duration/m_Distance per quadrant
+    Compute flowSpeed = distance/duration
+    Write CarLane.m_FlowOffset (0-255)
+    Pathfinder reads m_FlowOffset as cost weight
+
+  TrafficBottleneckSystem (every 64 frames)
+    Scan vehicles with Blocker (type=Continuing)
+    Union-find: group mutually-blocked vehicles
+    Groups &gt;= 10 -&gt; potential bottleneck
+    Groups &gt;= 50 -&gt; Bottleneck component on lane
+    Timer: 15+ icon, 20+ confirmed, decays when clear
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read a Vehicle's Current Lane and Speed</h3>
+
+  <p>Check where a vehicle is, what lane it occupies, and whether it is changing lanes.</p>
+
+  <pre><code class="language-csharp">public void CheckVehicleLaneStatus(EntityManager em, Entity vehicle)
+{
+    if (!em.HasComponent&lt;CarCurrentLane&gt;(vehicle)) return;
+
+    CarCurrentLane currentLane = em.GetComponentData&lt;CarCurrentLane&gt;(vehicle);
+    CarNavigation navigation = em.GetComponentData&lt;CarNavigation&gt;(vehicle);
+
+    Log.Info($"Vehicle {vehicle}:");
+    Log.Info($"  Lane: {currentLane.m_Lane}");
+    Log.Info($"  Curve position: {currentLane.m_CurvePosition}");
+    Log.Info($"  Max speed: {navigation.m_MaxSpeed:F1} m/s");
+
+    bool isChangingLanes = currentLane.m_ChangeLane != Entity.Null;
+    Log.Info($"  Changing lanes: {isChangingLanes}");
+    if (isChangingLanes)
+    {
+        Log.Info($"  Target lane: {currentLane.m_ChangeLane}");
+        Log.Info($"  Change progress: {currentLane.m_ChangeProgress:P0}");
+        bool turningLeft = (currentLane.m_LaneFlags
+            &amp; Game.Vehicles.CarLaneFlags.TurnLeft) != 0;
+        Log.Info($"  Direction: {(turningLeft ? "left" : "right")}");
+    }
+
+    bool isBlocked = (currentLane.m_LaneFlags
+        &amp; Game.Vehicles.CarLaneFlags.IsBlocked) != 0;
+    bool isQueued = (currentLane.m_LaneFlags
+        &amp; Game.Vehicles.CarLaneFlags.Queue) != 0;
+    Log.Info($"  Blocked: {isBlocked}, Queued: {isQueued}");
+}</code></pre>
+
+  <h3>Read Traffic Signal State at an Intersection</h3>
+
+  <p>Query the traffic light state and current signal group for a node entity.</p>
+
+  <pre><code class="language-csharp">public void CheckIntersectionSignals(EntityManager em, Entity node)
+{
+    if (!em.HasComponent&lt;TrafficLights&gt;(node)) return;
+
+    TrafficLights tl = em.GetComponentData&lt;TrafficLights&gt;(node);
+    Log.Info($"Intersection {node}:");
+    Log.Info($"  State: {tl.m_State}");
+    Log.Info($"  Signal groups: {tl.m_SignalGroupCount}");
+    Log.Info($"  Current group: {tl.m_CurrentSignalGroup}");
+    Log.Info($"  Next group: {tl.m_NextSignalGroup}");
+    Log.Info($"  Timer: {tl.m_Timer}");
+
+    // Check individual lane signals
+    if (em.HasBuffer&lt;SubLane&gt;(node))
+    {
+        DynamicBuffer&lt;SubLane&gt; subLanes = em.GetBuffer&lt;SubLane&gt;(node);
+        for (int i = 0; i &lt; subLanes.Length; i++)
+        {
+            Entity lane = subLanes[i].m_SubLane;
+            if (em.HasComponent&lt;LaneSignal&gt;(lane))
+            {
+                LaneSignal signal = em.GetComponentData&lt;LaneSignal&gt;(lane);
+                Log.Info($"  Lane {lane}: signal={signal.m_Signal}, "
+                    + $"group=0x{signal.m_GroupMask:X4}");
+            }
+        }
+    }
+}</code></pre>
+
+  <h3>Modify Speed Limits on a Road Segment</h3>
+
+  <p>Change the effective speed limit on all car lanes of a road.</p>
+
+  <pre><code class="language-csharp">public void SetRoadSpeedLimit(EntityManager em, Entity road, float newSpeedLimit)
+{
+    if (!em.HasBuffer&lt;SubLane&gt;(road)) return;
+
+    DynamicBuffer&lt;SubLane&gt; subLanes = em.GetBuffer&lt;SubLane&gt;(road);
+    int modified = 0;
+
+    for (int i = 0; i &lt; subLanes.Length; i++)
+    {
+        Entity lane = subLanes[i].m_SubLane;
+        if (em.HasComponent&lt;CarLane&gt;(lane))
+        {
+            CarLane carLane = em.GetComponentData&lt;CarLane&gt;(lane);
+            carLane.m_SpeedLimit = newSpeedLimit;
+            em.SetComponentData(lane, carLane);
+            modified++;
+        }
+    }
+
+    Log.Info($"Modified speed limit on {modified} lanes to "
+        + $"{newSpeedLimit:F1} m/s ({newSpeedLimit * 3.6f:F0} km/h)");
+}</code></pre>
+
+  <h3>Find All Traffic Bottlenecks</h3>
+
+  <p>Query lanes with Bottleneck components to find congested areas.</p>
+
+  <pre><code class="language-csharp">public partial class BottleneckMonitorSystem : GameSystemBase
+{
+    private EntityQuery _bottleneckQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _bottleneckQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Bottleneck&gt;(),
+            ComponentType.ReadOnly&lt;Curve&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        NativeArray&lt;Entity&gt; entities =
+            _bottleneckQuery.ToEntityArray(Allocator.Temp);
+        NativeArray&lt;Bottleneck&gt; bottlenecks =
+            _bottleneckQuery.ToComponentDataArray&lt;Bottleneck&gt;(Allocator.Temp);
+
+        int confirmed = 0;
+        for (int i = 0; i &lt; bottlenecks.Length; i++)
+        {
+            Bottleneck bn = bottlenecks[i];
+            if (bn.m_Timer &gt;= 20)
+            {
+                confirmed++;
+                Curve curve = EntityManager.GetComponentData&lt;Curve&gt;(entities[i]);
+                float t = (float)bn.m_Position * 0.003921569f;
+                float3 worldPos = MathUtils.Position(curve.m_Bezier, t);
+                Log.Info($"Bottleneck at ({worldPos.x:F0}, {worldPos.z:F0}), "
+                    + $"severity: {bn.m_Timer}");
+            }
+        }
+
+        if (confirmed &gt; 0)
+            Log.Info($"Total confirmed bottlenecks: {confirmed}");
+
+        entities.Dispose();
+        bottlenecks.Dispose();
+    }
+}</code></pre>
+
+  <h3>Read Lane Flow and Congestion Data</h3>
+
+  <p>Sample traffic flow data on a specific lane to determine congestion level.</p>
+
+  <pre><code class="language-csharp">public void CheckLaneFlow(EntityManager em, Entity lane)
+{
+    if (!em.HasComponent&lt;CarLane&gt;(lane)) return;
+
+    CarLane carLane = em.GetComponentData&lt;CarLane&gt;(lane);
+    float congestion = (float)carLane.m_FlowOffset / 255f;
+    Log.Info($"Lane {lane}:");
+    Log.Info($"  Speed limit: {carLane.m_SpeedLimit:F1} m/s "
+        + $"({carLane.m_SpeedLimit * 3.6f:F0} km/h)");
+    Log.Info($"  Flow offset: {carLane.m_FlowOffset} "
+        + $"({congestion:P0} congested)");
+
+    bool isHighway = (carLane.m_Flags &amp; CarLaneFlags.Highway) != 0;
+    bool hasSignal = (carLane.m_Flags &amp; CarLaneFlags.TrafficLights) != 0;
+    bool isRoundabout = (carLane.m_Flags &amp; CarLaneFlags.Roundabout) != 0;
+    bool mustYield = (carLane.m_Flags &amp; CarLaneFlags.Yield) != 0;
+    Log.Info($"  Highway: {isHighway}, Signal: {hasSignal}, "
+        + $"Roundabout: {isRoundabout}, Yield: {mustYield}");
+
+    if (em.HasComponent&lt;LaneFlow&gt;(lane))
+    {
+        LaneFlow flow = em.GetComponentData&lt;LaneFlow&gt;(lane);
+        Log.Info($"  Flow duration (4 quadrants): {flow.m_Duration}");
+        Log.Info($"  Flow distance (4 quadrants): {flow.m_Distance}");
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Speed limit</td>
+        <td>CarLane.m_SpeedLimit</td>
+        <td>Varies by road type</td>
+        <td>Maximum vehicle speed on this lane (m/s)</td>
+      </tr>
+      <tr>
+        <td>Flow offset</td>
+        <td>CarLane.m_FlowOffset</td>
+        <td>0</td>
+        <td>Congestion level (0-255), read by pathfinder</td>
+      </tr>
+      <tr>
+        <td>Signal minimum green</td>
+        <td>TrafficLightSystem (hardcoded)</td>
+        <td>2 ticks</td>
+        <td>Minimum time a signal group stays green</td>
+      </tr>
+      <tr>
+        <td>Signal maximum green</td>
+        <td>TrafficLightSystem (hardcoded)</td>
+        <td>6 ticks</td>
+        <td>Maximum time before checking for next group</td>
+      </tr>
+      <tr>
+        <td>Flow update interval</td>
+        <td>TrafficFlowSystem.UPDATES_PER_DAY</td>
+        <td>32 (every 512 frames)</td>
+        <td>How often flow statistics are smoothed</td>
+      </tr>
+      <tr>
+        <td>Bottleneck check</td>
+        <td>TrafficBottleneckSystem</td>
+        <td>Every 64 frames</td>
+        <td>How often gridlocks are detected</td>
+      </tr>
+      <tr>
+        <td>Bottleneck group threshold</td>
+        <td>TrafficBottleneckSystem (hardcoded)</td>
+        <td>10 (potential), 50 (confirmed)</td>
+        <td>Minimum mutually-blocked vehicles to flag a bottleneck</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Pathfinder flow offset weighting:</strong> The <code>m_FlowOffset</code> value is
+      read by the pathfinder as a cost adjustment, but the exact formula within the pathfind cost
+      calculation has not been fully traced.
+    </li>
+    <li>
+      <strong>Emergency vehicle signal priority:</strong> Emergency vehicles likely use a higher
+      priority value that overrides signal stops, but the exact mechanism within
+      CarNavigationSystem needs further tracing.
+    </li>
+    <li>
+      <strong>AllowChange flag source:</strong> The <code>SlaveLane.AllowChange</code> flag that
+      controls lane change cost appears to come from lane generation during road creation, likely
+      tied to solid vs. dashed lane markings, but this is not confirmed.
+    </li>
+    <li>
+      <strong>Signal extension demand formula:</strong> The <code>GetNextSignalGroup</code>
+      method counts petitioners per group, but the exact priority scoring between groups with
+      different numbers of waiting vehicles needs more analysis.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.CarNavigationSystem, Game.Simulation.CarLaneSelectIterator, Game.Simulation.TrafficLightSystem, Game.Simulation.TrafficFlowSystem, Game.Simulation.TrafficBottleneckSystem, Game.Simulation.TrafficAmbienceSystem, Game.Simulation.RandomTrafficDispatchSystem</li>
+    <li>Runtime components: Game.Vehicles.CarCurrentLane, Game.Vehicles.CarNavigation, Game.Vehicles.CarNavigationLane, Game.Vehicles.Blocker, Game.Net.CarLane, Game.Net.TrafficLights, Game.Net.LaneSignal, Game.Net.LaneFlow, Game.Net.LaneReservation, Game.Net.LaneOverlap, Game.Net.Bottleneck</li>
+    <li>Prefab types: Game.Prefabs.CarLaneData, Game.Prefabs.TrafficConfigurationData</li>
+    <li>Related: <a href="pathfinding.html">Pathfinding System</a> (route computation), <a href="road-network.html">Road &amp; Network Building</a> (lane creation), <a href="vehicle-spawning.html">Vehicle Spawning</a> (lifecycle)</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- CarNavigationSystem, TrafficLightSystem, TrafficFlowSystem, TrafficBottleneckSystem, CarLaneSelectIterator.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
