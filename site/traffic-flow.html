@@ -138,9 +138,17 @@
     (EndOfPath, IsBlocked, TurnLeft, Queue, Roundabout, etc.). These describe what the
     vehicle is currently doing.</li>
     <li><strong><code>Game.Net.CarLaneFlags</code></strong> -- per-lane network property flags
-    (Highway, Yield, Stop, TrafficLights, Roundabout, ForbidPassing, etc.). These define
+    (Highway, Yield, Stop, TrafficLights, Roundabout, ForbidPassing, PublicOnly, etc.). These define
     the traffic rules for each lane.</li>
   </ul>
+
+  <p>
+    <strong>PublicOnly flag (0x20000000):</strong> The <code>CarLaneFlags.PublicOnly</code> flag marks
+    a lane as restricted to public transport vehicles only (bus-only lanes). Vehicles must have
+    <code>CarFlags.UsePublicTransportLanes</code> set to use these lanes. The lane selection cost
+    calculator in <code>CarLaneSelectIterator</code> treats PublicOnly lanes as forbidden for
+    vehicles without the appropriate flag, applying the forbidden lane cost penalty (0.9 or 4.9).
+  </p>
 
   <h3>Lane Selection: Cost-Based Optimization</h3>
 
@@ -376,6 +384,27 @@
       <tr><td>m_Flags</td><td>LaneSignalFlags</td><td>CanExtend, Physical</td></tr>
     </tbody>
   </table>
+
+  <h4>CustomPriority for Intersection Priority Modding</h4>
+  <p>
+    The <code>m_Priority</code> field on <code>LaneSignal</code> is the key to modding intersection
+    priority behavior. <code>TrafficLightInitializationSystem</code> sets <code>m_Default</code> to the
+    base priority when signal groups are created. Mods can write a different value to
+    <code>m_Priority</code> to create a <strong>CustomPriority</strong> override -- the traffic light
+    state machine uses <code>m_Priority</code> (not <code>m_Default</code>) when evaluating which
+    signal group to green next via <code>GetNextSignalGroup</code>.
+  </p>
+  <p>To implement custom intersection priorities:</p>
+  <ol>
+    <li>Query intersection nodes with <code>TrafficLights</code> + <code>SubLane</code> buffer</li>
+    <li>For each sub-lane with <code>LaneSignal</code>, set <code>m_Priority</code> to the desired value</li>
+    <li>Higher <code>m_Priority</code> values give that lane's signal group preference</li>
+    <li>The system checks priority each tick, so mods can dynamically adjust based on time of day, traffic conditions, or emergency vehicle approach</li>
+  </ol>
+  <p>
+    This is the recommended approach for intersection priority mods rather than patching
+    <code>TrafficLightSystem</code> directly.
+  </p>
 
   <h3>Bottleneck (Game.Net)</h3>
 
