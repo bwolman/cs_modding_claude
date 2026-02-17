@@ -510,6 +510,86 @@ public class MyMod : IMod
 - **`TryGetExecutableAsset`** (Example 5): Simplest way to find your own mod's asset. Requires access to `GameManager.instance.modManager` and passes `this` (the IMod instance).
 - **`SearchFilter<ExecutableAsset>`** (Example 6): More flexible -- can search for any mod's assets by arbitrary conditions. Useful for inter-mod discovery or when you need to enumerate all loaded mods.
 
+## GetUpdateInterval: Controlling System Tick Frequency
+
+Custom systems do not need to run every frame. `GameSystemBase` provides a virtual method `GetUpdateInterval(SystemUpdatePhase)` that controls how many frames elapse between each `OnUpdate` call:
+
+```csharp
+// Decompiled from Game.GameSystemBase
+public virtual int GetUpdateInterval(SystemUpdatePhase phase)
+{
+    return 1; // Default: run every frame
+}
+```
+
+Override this to reduce how often your system ticks. For example, the vanilla `TreeGrowthSystem` and community mods like Tree_Controller use an interval of 512:
+
+```csharp
+public override int GetUpdateInterval(SystemUpdatePhase phase)
+{
+    return 512; // Run every 512 frames (= 32 updates per day)
+}
+```
+
+### SimulationUtils.GetUpdateFrame: Work Distribution
+
+When a system runs at a reduced interval, it typically processes only a subset of entities per tick using the `UpdateFrame` shared component filter. The `SimulationUtils.GetUpdateFrame` method determines which group to process:
+
+```csharp
+// Decompiled from Game.Simulation.SimulationUtils
+public static uint GetUpdateFrame(uint frame, int updatesPerDay, int groupCount)
+{
+    return (uint)((frame / (262144 / (updatesPerDay * groupCount)))
+                  & (groupCount - 1));
+}
+```
+
+- `frame` -- the current `SimulationSystem.frameIndex`
+- `updatesPerDay` -- how many times per day each entity should be processed (e.g., 32)
+- `groupCount` -- how many groups entities are divided into (e.g., 16)
+
+The method divides the day (262144 frames) into `updatesPerDay * groupCount` buckets and returns the current bucket index masked to `groupCount - 1`.
+
+### Applying the UpdateFrame Filter
+
+Use `SetSharedComponentFilter` on your `EntityQuery` to process only the current group:
+
+```csharp
+private SimulationSystem m_SimulationSystem;
+private EntityQuery m_TreeQuery;
+
+protected override void OnUpdate()
+{
+    // 32 updates/day, 16 groups -> each group processed every 512 frames
+    uint updateFrame = SimulationUtils.GetUpdateFrame(
+        m_SimulationSystem.frameIndex, 32, 16);
+    m_TreeQuery.ResetFilter();
+    m_TreeQuery.SetSharedComponentFilter(new UpdateFrame(updateFrame));
+
+    // Now m_TreeQuery only contains entities in the current group
+    // Process them...
+}
+```
+
+### Relationship: Interval vs Updates-Per-Day
+
+| Interval | Updates/Day | Groups | Entities per tick |
+|----------|------------|--------|-------------------|
+| 512 | 32 | 16 | 1/16 of total |
+| 256 | 64 | 16 | 1/16 of total |
+| 128 | 128 | 16 | 1/16 of total |
+| 16 | 1024 | 16 | 1/16 of total |
+
+The interval determines how often your `OnUpdate` runs. The `groupCount` determines what fraction of entities are processed per tick. Together they control total throughput: with interval=512 and groups=16, each entity is processed 32 times per day (262144 / 512 * 16 / 16 = 32).
+
+### When to Match Vanilla Intervals
+
+Custom systems that read data produced by vanilla systems should match or be a multiple of the vanilla system's interval. For example, a mod system that reads tree growth data should use interval 512 (same as `TreeGrowthSystem`) to ensure synchronized data. Running at a faster interval wastes CPU cycles processing stale data.
+
+### GetUpdateOffset: Staggering System Execution
+
+`GameSystemBase` also provides `GetUpdateOffset(SystemUpdatePhase)` (default: -1, meaning auto-assigned) to stagger when systems run within the same interval. The game distributes systems across frames to avoid spikes. Override this only if your system must run on a specific frame offset.
+
 ## Open Questions
 
 - [ ] **Load order guarantees**: The order mods are loaded depends on the order they appear in the AssetDatabase scan. There is no explicit load-order declaration. Mods that depend on other mods should use assembly references to ensure correct ordering.
