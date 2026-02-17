@@ -111,8 +111,10 @@
       <code>BorderDistrict</code>.
     </p>
     <p>
-      <strong>Out of scope:</strong> Building-level modifiers, route (transit line) modifiers, and
-      city-wide modifiers share a similar architecture but are not deeply covered here.
+      <strong>Note:</strong> <code>ModifiedSystem</code> handles all four policy scopes: District,
+      Building, Route (transit lines), and City. They share the same architecture (Policy buffer +
+      Modify events). Building-level and city-wide modifier types are referenced but not
+      exhaustively listed here.
     </p>
   </div>
 
@@ -352,6 +354,28 @@
       <tr><td>4</td><td>ForbidBicycles</td><td>Bans bicycles</td></tr>
     </tbody>
   </table>
+
+  <h3>All Four Policy Scopes</h3>
+
+  <p><code>ModifiedSystem.GetPolicyRange()</code> determines which scope a policy targets. The same
+  <code>Policy</code> buffer and <code>Modify</code> event pattern is used for all four:</p>
+
+  <table>
+    <thead>
+      <tr><th>Scope</th><th>Target Entity</th><th>Modifier Buffer</th><th>Example Policies</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>District</td><td>Area entity with <code>District</code></td><td><code>DistrictModifier</code></td><td>Speed limits, parking fees, traffic bans</td></tr>
+      <tr><td>Building</td><td>Building entity with service upgrades</td><td><code>BuildingModifier</code></td><td>Service building efficiency adjustments</td></tr>
+      <tr><td>Route</td><td>Transit route entity (bus/tram/train line)</td><td><code>RouteModifier</code></td><td>Ticket price, vehicle frequency adjustments</td></tr>
+      <tr><td>City</td><td>City-wide singleton entity</td><td><code>CityModifier</code></td><td>City-wide tax rates, global service adjustments</td></tr>
+    </tbody>
+  </table>
+
+  <p>Route modifiers work identically to district modifiers: <code>ModifiedSystem</code> processes
+  the <code>Modify</code> event, updates the <code>Policy</code> buffer on the route entity, and
+  calls <code>RefreshEffects()</code> which delegates to the route-specific refresh logic to rebuild
+  the <code>RouteModifier</code> buffer.</p>
 
   <!-- ============================================================ -->
   <h2>Data Flow</h2>
