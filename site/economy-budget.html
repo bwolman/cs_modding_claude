@@ -35,6 +35,12 @@
     <a href="citizens-households.html">Citizens &amp; Households</a>
     <a href="economy-budget.html" class="active">Economy &amp; Budget</a>
     <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
 
     <h3>City Services</h3>
     <a href="garbage-collection.html">Garbage Collection</a>
@@ -110,9 +116,10 @@ ServiceFeeSystem (128x/day)
   Deducts from household's Resources buffer
   Accumulates FeeEvents (internal / export / import)
       |
-TradeSystem (periodic)
+TradeSystem (128x/day, kRefreshRate=0.01)
   Manages resource flow through outside connections
-  Updates trade balances per resource type
+  Updates trade balances per resource type (1% decay per update)
+  Calculates trade costs: weightCost * weight * (1 + distanceCost * max(50, sqrt(|balance|)))
   Tracks import/export volumes and costs
       |
       v
@@ -300,14 +307,27 @@ return math.max(0f, 0.01f * value);</code></pre>
 
   <p>Key mechanics:</p>
   <ul>
+    <li><strong>Update rate:</strong> <code>kUpdatesPerDay = 128</code></li>
     <li><strong>Trade balance decay:</strong> Each update, balances decay by
-      <code>balance *= (1 - kRefreshRate)</code>, preventing permanent accumulation</li>
-    <li><strong>Cost calculation:</strong> Trade costs are computed per transport type
-      (Road, Rail, Water, Air) based on resource weight and distance. Each resource + transport
-      type combination has separate buy/sell costs cached in a flat array.</li>
-    <li><strong>Storage rebalancing:</strong> Outside connection companies target 50% of their
-      storage capacity. If below, they import; if above, they export. The rate scales with
-      how far from the target they are.</li>
+      <code>balance = round((1 - 0.01) * balance)</code> (<code>kRefreshRate = 0.01f</code>),
+      preventing permanent accumulation</li>
+    <li><strong>Cost calculation (CalculateTradeCost):</strong>
+      <ul>
+        <li><strong>Buy cost:</strong> <code>weightCost * weight</code>. If trade balance is negative
+          (importing more than exporting), scaled by
+          <code>1 + distanceCost * max(50, sqrt(-tradeBalance))</code>.
+          Then <code>CityModifierType.ImportCost</code> is applied.</li>
+        <li><strong>Sell cost:</strong> <code>weightCost * weight</code>. If trade balance is positive,
+          scaled by <code>1 + distanceCost * max(50, sqrt(tradeBalance))</code>.
+          Then <code>CityModifierType.ExportCost</code> is applied.</li>
+        <li>Weight and distance costs come from <code>OutsideTradeParameterData.GetWeightCostSingle(type)</code>
+          and <code>GetDistanceCostSingle(type)</code>, per transport type (Road, Rail, Water, Air).</li>
+      </ul>
+    </li>
+    <li><strong>Storage rebalancing:</strong> Outside connection companies target 50% of
+      <code>storageLimit / numResourceTypes</code>. Urgency = <code>|delta| / target</code>.
+      If urgency &gt; 1, the full delta is applied immediately. Otherwise,
+      <code>(delta * urgency / kUpdatesPerDay) * 8</code> is added per update.</li>
     <li><strong>Trade statistics:</strong> Net imports/exports are recorded to
       <code>StatisticType.Trade</code> per resource, which feeds into
       <code>BudgetSystem.GetTrade()</code></li>
@@ -329,7 +349,7 @@ return math.max(0f, 0.01f * value);</code></pre>
       <tr>
         <td>Game.dll</td>
         <td>Game.Simulation</td>
-        <td>BudgetSystem, BudgetApplySystem, CityServiceBudgetSystem, TaxSystem, LoanUpdateSystem, ServiceFeeSystem, TradeSystem, Loan, Creditworthiness</td>
+        <td>BudgetSystem, BudgetApplySystem, CityServiceBudgetSystem, TaxSystem, LoanUpdateSystem, ServiceFeeSystem, TradeSystem, GameModeGovernmentSubsidiesSystem, Loan, Creditworthiness, CollectedCityServiceFeeData</td>
       </tr>
       <tr>
         <td>Game.dll</td>
@@ -404,6 +424,36 @@ return math.max(0f, 0.01f * value);</code></pre>
     </tbody>
   </table>
 
+  <h3>ServiceFeeCollector (Game.City)</h3>
+  <p>
+    Zero-size tag component (no fields). Marks buildings that collect service fees. Used in
+    <code>ServiceFeeSystem</code> query: entities with <code>ServiceFeeCollector</code> +
+    (<code>Patient</code> or <code>Student</code> buffer), excluding <code>OutsideConnection</code>.
+  </p>
+
+  <h3>CollectedCityServiceFeeData (Game.Simulation)</h3>
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_PlayerResource</td><td>int</td><td>PlayerResource enum cast to int</td></tr>
+      <tr><td>m_Export</td><td>float</td><td>Total export fee revenue (cost * 128)</td></tr>
+      <tr><td>m_Import</td><td>float</td><td>Total import fee cost (cost * 128)</td></tr>
+      <tr><td>m_Internal</td><td>float</td><td>Total internal fee revenue (cost * 128)</td></tr>
+      <tr><td>m_ExportCount</td><td>float</td><td>Export service units (amount * 128)</td></tr>
+      <tr><td>m_ImportCount</td><td>float</td><td>Import service units (amount * 128)</td></tr>
+      <tr><td>m_InternalCount</td><td>float</td><td>Internal service units (amount * 128)</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Buffer element on city service entities. Tracks collected fees per service resource.
+    <code>FeeToCityJob</code> aggregates <code>FeeEvent</code> items: positive amounts from
+    local citizens go to <code>m_Internal</code>, from outside connections to <code>m_Export</code>,
+    and negative amounts (imports) to <code>m_Import</code>. All values are multiplied by 128
+    when stored. Used by <code>CityServiceBudgetSystem</code> to compute income/expense categories.
+  </p>
+
   <!-- ============================================================ -->
   <h2>Key Constants</h2>
 
@@ -417,9 +467,13 @@ return math.max(0f, 0.01f * value);</code></pre>
       <tr><td>kUpdatesPerDay</td><td>1024</td><td>BudgetApplySystem</td><td>Budget application frequency per game day</td></tr>
       <tr><td>kUpdatesPerDay</td><td>32</td><td>LoanUpdateSystem</td><td>Loan interest check frequency</td></tr>
       <tr><td>kMaxMoney</td><td>2,000,000,000</td><td>PlayerMoney</td><td>Maximum money balance</td></tr>
+      <tr><td>kUpdatesPerDay</td><td>128</td><td>TradeSystem</td><td>Trade balance update frequency</td></tr>
+      <tr><td>kUpdatesPerDay</td><td>128</td><td>GovernmentSubsidiesSystem</td><td>Government subsidy check frequency</td></tr>
+      <tr><td>kRefreshRate</td><td>0.01</td><td>TradeSystem</td><td>Trade balance decay rate per update (1%)</td></tr>
       <tr><td>kCompanyUpdatesPerDay</td><td>256</td><td>EconomyUtils</td><td>Company economy update frequency</td></tr>
       <tr><td>Frames per day</td><td>262,144</td><td>SimulationSystem</td><td>Total simulation frames in one game day</td></tr>
       <tr><td>TaxRate.Count</td><td>92</td><td>TaxSystem</td><td>Total tax rate entries in buffer</td></tr>
+      <tr><td>Default main tax rate</td><td>10</td><td>TaxSystem</td><td>Initial main rate for new games</td></tr>
     </tbody>
   </table>
 
@@ -551,14 +605,75 @@ int tradeWorth = budgetSystem.GetTradeWorth(Resource.Electronics);
 int totalTradeWorth = budgetSystem.GetTotalTradeWorth();</code></pre>
 
   <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <h3>TaxSystem.OnUpdate</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>protected override void OnUpdate()</code></td></tr>
+      <tr><td>Patch type</td><td>Prefix or Postfix</td></tr>
+      <tr><td>What it enables</td><td>Intercept or modify tax collection. A Prefix returning false skips all tax collection for the tick. A Postfix can read statistics to track what was collected, or adjust the <code>m_TaxPaidMultiplier</code> field before the next run.</td></tr>
+      <tr><td>Risk level</td><td>High</td></tr>
+      <tr><td>Side effects</td><td>Skipping tax collection breaks the budget pipeline entirely. Residential, commercial, and industrial tax jobs all run in this method. Modifying <code>m_TaxRates</code> between runs can cause desync with the UI. District modifiers (<code>DistrictModifierType.LowCommercialTax</code>) are applied separately.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>BudgetApplySystem.OnUpdate</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>protected override void OnUpdate()</code></td></tr>
+      <tr><td>Patch type</td><td>Prefix or Postfix</td></tr>
+      <tr><td>What it enables</td><td>Inject custom income/expense before or after the budget is applied to <code>PlayerMoney</code>. A Prefix can modify the <code>m_Income</code>/<code>m_Expenses</code> arrays from <code>CityServiceBudgetSystem</code>. A Postfix can apply additional money changes.</td></tr>
+      <tr><td>Risk level</td><td>Medium</td></tr>
+      <tr><td>Side effects</td><td>Runs 1024 times per day. Income/expense arrays are shared with <code>CityServiceBudgetSystem</code> via job dependencies -- modifying them without completing jobs first causes race conditions. Statistics events logged here feed the UI economy panel.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ServiceFeeSystem.OnUpdate</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>protected override void OnUpdate()</code></td></tr>
+      <tr><td>Patch type</td><td>Prefix or Postfix</td></tr>
+      <tr><td>What it enables</td><td>Modify service fee collection. A Prefix can alter the fee queue or <code>ServiceFee</code> buffer values before collection. A Postfix can process the <code>CollectedCityServiceFeeData</code> results. Can also intercept the <code>CacheFees()</code> call at the start of OnUpdate.</td></tr>
+      <tr><td>Risk level</td><td>Medium</td></tr>
+      <tr><td>Side effects</td><td>Runs 128 times per day. Fee events are queued and processed by <code>FeeToCityJob</code>, then triggers sent by <code>TriggerJob</code>. The <code>m_FeeQueue</code> is shared state -- unsafe to modify without completing <code>m_Writers</code> dependency.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TradeSystem.OnUpdate</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>protected override void OnUpdate()</code></td></tr>
+      <tr><td>Patch type</td><td>Prefix or Postfix</td></tr>
+      <tr><td>What it enables</td><td>Modify trade behavior. A Prefix can alter <code>m_TradeBalances</code> or <code>OutsideTradeParameterData</code> before the TradeJob runs. A Postfix can read updated trade balances and cached costs.</td></tr>
+      <tr><td>Risk level</td><td>Medium</td></tr>
+      <tr><td>Side effects</td><td>Runs 128 times per day. The TradeJob is a single <code>IJob</code> (not parallel) with dependencies on <code>CityStatisticsSystem</code> and <code>CityProductionStatisticSystem</code>. Modifying <code>m_TradeBalances</code> without completing <code>m_DebugTradeBalanceDeps</code> is unsafe. Trade costs feed into company buy/sell decisions system-wide.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
     <li>
       <strong>Tax rate limits:</strong> The exact min/max values come from
-      <code>TaxParameterData.m_TotalTaxLimits</code> which is loaded from the
-      <code>TaxParameterPrefab</code>. The actual values require in-game inspection
-      of the prefab data.
+      <code>TaxParameterData</code> fields: <code>m_TotalTaxLimits</code>,
+      <code>m_ResidentialTaxLimits</code>, <code>m_CommercialTaxLimits</code>,
+      <code>m_IndustrialTaxLimits</code>, <code>m_OfficeTaxLimits</code>,
+      <code>m_JobLevelTaxLimits</code>, and <code>m_ResourceTaxLimits</code>.
+      The actual numeric values require in-game inspection of the prefab data.
     </li>
     <li>
       <strong>Creditworthiness calculation:</strong> How <code>Creditworthiness.m_Amount</code>
@@ -566,20 +681,28 @@ int totalTradeWorth = budgetSystem.GetTotalTradeWorth();</code></pre>
       and economic statistics.
     </li>
     <li>
-      <strong>Service budget slider effect:</strong> <code>CityServiceBudgetSystem</code>
-      uses a per-service budget percentage that scales upkeep costs, but the exact formula
-      for how it affects service quality requires further decompilation of the individual
-      service AI systems.
+      <strong><s>Service budget slider effect</s> (Resolved):</strong>
+      <code>CityServiceBudgetSystem</code> scales the Money portion of upkeep costs by
+      <code>budget / 100</code>. Efficiency is evaluated via
+      <code>BuildingEfficiencyParameterData.m_ServiceBudgetEfficiencyFactor.Evaluate(budget / 100)</code>.
+      Default budget is 100. Inactive buildings always pay 10% upkeep regardless of slider.
     </li>
     <li>
-      <strong>Trade cost formula details:</strong> <code>TradeSystem.CalculateTradeCost()</code>
-      was not fully decompiled. The cost depends on resource weight, distance, transport type,
-      trade balance, and city modifiers.
+      <strong><s>Trade cost formula details</s> (Resolved):</strong>
+      <code>CalculateTradeCost()</code> computes buy cost as
+      <code>weightCost * weight</code>, scaled by
+      <code>1 + distanceCost * max(50, sqrt(-tradeBalance))</code> for negative balances,
+      then <code>CityModifierType.ImportCost</code> applied. Sell cost follows the same
+      pattern with positive balances and <code>ExportCost</code> modifier.
     </li>
     <li>
-      <strong>Government subsidy timing:</strong> The monthly subsidy amount and conditions
-      are set by <code>EconomyParameterData</code> but the exact trigger conditions need
-      further investigation.
+      <strong><s>Government subsidy timing</s> (Resolved):</strong>
+      Government subsidies are controlled by <code>GameModeGovernmentSubsidiesSystem</code>.
+      Only active when <code>ModeSettingData.m_EnableGovernmentSubsidies</code> is true.
+      The subsidy scales linearly from 0% to <code>MaxMoneyCoverPercentage</code> of total
+      expenses, based on how far <code>PlayerMoney</code> has dropped below
+      <code>MoneyCoverThreshold.x</code> toward <code>MoneyCoverThreshold.y</code>.
+      No subsidy when money is above the threshold.
     </li>
   </ul>
 
@@ -587,8 +710,9 @@ int totalTradeWorth = budgetSystem.GetTotalTradeWorth();</code></pre>
   <h2>Sources</h2>
 
   <ul>
-    <li>Decompiled from: Game.dll -- Game.Simulation.BudgetSystem, Game.Simulation.BudgetApplySystem, Game.Simulation.CityServiceBudgetSystem, Game.Simulation.TaxSystem, Game.Simulation.LoanUpdateSystem, Game.Simulation.ServiceFeeSystem, Game.Simulation.TradeSystem</li>
-    <li>Components: Game.City.PlayerMoney, Game.City.ServiceFee, Game.City.TaxRates, Game.Agents.TaxPayer, Game.Simulation.Loan, Game.Simulation.Creditworthiness</li>
+    <li>Decompiled from: Game.dll -- Game.Simulation.BudgetSystem, Game.Simulation.BudgetApplySystem, Game.Simulation.CityServiceBudgetSystem, Game.Simulation.TaxSystem, Game.Simulation.LoanUpdateSystem, Game.Simulation.ServiceFeeSystem, Game.Simulation.TradeSystem, Game.Simulation.GameModeGovernmentSubsidiesSystem</li>
+    <li>Components: Game.City.PlayerMoney, Game.City.ServiceFee, Game.City.ServiceFeeCollector, Game.City.TaxRates, Game.Agents.TaxPayer, Game.Simulation.Loan, Game.Simulation.Creditworthiness, Game.Simulation.CollectedCityServiceFeeData</li>
+    <li>Prefabs: Game.Prefabs.EconomyParameterData, Game.Prefabs.TaxParameterData, Game.Prefabs.ServiceFeeParameterData, Game.Prefabs.OutsideTradeParameterData</li>
     <li>Enums: Game.City.IncomeSource, Game.City.ExpenseSource, Game.City.PlayerResource, Game.City.TaxRate, Game.Simulation.TaxAreaType</li>
     <li>Tools: Game.Tools.LoanSystem, Game.Tools.LoanInfo</li>
     <li>Utilities: Game.Economy.EconomyUtils</li>

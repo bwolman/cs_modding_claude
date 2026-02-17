@@ -35,6 +35,12 @@
     <a href="citizens-households.html" class="active">Citizens &amp; Households</a>
     <a href="economy-budget.html">Economy &amp; Budget</a>
     <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
 
     <h3>City Services</h3>
     <a href="garbage-collection.html">Garbage Collection</a>
@@ -176,6 +182,8 @@
       <tr><td><code>m_ConsumptionPerDay</code></td><td>short</td><td>Daily resource consumption rate</td></tr>
       <tr><td><code>m_ShoppedValueLastDay</code></td><td>uint</td><td>Shopping spending last day (affects happiness)</td></tr>
       <tr><td><code>m_SalaryLastDay</code></td><td>int</td><td>Income earned last day</td></tr>
+      <tr><td><code>m_LastDayFrameIndex</code></td><td>uint</td><td>Simulation frame when last day rollover occurred</td></tr>
+      <tr><td><code>m_MoneySpendOnBuildingLevelingLastDay</code></td><td>int</td><td>Money spent on building leveling last day (reset each day)</td></tr>
     </tbody>
   </table>
 
@@ -200,6 +208,88 @@
     <li><code>HouseholdCitizen</code> -- buffer on household entities, field <code>m_Citizen</code> (Entity), capacity 5</li>
     <li><code>PropertyRenter</code> -- on household entities, field <code>m_Property</code> (Entity) pointing to building</li>
   </ul>
+
+  <h3>CitizenParametersData (Game.Prefabs) -- Singleton</h3>
+
+  <p>ECS singleton controlling citizen lifecycle rates. Initialized from <code>CitizenParametersPrefab</code>.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_DivorceRate</code></td><td>float</td><td>0.16</td><td>Divorce probability (16%)</td></tr>
+      <tr><td><code>m_LookForPartnerRate</code></td><td>float</td><td>0.08</td><td>Single citizen partner-seeking probability (8%)</td></tr>
+      <tr><td><code>m_LookForPartnerTypeRate</code></td><td>float2</td><td>(0.04, 0.1)</td><td>x=Same gender, y=Any gender, remainder=Different gender</td></tr>
+      <tr><td><code>m_BaseBirthRate</code></td><td>float</td><td>0.02</td><td>Base birth rate per eligible female per update (2%)</td></tr>
+      <tr><td><code>m_AdultFemaleBirthRateBonus</code></td><td>float</td><td>0.08</td><td>Extra birth rate when household has adult male (+8%)</td></tr>
+      <tr><td><code>m_StudentBirthRateAdjust</code></td><td>float</td><td>0.5</td><td>Multiplier for student mothers (50% reduction)</td></tr>
+      <tr><td><code>m_SwitchJobRate</code></td><td>float</td><td>0.032</td><td>Probability employed citizen checks for better job (3.2%)</td></tr>
+      <tr><td><code>m_LookForNewJobEmployableRate</code></td><td>float</td><td>2.0</td><td>Free positions / employable workers threshold</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CitizenHappinessParameterData (Game.Prefabs) -- Singleton</h3>
+
+  <p>
+    ECS singleton with thresholds and weights for all 26 happiness factors. Initialized from
+    <code>CitizenHappinessPrefab</code>. These values control how strongly each factor affects
+    citizen health and wellbeing.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Category</th><th>Field</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Pollution</td><td><code>m_PollutionBonusDivisor</code></td><td>600</td><td>Divisor for pollution bonus calculation</td></tr>
+      <tr><td>Pollution</td><td><code>m_MaxAirAndGroundPollutionBonus</code></td><td>50</td><td>Max wellbeing penalty from air/ground pollution</td></tr>
+      <tr><td>Pollution</td><td><code>m_MaxNoisePollutionBonus</code></td><td>15</td><td>Max wellbeing penalty from noise pollution</td></tr>
+      <tr><td>Electricity</td><td><code>m_ElectricityWellbeingPenalty</code></td><td>20</td><td>Wellbeing penalty for no electricity</td></tr>
+      <tr><td>Electricity</td><td><code>m_ElectricityPenaltyDelay</code></td><td>32</td><td>Ticks before full penalty (~1.42 min/tick)</td></tr>
+      <tr><td>Electricity</td><td><code>m_ElectricityFeeWellbeingEffect</code></td><td>curve</td><td>Maps fee (0-200%) to wellbeing effect</td></tr>
+      <tr><td>Water</td><td><code>m_WaterHealthPenalty</code></td><td>20</td><td>Health penalty for no water supply</td></tr>
+      <tr><td>Water</td><td><code>m_WaterWellbeingPenalty</code></td><td>20</td><td>Wellbeing penalty for no water supply</td></tr>
+      <tr><td>Water</td><td><code>m_WaterPenaltyDelay</code></td><td>32</td><td>Ticks before full penalty</td></tr>
+      <tr><td>Water</td><td><code>m_WaterPollutionBonusMultiplier</code></td><td>-10</td><td>Water pollution health impact multiplier</td></tr>
+      <tr><td>Sewage</td><td><code>m_SewageHealthEffect</code></td><td>10</td><td>Health penalty for no sewage treatment</td></tr>
+      <tr><td>Sewage</td><td><code>m_SewageWellbeingEffect</code></td><td>20</td><td>Wellbeing penalty for no sewage treatment</td></tr>
+      <tr><td>Sewage</td><td><code>m_SewagePenaltyDelay</code></td><td>32</td><td>Ticks before full penalty</td></tr>
+      <tr><td>Water</td><td><code>m_WaterFeeHealthEffect</code></td><td>curve</td><td>Maps water fee to health effect</td></tr>
+      <tr><td>Water</td><td><code>m_WaterFeeWellbeingEffect</code></td><td>curve</td><td>Maps water fee to wellbeing effect</td></tr>
+      <tr><td>Wealth</td><td><code>m_WealthyMoneyAmount</code></td><td>(0,1000,3000,5000)</td><td>Thresholds: Wretched/Poor/Modest/Comfortable</td></tr>
+      <tr><td>Healthcare</td><td><code>m_HealthCareHealthMultiplier</code></td><td>2.0</td><td>Healthcare health bonus multiplier</td></tr>
+      <tr><td>Healthcare</td><td><code>m_HealthCareWellbeingMultiplier</code></td><td>0.8</td><td>Healthcare wellbeing bonus multiplier</td></tr>
+      <tr><td>Education</td><td><code>m_EducationWellbeingMultiplier</code></td><td>3.0</td><td>Education coverage wellbeing multiplier</td></tr>
+      <tr><td>Education</td><td><code>m_NeutralEducation</code></td><td>5.0</td><td>Coverage level considered neutral</td></tr>
+      <tr><td>Entertainment</td><td><code>m_EntertainmentWellbeingMultiplier</code></td><td>20.0</td><td>Park/entertainment coverage multiplier</td></tr>
+      <tr><td>Crime</td><td><code>m_NegligibleCrime</code></td><td>5000</td><td>Crime below this has no effect</td></tr>
+      <tr><td>Crime</td><td><code>m_CrimeMultiplier</code></td><td>0.0004</td><td>Crime-to-penalty conversion factor</td></tr>
+      <tr><td>Crime</td><td><code>m_MaxCrimePenalty</code></td><td>30</td><td>Maximum crime penalty</td></tr>
+      <tr><td>Mail</td><td><code>m_MailMultiplier</code></td><td>2.0</td><td>Mail service coverage multiplier</td></tr>
+      <tr><td>Mail</td><td><code>m_NegligibleMail</code></td><td>25</td><td>Mail threshold below which no effect</td></tr>
+      <tr><td>Telecom</td><td><code>m_TelecomBaseline</code></td><td>0.3</td><td>Below = penalty, above = bonus</td></tr>
+      <tr><td>Telecom</td><td><code>m_TelecomBonusMultiplier</code></td><td>10.0</td><td>Bonus multiplier above baseline</td></tr>
+      <tr><td>Telecom</td><td><code>m_TelecomPenaltyMultiplier</code></td><td>20.0</td><td>Penalty multiplier below baseline</td></tr>
+      <tr><td>Welfare</td><td><code>m_WelfareMultiplier</code></td><td>2.0</td><td>Welfare coverage multiplier</td></tr>
+      <tr><td>Health</td><td><code>m_HealthProblemHealthPenalty</code></td><td>20</td><td>Penalty for having a health problem</td></tr>
+      <tr><td>Death</td><td><code>m_DeathWellbeingPenalty</code></td><td>20</td><td>Wellbeing penalty for family death</td></tr>
+      <tr><td>Death</td><td><code>m_DeathHealthPenalty</code></td><td>10</td><td>Health penalty for family death</td></tr>
+      <tr><td>Consumption</td><td><code>m_ConsumptionMultiplier</code></td><td>1.0</td><td>Shopping satisfaction multiplier</td></tr>
+      <tr><td>Thresholds</td><td><code>m_LowWellbeing</code></td><td>40</td><td>"Low wellbeing" statistic threshold</td></tr>
+      <tr><td>Thresholds</td><td><code>m_LowHealth</code></td><td>40</td><td>"Low health" statistic threshold</td></tr>
+      <tr><td>Tax</td><td><code>m_TaxUneducatedMultiplier</code></td><td>-0.25</td><td>Tax impact on uneducated</td></tr>
+      <tr><td>Tax</td><td><code>m_TaxPoorlyEducatedMultiplier</code></td><td>-0.5</td><td>Tax impact on poorly educated</td></tr>
+      <tr><td>Tax</td><td><code>m_TaxEducatedMultiplier</code></td><td>-1.0</td><td>Tax impact on educated</td></tr>
+      <tr><td>Tax</td><td><code>m_TaxWellEducatedMultiplier</code></td><td>-1.5</td><td>Tax impact on well-educated</td></tr>
+      <tr><td>Tax</td><td><code>m_TaxHighlyEducatedMultiplier</code></td><td>-2.0</td><td>Tax impact on highly educated</td></tr>
+      <tr><td>Penalty</td><td><code>m_PenaltyEffect</code></td><td>-30</td><td>Teleport penalty (traffic problems)</td></tr>
+      <tr><td>Homeless</td><td><code>m_HomelessHealthEffect</code></td><td>-20</td><td>Health penalty for homelessness</td></tr>
+      <tr><td>Homeless</td><td><code>m_HomelessWellbeingEffect</code></td><td>-20</td><td>Wellbeing penalty for homelessness</td></tr>
+      <tr><td>Unemployment</td><td><code>m_UnemployedWellbeingPenaltyAccumulatePerDay</code></td><td>0</td><td>Penalty per day of unemployment</td></tr>
+      <tr><td>Unemployment</td><td><code>m_MaxAccumulatedUnemployedWellbeingPenalty</code></td><td>20</td><td>Max cumulative unemployment penalty</td></tr>
+    </tbody>
+  </table>
 
   <!-- ============================================================ -->
   <h2>Data Flow</h2>
@@ -254,7 +344,202 @@ HouseholdFindPropertySystem -> assigns residential property
   </pre></div>
 
   <!-- ============================================================ -->
+  <h2>Key Systems (Detail)</h2>
+
+  <h3>HouseholdBehaviorSystem (Game.Simulation)</h3>
+
+  <p>
+    The daily household tick system. Runs <strong>256 times per day</strong> (every 64 simulation frames).
+    This is the central system that drives household economics and move-away decisions.
+  </p>
+
+  <p><strong>Query:</strong> <code>Household</code> + <code>HouseholdNeed</code> +
+    <code>HouseholdCitizen</code> + <code>Resources</code> + <code>UpdateFrame</code>.
+    Excludes: <code>TouristHousehold</code>, <code>MovingAway</code>, <code>Deleted</code>, <code>Temp</code>.
+  </p>
+
+  <p><strong>Per-household logic each tick:</strong></p>
+  <ol>
+    <li><strong>Day rollover</strong>: When <code>frameIndex - m_LastDayFrameIndex &gt; 262144</code>,
+    rolls <code>m_ShoppedValuePerDay</code> into <code>m_ShoppedValueLastDay</code> and resets daily counters.</li>
+    <li><strong>Empty check</strong>: Deletes households with zero citizens.</li>
+    <li><strong>Move-away decision</strong>: Computes average happiness across all members, then checks:
+      <ul>
+        <li><code>NoAdults</code>: Only children/teens remain (no adults or elderly)</li>
+        <li><code>NotHappy</code>: Happiness-based probability using a quadratic formula</li>
+        <li><code>NoMoney</code>: Total wealth + last salary &lt; -1000</li>
+      </ul>
+    </li>
+    <li><strong>Salary</strong>: Updates <code>m_SalaryLastDay</code> via <code>EconomyUtils.GetHouseholdIncome()</code>.</li>
+    <li><strong>Consumption</strong>: Deducts resources based on wealth multiplier * consumption rate * citizen count.</li>
+    <li><strong>Shopping</strong>: When money is depleted, selects a needed resource weighted by age composition and wealth.</li>
+    <li><strong>Property seeking</strong>: Periodically enables <code>PropertySeeker</code> if home building is invalid.</li>
+  </ol>
+
+  <pre><code>// Move-away happiness probability formula (from HouseholdTickJob):
+// average happiness is computed across all household members
+// Then checked against this probability:
+bool shouldMoveAway = random.NextInt(1000) &lt;
+    -53.35f * happiness +
+    Mathf.Sqrt(95.96f * happiness * happiness + 1013f * happiness + 6576f) * 5.408f
+    - 298.5f;</code></pre>
+
+  <h3>CitizenPresenceSystem (Game.Simulation)</h3>
+
+  <p>
+    Tracks citizen occupancy in buildings as a smooth byte value (0-255). Runs every <strong>64 simulation
+    frames</strong>. Operates on <strong>building entities</strong>, not citizen entities.
+  </p>
+
+  <p><strong>Query:</strong> Building entities with <code>CitizenPresence</code> component, excluding
+    <code>Deleted</code>, <code>Temp</code>.</p>
+
+  <p><strong>Logic per building:</strong></p>
+  <ol>
+    <li>Skip if <code>m_Delta == 0</code> (no citizen movement since last update).</li>
+    <li>Calculate total capacity: <code>WorkProvider.m_MaxWorkers</code> + household citizen counts + vacant property slots * 2.</li>
+    <li>Scale the delta proportionally to capacity with randomization.</li>
+    <li>Apply: if delta &gt; 0, increment <code>m_Presence</code>; if delta &lt; 0, decrement it. Clamped to 0-255.</li>
+    <li>Reset <code>m_Delta</code> to 0.</li>
+  </ol>
+
+  <p>Other systems update <code>m_Delta</code> when citizens enter or leave a building. This system
+    smooths those discrete events into a continuous occupancy metric.</p>
+
+  <h3>LeaveHouseholdSystem (Game.Simulation)</h3>
+
+  <p>
+    Processes young adults leaving their parents' household. Runs <strong>2 times per day</strong>
+    (every 8192 simulation frames). The constant <code>kNewHouseholdStartMoney = 2000</code> determines
+    how much money the new household receives.
+  </p>
+
+  <p><strong>Query:</strong> <code>Citizen</code> + <code>LeaveHouseholdTag</code>, excluding
+    <code>Deleted</code>, <code>Temp</code>.</p>
+
+  <p><strong>Logic per tagged citizen:</strong></p>
+  <ol>
+    <li>If parent household is already <code>MovingAway</code>, just remove the tag.</li>
+    <li>Eligibility (all must be true):
+      <ul>
+        <li>Household has citizens (buffer not empty)</li>
+        <li>Household money &gt; 4000 (2x start money)</li>
+        <li>Citizen has <code>Worker</code> component (must be employed)</li>
+      </ul>
+    </li>
+    <li>Create new household from random <code>HouseholdPrefab</code>.</li>
+    <li>Transfer 2000 money from parent to new household.</li>
+    <li>Move citizen between household buffers and update <code>HouseholdMember</code>.</li>
+    <li>If free properties &gt; 10: enable <code>PropertySeeker</code> on new household.</li>
+    <li>Otherwise: citizen becomes a <code>Commuter</code> (if outside connections exist).</li>
+  </ol>
+
+  <!-- ============================================================ -->
   <h2>Examples</h2>
+
+  <h3>Read a Citizen's Age, Education, and Happiness</h3>
+
+  <pre><code>// In a system that queries Citizen entities
+EntityQuery citizenQuery = GetEntityQuery(ComponentType.ReadOnly&lt;Citizen&gt;());
+
+NativeArray&lt;Entity&gt; entities = citizenQuery.ToEntityArray(Allocator.Temp);
+ComponentLookup&lt;Citizen&gt; citizenLookup = GetComponentLookup&lt;Citizen&gt;(true);
+
+foreach (Entity entity in entities)
+{
+    Citizen citizen = citizenLookup[entity];
+    CitizenAge age = citizen.GetAge();
+    int educationLevel = citizen.GetEducationLevel(); // 0-4
+    int happiness = citizen.Happiness; // (m_Health + m_WellBeing) / 2
+    byte health = citizen.m_Health;
+    byte wellBeing = citizen.m_WellBeing;
+
+    Log.Info($"Citizen {entity}: Age={age}, Education={educationLevel}, " +
+             $"Happiness={happiness}, Health={health}, WellBeing={wellBeing}");
+}
+entities.Dispose();</code></pre>
+
+  <h3>Query All Households with Property Assignments</h3>
+
+  <pre><code>// Query households that have a property (are housed)
+EntityQuery housedQuery = GetEntityQuery(
+    ComponentType.ReadOnly&lt;Household&gt;(),
+    ComponentType.ReadOnly&lt;PropertyRenter&gt;(),
+    ComponentType.ReadOnly&lt;HouseholdCitizen&gt;()
+);
+
+NativeArray&lt;Entity&gt; households = housedQuery.ToEntityArray(Allocator.Temp);
+ComponentLookup&lt;Household&gt; householdLookup = GetComponentLookup&lt;Household&gt;(true);
+ComponentLookup&lt;PropertyRenter&gt; renterLookup = GetComponentLookup&lt;PropertyRenter&gt;(true);
+BufferLookup&lt;HouseholdCitizen&gt; citizenBufferLookup = GetBufferLookup&lt;HouseholdCitizen&gt;(true);
+
+foreach (Entity hh in households)
+{
+    Household household = householdLookup[hh];
+    PropertyRenter renter = renterLookup[hh];
+    DynamicBuffer&lt;HouseholdCitizen&gt; members = citizenBufferLookup[hh];
+
+    Log.Info($"Household {hh}: Property={renter.m_Property}, " +
+             $"Members={members.Length}, Resources={household.m_Resources}, " +
+             $"Flags={household.m_Flags}");
+}
+households.Dispose();</code></pre>
+
+  <h3>Check a Household's Financial Status</h3>
+
+  <pre><code>// Read household financial data
+ComponentLookup&lt;Household&gt; householdLookup = GetComponentLookup&lt;Household&gt;(true);
+BufferLookup&lt;Resources&gt; resourcesLookup = GetBufferLookup&lt;Resources&gt;(true);
+
+Household household = householdLookup[householdEntity];
+DynamicBuffer&lt;Resources&gt; resources = resourcesLookup[householdEntity];
+int money = EconomyUtils.GetResources(Resource.Money, resources);
+int totalWealth = EconomyUtils.GetHouseholdTotalWealth(household, resources);
+
+Log.Info($"Resources={household.m_Resources}, Money={money}, " +
+         $"TotalWealth={totalWealth}, Salary={household.m_SalaryLastDay}, " +
+         $"Consumption={household.m_ConsumptionPerDay}, " +
+         $"ShoppedLastDay={household.m_ShoppedValueLastDay}");</code></pre>
+
+  <h3>Find All Unemployed Adults</h3>
+
+  <pre><code>// Adults without a Worker component are unemployed
+EntityQuery unemployedQuery = GetEntityQuery(
+    ComponentType.ReadOnly&lt;Citizen&gt;(),
+    ComponentType.ReadOnly&lt;Adult&gt;(),           // Age tag component
+    ComponentType.ReadOnly&lt;HouseholdMember&gt;(),
+    ComponentType.Exclude&lt;Worker&gt;(),           // No job
+    ComponentType.Exclude&lt;HealthProblem&gt;(),    // Not sick/dead
+    ComponentType.Exclude&lt;Deleted&gt;()
+);
+
+NativeArray&lt;Entity&gt; unemployed = unemployedQuery.ToEntityArray(Allocator.Temp);
+ComponentLookup&lt;Citizen&gt; citizenLookup = GetComponentLookup&lt;Citizen&gt;(true);
+
+foreach (Entity entity in unemployed)
+{
+    Citizen citizen = citizenLookup[entity];
+    Log.Info($"Unemployed: {entity}, Days={citizen.m_UnemploymentCounter}, " +
+             $"Education={citizen.GetEducationLevel()}");
+}
+Log.Info($"Total unemployed adults: {unemployed.Length}");
+unemployed.Dispose();</code></pre>
+
+  <h3>Trigger a Household to Move Away</h3>
+
+  <pre><code>// Force a household to move away using the same utility the game uses
+// This adds the MovingAway component with a reason
+EntityCommandBuffer commandBuffer = m_EndFrameBarrier.CreateCommandBuffer();
+
+CitizenUtils.HouseholdMoveAway(
+    commandBuffer.AsParallelWriter(),
+    0,                            // sort key (unfilteredChunkIndex)
+    householdEntity,
+    MoveAwayReason.NotHappy       // or NoMoney, NoAdults, etc.
+);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Lifecycle Details</h2>
 
   <h3>The Citizen Lifecycle in Detail</h3>
 
@@ -476,19 +761,32 @@ if (random.NextInt(kUpdatesPerDay * 1000) &lt;= threshold)
   <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
+  <h3>Resolved</h3>
+
   <ul>
-    <li>What exactly triggers the <code>MovingAway</code> component to be added to a household?
-    Likely driven by sustained low happiness or inability to find property, but the triggering
-    system was not fully traced in this research.</li>
-    <li>How does <code>LeaveHouseholdSystem</code> determine the initial resources for a newly
-    independent adult's household?</li>
+    <li><strong>MovingAway trigger</strong>: <code>HouseholdBehaviorSystem</code> adds <code>MovingAway</code>
+    for three reasons: <code>NoAdults</code> (only children/teens left), <code>NotHappy</code>
+    (happiness-based probability using quadratic formula), or <code>NoMoney</code> (totalWealth + salary &lt; -1000).
+    It calls <code>CitizenUtils.HouseholdMoveAway()</code>.</li>
+    <li><strong>LeaveHouseholdSystem initial resources</strong>: New households receive exactly
+    <code>kNewHouseholdStartMoney = 2000</code> money, deducted from the parent household.
+    The citizen must be employed (have <code>Worker</code>) and the parent must have &gt;4000 money.</li>
+  </ul>
+
+  <h3>Remaining</h3>
+
+  <ul>
     <li>What is the exact shape of the <code>m_DeathRate</code> Bezier curve in
     <code>HealthcareParameterData</code>? It is evaluated at normalized age (0.0 to 1.0) but
     the control points were not extracted.</li>
-    <li>How do commuter and tourist households differ in lifecycle beyond their flag bits?
-    Tourist households track income via <code>StatisticType.TouristIncome</code> on departure.</li>
-    <li>How does the <code>CitizenFindJobSystem</code> match education level to job level,
+    <li>How do commuter and tourist households differ in lifecycle? Tourist households are excluded
+    from <code>HouseholdBehaviorSystem</code>'s main query. <code>LeaveHouseholdSystem</code> creates
+    commuter households when no residential property is available.</li>
+    <li>How does <code>CitizenFindJobSystem</code> match education level to job level,
     and what role does <code>m_UnemploymentCounter</code> play in job acceptance?</li>
+    <li>What are the exact <code>AnimationCurve1</code> control points for
+    <code>m_ElectricityFeeWellbeingEffect</code>, <code>m_WaterFeeHealthEffect</code>,
+    and <code>m_WaterFeeWellbeingEffect</code> in <code>CitizenHappinessParameterData</code>?</li>
   </ul>
 
   <!-- ============================================================ -->

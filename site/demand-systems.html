@@ -35,6 +35,12 @@
     <a href="citizens-households.html">Citizens &amp; Households</a>
     <a href="economy-budget.html">Economy &amp; Budget</a>
     <a href="demand-systems.html" class="active">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
 
     <h3>City Services</h3>
     <a href="garbage-collection.html">Garbage Collection</a>
@@ -160,6 +166,33 @@
     <code>ResidentialDemandSystem</code> tracks demand separately for low, medium, and high
     density residential zones. It outputs a single <code>householdDemand</code> score (0-200) and
     a per-density <code>buildingDemand</code> (<code>int3</code>, each component 0-100).
+  </p>
+
+  <p>
+    Key constant: <code>kMaxFactorEffect = 15</code> -- caps individual demand factor contributions
+    (e.g., homelessness effect is clamped to this value).
+  </p>
+
+  <h3>Game Mode Weight Modifier</h3>
+
+  <p>
+    The system reads a <code>float2</code> weight selector from <code>ModeSettingData</code>
+    (via <code>m_ResidentialDemandWeightsSelector</code>). This is applied to every demand factor
+    via <code>GetFactorValue()</code>:
+  </p>
+
+  <pre><code class="language-csharp">private int GetFactorValue(float factorValue, float2 weightSelector)
+{
+    if (factorValue &lt; 0f)
+        return (int)(factorValue * weightSelector.x);  // Scale negative factors
+    return (int)(factorValue * weightSelector.y);       // Scale positive factors
+}</code></pre>
+
+  <p>
+    The default is <code>float2(1, 1)</code> (no scaling). Game modes can set different values to
+    amplify or dampen positive vs. negative demand contributions independently. Loaded from
+    <code>ModeSettingData.m_ResidentialDemandWeightsSelector</code> when
+    <code>ModeSettingData.m_Enable</code> is true.
   </p>
 
   <h3>Demand Factors</h3>
@@ -352,7 +385,7 @@ if (freeStorages &lt; 0)
       <tr>
         <td>Game.dll</td>
         <td>Game.Prefabs.Modes</td>
-        <td>DemandParameterMode</td>
+        <td>DemandParameterMode, ModeSettingData (struct)</td>
       </tr>
     </tbody>
   </table>
@@ -369,6 +402,8 @@ if (freeStorages &lt; 0)
       <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
     </thead>
     <tbody>
+      <tr><td>m_ForestryPrefab</td><td>Entity</td><td>--</td><td>Entity reference to the forestry industry prefab</td></tr>
+      <tr><td>m_OfficePrefab</td><td>Entity</td><td>--</td><td>Entity reference to the office industry prefab</td></tr>
       <tr><td>m_MinimumHappiness</td><td>int</td><td>30</td><td>Floor for happiness in demand calc</td></tr>
       <tr><td>m_HappinessEffect</td><td>float</td><td>2.0</td><td>Weight for happiness delta</td></tr>
       <tr><td>m_TaxEffect</td><td>float3</td><td>(1, 1, 1)</td><td>Tax weight: x=residential, y=commercial, z=industrial/office</td></tr>
@@ -379,13 +414,27 @@ if (freeStorages &lt; 0)
       <tr><td>m_NeutralUnemployment</td><td>float</td><td>20.0</td><td>Zero-effect unemployment rate (%)</td></tr>
       <tr><td>m_NeutralAvailableWorkplacePercentage</td><td>float</td><td>10.0</td><td>Zero-effect free workplace %</td></tr>
       <tr><td>m_NeutralHomelessness</td><td>int</td><td>50</td><td>Zero-effect homeless household count</td></tr>
-      <tr><td>m_FreeResidentialRequirement</td><td>int3</td><td>(5, 10, 10)</td><td>Free property threshold per density</td></tr>
+      <tr><td>m_FreeResidentialRequirement</td><td>int3</td><td>(5, 10, 10)</td><td>Free property threshold per density (x=low, y=medium, z=high)</td></tr>
+      <tr><td>m_FreeCommercialProportion</td><td>float</td><td>10.0</td><td>Free commercial property percentage target</td></tr>
+      <tr><td>m_FreeIndustrialProportion</td><td>float</td><td>10.0</td><td>Free industrial property percentage target</td></tr>
+      <tr><td>m_CommercialStorageMinimum</td><td>float</td><td>0.2</td><td>Minimum commercial storage ratio threshold</td></tr>
+      <tr><td>m_CommercialStorageEffect</td><td>float</td><td>1.6</td><td>Multiplier for commercial storage demand effect</td></tr>
       <tr><td>m_CommercialBaseDemand</td><td>float</td><td>4.0</td><td>Base demand multiplier for commercial</td></tr>
+      <tr><td>m_IndustrialStorageMinimum</td><td>float</td><td>0.2</td><td>Minimum industrial storage ratio threshold</td></tr>
+      <tr><td>m_IndustrialStorageEffect</td><td>float</td><td>1.6</td><td>Multiplier for industrial storage demand effect</td></tr>
       <tr><td>m_IndustrialBaseDemand</td><td>float</td><td>7.0</td><td>Base demand multiplier for industrial</td></tr>
       <tr><td>m_ExtractorBaseDemand</td><td>float</td><td>1.5</td><td>Base demand multiplier for extractors</td></tr>
+      <tr><td>m_StorageDemandMultiplier</td><td>float</td><td>5e-5</td><td>Scaling factor for storage demand</td></tr>
+      <tr><td>m_CommuterWorkerRatioLimit</td><td>int</td><td>8</td><td>Max ratio of commuter workers to local workers before throttling</td></tr>
+      <tr><td>m_CommuterSlowSpawnFactor</td><td>int</td><td>8</td><td>Slowdown factor applied to commuter spawning when ratio exceeded</td></tr>
+      <tr><td>m_CommuterOCSpawnParameters</td><td>float4</td><td>(0.8, 0.2, 0, 0)</td><td>Commuter spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship)</td></tr>
+      <tr><td>m_TouristOCSpawnParameters</td><td>float4</td><td>(0.1, 0.1, 0.5, 0.3)</td><td>Tourist spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship)</td></tr>
+      <tr><td>m_CitizenOCSpawnParameters</td><td>float4</td><td>(0.6, 0.2, 0.15, 0.05)</td><td>Citizen spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship)</td></tr>
+      <tr><td>m_TeenSpawnPercentage</td><td>float</td><td>0.5</td><td>Percentage of new households with children that include a teen</td></tr>
+      <tr><td>m_FrameIntervalForSpawning</td><td>int3</td><td>(0, 2000, 2000)</td><td>Frame cooldown: x=residential, y=commercial, z=industrial</td></tr>
       <tr><td>m_HouseholdSpawnSpeedFactor</td><td>float</td><td>0.5</td><td>Speed factor for new household spawning</td></tr>
       <tr><td>m_HotelRoomPercentRequirement</td><td>float</td><td>0.5</td><td>Fraction of tourists needing hotel rooms</td></tr>
-      <tr><td>m_FrameIntervalForSpawning</td><td>int3</td><td>(0, 2000, 2000)</td><td>Frame cooldown: x=residential, y=commercial, z=industrial</td></tr>
+      <tr><td>m_NewCitizenEducationParameters</td><td>float4</td><td>(0.005, 0.5, 0.35, 0.13)</td><td>Education distribution of new citizens (x=uneducated, y=poorly educated, z=educated, w=well educated; remainder = highly educated)</td></tr>
     </tbody>
   </table>
 
@@ -507,6 +556,185 @@ existingSystem.Enabled = false;
   </p>
 
   <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Read Current Demand Values from Each System</h3>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Reads and logs current demand values from all three demand systems.
+/// &lt;/summary&gt;
+public void LogDemandValues()
+{
+    var resSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;ResidentialDemandSystem&gt;();
+    var comSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;CommercialDemandSystem&gt;();
+    var indSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;IndustrialDemandSystem&gt;();
+
+    // Residential: householdDemand (0-200), buildingDemand int3 (0-100 per density)
+    int householdDemand = resSys.householdDemand;
+    int3 resBuildingDemand = resSys.buildingDemand;
+    Log.Info($"Residential: household={householdDemand}, " +
+        $"building=({resBuildingDemand.x},{resBuildingDemand.y},{resBuildingDemand.z})");
+
+    // Commercial: companyDemand (0-100), buildingDemand (0-100)
+    int comCompanyDemand = comSys.companyDemand;
+    int comBuildingDemand = comSys.buildingDemand;
+    Log.Info($"Commercial: company={comCompanyDemand}, building={comBuildingDemand}");
+
+    // Industrial: 6 values (company + building for industrial, office, storage)
+    Log.Info($"Industrial: company={indSys.industrialCompanyDemand}, " +
+        $"building={indSys.industrialBuildingDemand}");
+    Log.Info($"Office: company={indSys.officeCompanyDemand}, " +
+        $"building={indSys.officeBuildingDemand}");
+    Log.Info($"Storage: company={indSys.storageCompanyDemand}, " +
+        $"building={indSys.storageBuildingDemand}");
+}</code></pre>
+
+  <h3>Example 2: Modify DemandParameterData at Runtime</h3>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// A system that adjusts demand parameters every update cycle.
+/// Changes persist until the next game load.
+/// &lt;/summary&gt;
+public partial class DemandParameterTweakSystem : GameSystemBase
+{
+    private EntityQuery m_DemandParamQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_DemandParamQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;DemandParameterData&gt;()
+        );
+        RequireForUpdate(m_DemandParamQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        var data = m_DemandParamQuery.GetSingleton&lt;DemandParameterData&gt;();
+
+        // Double happiness sensitivity
+        data.m_HappinessEffect = 4.0f;
+        // Make unemployment less impactful (higher neutral = more tolerance)
+        data.m_NeutralUnemployment = 30f;
+        // Increase free residential requirement so building demand triggers sooner
+        data.m_FreeResidentialRequirement = new int3(10, 20, 20);
+        // Adjust commuter spawn distribution: more by train
+        data.m_CommuterOCSpawnParameters = new float4(0.5f, 0.4f, 0.05f, 0.05f);
+
+        m_DemandParamQuery.SetSingleton(data);
+    }
+}</code></pre>
+
+  <h3>Example 3: Read Demand Factor Breakdown</h3>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Reads the per-factor demand breakdown for residential low density.
+/// Factors are indexed by the DemandFactor enum (19 values).
+/// &lt;/summary&gt;
+public void LogResidentialFactors()
+{
+    var resSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;ResidentialDemandSystem&gt;();
+
+    JobHandle deps;
+    NativeArray&lt;int&gt; lowFactors = resSys.GetLowDensityDemandFactors(out deps);
+    deps.Complete();  // Ensure the job is done before reading
+
+    // Key factor indices (from DemandFactor enum):
+    // 5=Unemployment, 6=FreeWorkplaces, 7=Happiness, 11=Taxes, 13=EmptyBuildings
+    Log.Info($"Low density factors: " +
+        $"Happiness={lowFactors[7]}, " +
+        $"Unemployment={lowFactors[5]}, " +
+        $"FreeWorkplaces={lowFactors[6]}, " +
+        $"Taxes={lowFactors[11]}, " +
+        $"EmptyBuildings={lowFactors[13]}");
+
+    // For industrial/office:
+    var indSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;IndustrialDemandSystem&gt;();
+    NativeArray&lt;int&gt; indFactors = indSys.GetIndustrialDemandFactors(out deps);
+    NativeArray&lt;int&gt; offFactors = indSys.GetOfficeDemandFactors(out deps);
+    deps.Complete();
+
+    Log.Info($"Industrial factors: " +
+        $"UneducatedWorkforce={indFactors[1]}, " +
+        $"EducatedWorkforce={indFactors[2]}, " +
+        $"LocalDemand={indFactors[4]}, " +
+        $"Taxes={indFactors[11]}, " +
+        $"Warehouses={indFactors[17]}");
+}</code></pre>
+
+  <h3>Example 4: Custom System That Adjusts Demand Post-Calculation</h3>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Runs after ResidentialDemandSystem and caps building demand at 50.
+/// Uses UpdateAfter attribute to ensure correct ordering.
+/// &lt;/summary&gt;
+[UpdateAfter(typeof(ResidentialDemandSystem))]
+public partial class DemandCapSystem : GameSystemBase
+{
+    private ResidentialDemandSystem m_ResidentialDemandSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_ResidentialDemandSystem =
+            World.GetOrCreateSystemManaged&lt;ResidentialDemandSystem&gt;();
+    }
+
+    public override int GetUpdateInterval(SystemUpdatePhase phase) =&gt; 16;
+    public override int GetUpdateOffset(SystemUpdatePhase phase) =&gt; 11;
+
+    protected override void OnUpdate()
+    {
+        // Use Harmony Traverse to access private NativeValue fields
+        var traverse = HarmonyLib.Traverse.Create(m_ResidentialDemandSystem);
+        var buildingDemand =
+            traverse.Field&lt;NativeValue&lt;int3&gt;&gt;("m_BuildingDemand").Value;
+
+        int3 current = buildingDemand.value;
+        // Cap all densities at 50
+        buildingDemand.value = math.min(current, new int3(50, 50, 50));
+    }
+}</code></pre>
+
+  <h3>Example 5: Query Free Properties per Zone Type</h3>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Reads free property counts from the industrial demand system
+/// to see how many available slots exist per resource type.
+/// &lt;/summary&gt;
+public void LogFreeIndustrialProperties()
+{
+    var indSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;IndustrialDemandSystem&gt;();
+
+    JobHandle deps;
+    // Per-resource building demands and free storage counts
+    NativeArray&lt;int&gt; buildingDemands = indSys.GetBuildingDemands(out deps);
+    NativeArray&lt;int&gt; storageDemands = indSys.GetStorageBuildingDemands(out deps);
+    NativeArray&lt;int&gt; resourceDemands = indSys.GetIndustrialResourceDemands(out deps);
+    deps.Complete();
+
+    // Iterate resources -- indices correspond to EconomyUtils.GetResourceIndex()
+    ResourceIterator iterator = ResourceIterator.GetIterator();
+    while (iterator.Next())
+    {
+        int idx = EconomyUtils.GetResourceIndex(iterator.resource);
+        if (buildingDemands[idx] &gt; 0 || storageDemands[idx] &gt; 0)
+        {
+            Log.Info($"{iterator.resource}: " +
+                $"buildingDemand={buildingDemands[idx]}, " +
+                $"storageDemand={storageDemands[idx]}, " +
+                $"resourceDemand={resourceDemands[idx]}");
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
@@ -520,11 +748,11 @@ existingSystem.Enabled = false;
       arrays? The UI binding layer was not decompiled in this research.
     </li>
     <li>
-      <strong>Game mode settings:</strong> The <code>ModeSettingData</code> singleton can override
-      demand weights via <code>m_ResidentialDemandWeightsSelector</code>,
-      <code>m_CommercialTaxEffectDemandOffset</code>, and
-      <code>m_IndustrialOfficeTaxEffectDemandOffset</code>. The exact game modes that use these
-      are not documented here.
+      <strong>Storage parameter usage:</strong> The fields <code>m_CommercialStorageMinimum</code>,
+      <code>m_CommercialStorageEffect</code>, <code>m_IndustrialStorageMinimum</code>, and
+      <code>m_IndustrialStorageEffect</code> exist on <code>DemandParameterData</code> but their
+      direct usage in the three demand systems was not located. They may be consumed by other
+      systems (e.g., company spawning or resource distribution).
     </li>
   </ul>
 
@@ -534,10 +762,11 @@ existingSystem.Enabled = false;
   <ul>
     <li>Decompiled from: Game.dll -- Game.Simulation.ResidentialDemandSystem, Game.Simulation.CommercialDemandSystem, Game.Simulation.IndustrialDemandSystem, Game.Simulation.DemandUtils, Game.Simulation.DemandFactor</li>
     <li>Prefab types: Game.Prefabs.DemandParameterData, Game.Prefabs.DemandPrefab</li>
+    <li>Mode types: Game.Prefabs.Modes.DemandParameterMode, Game.Prefabs.Modes.ModeSettingData</li>
   </ul>
 
   <footer>
-    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- ResidentialDemandSystem, CommercialDemandSystem, IndustrialDemandSystem, DemandParameterData.</p>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- ResidentialDemandSystem, CommercialDemandSystem, IndustrialDemandSystem, DemandParameterData, DemandParameterMode, ModeSettingData.</p>
     <div class="attribution-footer">
       <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
     </div>

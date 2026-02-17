@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Resource Production Chains</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html" class="active">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Resource Production Chains</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 define resources, produce them in industrial companies,
+      store them in inventories, match buyers to sellers, and track consumption across the economy?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Resources are defined as a <strong>41-value flags enum</strong> (<code>Resource : ulong</code>)
+      where each type occupies a single bit. Every entity that holds goods (companies, households, vehicles)
+      carries a <code>DynamicBuffer&lt;Resources&gt;</code> with sparse (resource, amount) pairs.
+      Production is driven by <code>IndustrialProcessData</code> which maps up to two inputs to one output.
+      Companies acquire inputs via <code>ResourceBuyer</code> and sell outputs as <code>ResourceSeller</code>
+      entities. The <code>ResourceBuyerSystem</code> matches buyers to sellers every 16 frames, transferring
+      goods and money. Surplus production triggers <code>ResourceExporter</code> for trade via outside connections.
+      Pricing uses a two-tier model: industrial price (<code>m_Price.x</code>) plus commercial markup
+      (<code>m_Price.y</code>), and transport costs scale with distance and weight.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Company lifecycle and spawning (Chunk 5), trade route pathfinding
+      details (Chunk 8), citizen household consumption decision logic.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The CS2 economy is built on a <strong>resource pipeline</strong> where raw materials flow through
+    processing chains into finished goods that citizens consume. Every step is mediated by ECS components
+    and systems that run on fixed intervals.
+  </p>
+
+  <h3>The Resource Enum</h3>
+
+  <p>
+    All tradeable resources are defined in a single <code>Resource</code> flags enum backed by a
+    <code>ulong</code>. Each resource is a single bit, allowing efficient bitmask operations for
+    checking categories. There are 41 resource types (indices 0-40), with <code>Resource.Last</code>
+    (index 41) serving as the iteration sentinel.
+  </p>
+
+  <p>Resources fall into several categories:</p>
+
+  <ul>
+    <li><strong>Raw materials (extractors)</strong> -- Grain, Wood, Oil, Ore, Coal, Stone, Livestock, Cotton, Vegetables, Fish</li>
+    <li><strong>Processed goods (industrial)</strong> -- Timber, Paper, Petrochemicals, Metals, Plastics, Steel, Minerals, Concrete, Chemicals, Electronics, Machinery, Beverages, Textiles, Furniture, Pharmaceuticals</li>
+    <li><strong>Office products (weightless)</strong> -- Software, Telecom, Financial, Media</li>
+    <li><strong>Commercial/service</strong> -- Food, ConvenienceFood, Meals, Lodging, Entertainment, Recreation</li>
+    <li><strong>Special</strong> -- Money, UnsortedMail, LocalMail, OutgoingMail, Vehicles, Garbage</li>
+  </ul>
+
+  <h3>How Resources Are Stored</h3>
+
+  <p>
+    Any entity that holds resources (companies, households, city service buildings, delivery trucks)
+    carries a <code>DynamicBuffer&lt;Resources&gt;</code>. This is a <strong>sparse list</strong>
+    where each entry pairs a <code>Resource</code> type with an <code>int</code> amount. Only
+    resources with non-zero quantities appear in the buffer. The utility class
+    <code>EconomyUtils</code> provides all access methods:
+  </p>
+
+  <ul>
+    <li><code>GetResources(resource, buffer)</code> -- returns amount of a specific resource (0 if not present)</li>
+    <li><code>SetResources(resource, buffer, amount)</code> -- sets or adds a resource entry</li>
+    <li><code>AddResources(resource, amount, buffer)</code> -- adds to existing amount (clamped to int range)</li>
+    <li><code>GetTotalStorageUsed(buffer)</code> -- sums all non-Money resource amounts</li>
+  </ul>
+
+  <h3>The Production Pipeline</h3>
+
+  <p>
+    Each industrial or commercial company has an <code>IndustrialProcessData</code> component that
+    defines its recipe: up to two input <code>ResourceStack</code> entries and one output. For example,
+    a steel mill might take <code>Ore(1) + Coal(1) -&gt; Steel(1)</code>. Production rate depends on
+    workforce strength, building efficiency, and the resource's <code>m_NeededWorkPerUnit</code> value.
+  </p>
+
+  <h3>The Two-Tier Pricing Model</h3>
+
+  <p>
+    Each resource prefab has a <code>float2 m_Price</code> where:
+  </p>
+
+  <ul>
+    <li><code>m_Price.x</code> = <strong>industrial price</strong> -- what companies pay each other for raw/processed goods</li>
+    <li><code>m_Price.y</code> = <strong>commercial markup</strong> -- additional margin when sold to consumers</li>
+    <li><strong>Market price</strong> = <code>m_Price.x + m_Price.y</code> -- what citizens pay at commercial shops</li>
+  </ul>
+
+  <p>
+    Transport costs add to the effective price: <code>distance * 0.03 * weight * (1 + amount/1000)</code>.
+    Office resources (Software, Telecom, Financial, Media) have zero weight, making them free to transport
+    and impossible to physically export via trucks.
+  </p>
+
+  <h3>Buying and Selling</h3>
+
+  <p>
+    When a company or citizen needs a resource, the system adds a <code>ResourceBuyer</code> component
+    specifying the resource type and amount. The <code>ResourceBuyerSystem</code> runs every 16 frames
+    and matches buyers to sellers through pathfinding. When a match is found, a <code>SalesEvent</code>
+    is enqueued. The <code>BuyJob</code> then atomically transfers resources from seller to buyer and
+    money in the opposite direction.
+  </p>
+
+  <h3>Exporting Surplus</h3>
+
+  <p>
+    The <code>ResourceProducerSystem</code> monitors city service buildings. When stored resources
+    exceed the storage capacity (or 20,000 units, whichever is smaller), it attaches a
+    <code>ResourceExporter</code> component. The <code>ResourceExporterSystem</code> then
+    dispatches delivery trucks to outside connections. Weightless office resources are exported
+    virtually (no truck needed).
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Economy</td>
+        <td>Resource (enum), Resources (buffer), ResourceIterator, ResourceInfo, EconomyUtils</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>IndustrialProcessData, ResourceData, ResourcePrefabs, ResourceStack, ResourceProductionData, TaxableResourceData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Companies</td>
+        <td>ResourceBuyer, ResourceSeller, ResourceExporter, TradeCost</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>ResourceProducer, ResourceConsumer</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>ResourceBuyerSystem, ResourceExporterSystem, ResourceProducerSystem, CountConsumptionSystem, ResourceAvailabilitySystem, ResourceFlowSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Net</td>
+        <td>ResourceAvailability, ResourceConnection</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Resource (Game.Economy)</h3>
+
+  <p>Flags enum (<code>ulong</code>) defining all 41 tradeable resource types plus sentinels.</p>
+
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Value</th><th>Index</th><th>Category</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>NoResource</td><td>0</td><td>-</td><td>Sentinel</td></tr>
+      <tr><td>Money</td><td>1</td><td>0</td><td>Currency</td></tr>
+      <tr><td>Grain</td><td>2</td><td>1</td><td>Raw (Agricultural)</td></tr>
+      <tr><td>ConvenienceFood</td><td>4</td><td>2</td><td>Processed (Food)</td></tr>
+      <tr><td>Food</td><td>8</td><td>3</td><td>Processed (Food)</td></tr>
+      <tr><td>Vegetables</td><td>16</td><td>4</td><td>Raw (Agricultural)</td></tr>
+      <tr><td>Meals</td><td>32</td><td>5</td><td>Service</td></tr>
+      <tr><td>Wood</td><td>64</td><td>6</td><td>Raw (Forestry)</td></tr>
+      <tr><td>Timber</td><td>128</td><td>7</td><td>Processed (Forestry)</td></tr>
+      <tr><td>Paper</td><td>256</td><td>8</td><td>Processed (Forestry)</td></tr>
+      <tr><td>Furniture</td><td>512</td><td>9</td><td>Processed (Forestry)</td></tr>
+      <tr><td>Vehicles</td><td>1024</td><td>10</td><td>Processed (Heavy)</td></tr>
+      <tr><td>Lodging</td><td>2048</td><td>11</td><td>Service</td></tr>
+      <tr><td>UnsortedMail</td><td>4096</td><td>12</td><td>Service (Mail)</td></tr>
+      <tr><td>LocalMail</td><td>8192</td><td>13</td><td>Service (Mail)</td></tr>
+      <tr><td>OutgoingMail</td><td>16384</td><td>14</td><td>Service (Mail)</td></tr>
+      <tr><td>Oil</td><td>32768</td><td>15</td><td>Raw (Extraction)</td></tr>
+      <tr><td>Petrochemicals</td><td>65536</td><td>16</td><td>Processed (Oil)</td></tr>
+      <tr><td>Ore</td><td>131072</td><td>17</td><td>Raw (Extraction)</td></tr>
+      <tr><td>Plastics</td><td>262144</td><td>18</td><td>Processed (Oil)</td></tr>
+      <tr><td>Metals</td><td>524288</td><td>19</td><td>Processed (Ore)</td></tr>
+      <tr><td>Electronics</td><td>1048576</td><td>20</td><td>Processed (High-tech)</td></tr>
+      <tr><td>Software</td><td>2097152</td><td>21</td><td>Office (Weightless)</td></tr>
+      <tr><td>Coal</td><td>4194304</td><td>22</td><td>Raw (Extraction)</td></tr>
+      <tr><td>Stone</td><td>8388608</td><td>23</td><td>Raw (Extraction)</td></tr>
+      <tr><td>Livestock</td><td>16777216</td><td>24</td><td>Raw (Agricultural)</td></tr>
+      <tr><td>Cotton</td><td>33554432</td><td>25</td><td>Raw (Agricultural)</td></tr>
+      <tr><td>Steel</td><td>67108864</td><td>26</td><td>Processed (Heavy)</td></tr>
+      <tr><td>Minerals</td><td>134217728</td><td>27</td><td>Processed (Ore)</td></tr>
+      <tr><td>Concrete</td><td>268435456</td><td>28</td><td>Processed (Stone)</td></tr>
+      <tr><td>Machinery</td><td>536870912</td><td>29</td><td>Processed (Heavy)</td></tr>
+      <tr><td>Chemicals</td><td>1073741824</td><td>30</td><td>Processed (Oil)</td></tr>
+      <tr><td>Pharmaceuticals</td><td>2147483648</td><td>31</td><td>Processed (Chemicals)</td></tr>
+      <tr><td>Beverages</td><td>4294967296</td><td>32</td><td>Processed (Food)</td></tr>
+      <tr><td>Textiles</td><td>8589934592</td><td>33</td><td>Processed (Cotton)</td></tr>
+      <tr><td>Telecom</td><td>17179869184</td><td>34</td><td>Office (Weightless)</td></tr>
+      <tr><td>Financial</td><td>34359738368</td><td>35</td><td>Office (Weightless)</td></tr>
+      <tr><td>Media</td><td>68719476736</td><td>36</td><td>Office (Weightless)</td></tr>
+      <tr><td>Entertainment</td><td>137438953472</td><td>37</td><td>Service</td></tr>
+      <tr><td>Recreation</td><td>274877906944</td><td>38</td><td>Service</td></tr>
+      <tr><td>Garbage</td><td>549755813888</td><td>39</td><td>Special</td></tr>
+      <tr><td>Fish</td><td>1099511627776</td><td>40</td><td>Raw (Agricultural)</td></tr>
+      <tr><td>Last</td><td>2199023255552</td><td>41</td><td>Sentinel</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Resources (Game.Economy)</h3>
+
+  <p>IBufferElementData -- a dynamic buffer on entities that hold resource inventories.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>Resource</td><td>Which resource type this entry represents</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Quantity held (clamped 0-1000000 for non-Money on older saves)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>IndustrialProcessData (Game.Prefabs)</h3>
+
+  <p>IComponentData defining the input-to-output recipe for industrial and commercial companies.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Input1</td><td>ResourceStack</td><td>First input resource and amount per batch</td></tr>
+      <tr><td>m_Input2</td><td>ResourceStack</td><td>Second input (NoResource if single-input)</td></tr>
+      <tr><td>m_Output</td><td>ResourceStack</td><td>Output resource and amount per batch</td></tr>
+      <tr><td>m_WorkPerUnit</td><td>int</td><td>Base work required per output unit</td></tr>
+      <tr><td>m_MaxWorkersPerCell</td><td>float</td><td>Worker density cap per zone cell</td></tr>
+      <tr><td>m_IsImport</td><td>byte</td><td>Whether this is an import-only process</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ResourceData (Game.Prefabs)</h3>
+
+  <p>IComponentData on resource prefab entities defining pricing, weight, and consumption properties.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Price</td><td>float2</td><td>x = industrial/base price, y = commercial markup</td></tr>
+      <tr><td>m_IsProduceable</td><td>bool</td><td>Whether this resource can be produced by companies</td></tr>
+      <tr><td>m_IsTradable</td><td>bool</td><td>Whether this resource can be imported/exported</td></tr>
+      <tr><td>m_IsMaterial</td><td>bool</td><td>True for raw materials requiring extraction</td></tr>
+      <tr><td>m_IsLeisure</td><td>bool</td><td>Whether this is a leisure resource</td></tr>
+      <tr><td>m_Weight</td><td>float</td><td>Physical weight per unit (0 = office/weightless)</td></tr>
+      <tr><td>m_WealthModifier</td><td>float</td><td>How household wealth affects shopping probability</td></tr>
+      <tr><td>m_BaseConsumption</td><td>float</td><td>Base probability of household shopping for this</td></tr>
+      <tr><td>m_ChildWeight</td><td>int</td><td>Relative importance for child citizens</td></tr>
+      <tr><td>m_TeenWeight</td><td>int</td><td>Relative importance for teen citizens</td></tr>
+      <tr><td>m_AdultWeight</td><td>int</td><td>Relative importance for adult citizens</td></tr>
+      <tr><td>m_ElderlyWeight</td><td>int</td><td>Relative importance for elderly citizens</td></tr>
+      <tr><td>m_CarConsumption</td><td>int</td><td>Extra weight if household has vehicles</td></tr>
+      <tr><td>m_RequireTemperature</td><td>bool</td><td>Whether production needs minimum temperature</td></tr>
+      <tr><td>m_RequiredTemperature</td><td>float</td><td>Minimum temperature for production</td></tr>
+      <tr><td>m_RequireNaturalResource</td><td>bool</td><td>Whether production needs a deposit</td></tr>
+      <tr><td>m_NeededWorkPerUnit</td><td>int2</td><td>x = industrial work/unit, y = commercial work/unit</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ResourceBuyer (Game.Companies)</h3>
+
+  <p>IComponentData added to entities that need to purchase a resource.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Payer</td><td>Entity</td><td>The entity paying (company or household)</td></tr>
+      <tr><td>m_Flags</td><td>SetupTargetFlags</td><td>Pathfinding setup flags</td></tr>
+      <tr><td>m_ResourceNeeded</td><td>Resource</td><td>Which resource type is needed</td></tr>
+      <tr><td>m_AmountNeeded</td><td>int</td><td>How much to buy</td></tr>
+      <tr><td>m_Location</td><td>float3</td><td>World position of the buyer</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ResourceSeller (Game.Companies)</h3>
+
+  <p>Tag component (empty struct, 1-byte) marking an entity as a resource seller. No fields.</p>
+
+  <h3>ResourceExporter (Game.Companies)</h3>
+
+  <p>IComponentData added to entities with surplus resources to export.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>Resource</td><td>Which resource to export</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Amount to export</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TradeCost (Game.Companies)</h3>
+
+  <p>IBufferElementData tracking smoothed cost history for each traded resource.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>Resource</td><td>The resource type</td></tr>
+      <tr><td>m_BuyCost</td><td>float</td><td>Smoothed purchase cost (lerped over time)</td></tr>
+      <tr><td>m_SellCost</td><td>float</td><td>Smoothed selling cost</td></tr>
+      <tr><td>m_LastTransferRequestTime</td><td>long</td><td>Timestamp of last trade request</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ResourceProductionData (Game.Prefabs)</h3>
+
+  <p>IBufferElementData on building prefabs defining city service resource production.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Type</td><td>Resource</td><td>Resource type produced</td></tr>
+      <tr><td>m_ProductionRate</td><td>int</td><td>Units produced per update</td></tr>
+      <tr><td>m_StorageCapacity</td><td>int</td><td>Max storage before triggering export</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TaxableResourceData (Game.Prefabs)</h3>
+
+  <p>IComponentData on resource prefabs indicating which tax areas can tax this resource.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TaxAreas</td><td>byte</td><td>Bitmask of applicable TaxAreaType values</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+RESOURCE DEFINITION
+  ResourcePrefab (editor) -&gt; ResourceData (runtime component)
+    Defines: price (industrial + markup), weight, production requirements
+    Indexed by: ResourcePrefabs container (Resource enum -&gt; Entity)
+          |
+          v
+INDUSTRIAL PROCESS DEFINITION
+  IndustrialProcess (editor) -&gt; IndustrialProcessData (runtime)
+    Recipe: Input1 + Input2 -&gt; Output (with amounts per batch)
+    Example: Ore(1) + Coal(1) -&gt; Steel(1)
+          |
+          v
+RAW MATERIAL EXTRACTION
+  Extractor companies (farms, forestry, mines, oil rigs)
+    Require: natural resource deposit + workers
+    Output: Grain, Wood, Oil, Ore, Coal, Stone, Livestock, Cotton, etc.
+    Stored in: company entity's DynamicBuffer&lt;Resources&gt;
+          |
+          v
+PROCESSING / MANUFACTURING
+  Industrial companies
+    Read IndustrialProcessData for recipe
+    Consume inputs from Resources buffer
+    Produce output into Resources buffer
+    Rate = outputAmount * (efficiency * workforce * 256) / neededWorkPerUnit
+          |
+          v
+CITY SERVICE PRODUCTION (ResourceProducerSystem, ~1024 frames)
+  Buildings with ResourceProducer tag
+    Read ResourceProductionData from prefab + upgrades
+    Produce resources at m_ProductionRate
+    When storage &gt;= min(20000, m_StorageCapacity):
+      Adds ResourceExporter component
+          |
+          v
+MARKET MATCHING (ResourceBuyerSystem, every 16 frames)
+  Entities with ResourceBuyer component
+    HandleBuyersJob: pathfind to nearest seller
+    Create SalesEvent -&gt; BuyJob processes the transfer:
+      seller.Resources[resource] -= amount
+      buyer.Resources[resource]  += amount
+      buyer.Resources[Money]     -= cost
+      seller.Resources[Money]    += cost
+    Updates TradeCost with smoothed buy/sell costs
+          |
+          v
+EXPORTING (ResourceExporterSystem, every 16 frames)
+  Entities with ResourceExporter
+    ExportJob: pathfind to outside connections
+    Weightless resources: virtual export (no truck)
+    Physical resources: dispatch delivery truck
+    HandleExportsJob: transfer resources, receive payment
+          |
+          v
+CONSUMPTION TRACKING (CountConsumptionSystem, 32x/day)
+  Accumulates citizen consumption per resource type
+  Smoothed with 0.3 lerp factor
+  Used by demand systems for economic feedback
+          |
+          v
+AVAILABILITY MAPPING (ResourceAvailabilitySystem)
+  Flood-fills availability scores across road network
+  Result: ResourceAvailability buffer per road edge
+  Used by citizens finding shops and demand calculations
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read a Company's Resource Inventory</h3>
+
+  <p>Enumerate all resources held by a company entity using the Resources buffer and EconomyUtils.</p>
+
+  <pre><code class="language-csharp">public void LogCompanyResources(EntityManager em, Entity company)
+{
+    if (!em.HasBuffer&lt;Resources&gt;(company))
+    {
+        Log.Info("Entity has no Resources buffer.");
+        return;
+    }
+
+    DynamicBuffer&lt;Resources&gt; resources = em.GetBuffer&lt;Resources&gt;(company);
+    Log.Info($"Company {company.Index} has {resources.Length} resource entries:");
+    for (int i = 0; i &lt; resources.Length; i++)
+    {
+        Resources entry = resources[i];
+        string name = EconomyUtils.GetName(entry.m_Resource);
+        Log.Info($"  {name}: {entry.m_Amount}");
+    }
+
+    int money = EconomyUtils.GetResources(Resource.Money, resources);
+    int totalStorage = EconomyUtils.GetTotalStorageUsed(resources);
+    Log.Info($"  Cash: {money}, Total storage used: {totalStorage}");
+}</code></pre>
+
+  <h3>Find All Producers of a Specific Resource</h3>
+
+  <p>Query all entities with IndustrialProcessData whose output matches a target resource.</p>
+
+  <pre><code class="language-csharp">public partial class FindProducersSystem : GameSystemBase
+{
+    private EntityQuery _processQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _processQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;IndustrialProcessData&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        Resource target = Resource.Steel;
+        NativeArray&lt;Entity&gt; entities =
+            _processQuery.ToEntityArray(Allocator.Temp);
+        NativeArray&lt;IndustrialProcessData&gt; processes =
+            _processQuery.ToComponentDataArray&lt;IndustrialProcessData&gt;(Allocator.Temp);
+
+        int count = 0;
+        for (int i = 0; i &lt; processes.Length; i++)
+        {
+            if (processes[i].m_Output.m_Resource == target)
+            {
+                IndustrialProcessData p = processes[i];
+                string input1 = EconomyUtils.GetName(p.m_Input1.m_Resource);
+                string input2 = EconomyUtils.GetName(p.m_Input2.m_Resource);
+                Log.Info($"Producer {entities[i].Index}: " +
+                    $"{input1}({p.m_Input1.m_Amount}) + " +
+                    $"{input2}({p.m_Input2.m_Amount}) -&gt; " +
+                    $"Steel({p.m_Output.m_Amount})");
+                count++;
+            }
+        }
+        Log.Info($"Found {count} steel production processes.");
+
+        entities.Dispose();
+        processes.Dispose();
+    }
+}</code></pre>
+
+  <h3>Iterate Through All Resource Types</h3>
+
+  <p>Use ResourceIterator to enumerate every resource and look up its prefab data.</p>
+
+  <pre><code class="language-csharp">public void ListAllResources(
+    ResourcePrefabs prefabs,
+    ComponentLookup&lt;ResourceData&gt; resourceDatas)
+{
+    ResourceIterator iterator = ResourceIterator.GetIterator();
+    while (iterator.Next())
+    {
+        Resource r = iterator.resource;
+        Entity prefabEntity = prefabs[r];
+        if (prefabEntity == Entity.Null) continue;
+
+        if (!resourceDatas.HasComponent(prefabEntity)) continue;
+
+        ResourceData data = resourceDatas[prefabEntity];
+        float marketPrice = data.m_Price.x + data.m_Price.y;
+
+        Log.Info($"{EconomyUtils.GetName(r)} (idx {EconomyUtils.GetResourceIndex(r)}): " +
+            $"price={marketPrice:F1}, weight={data.m_Weight}, " +
+            $"produceable={data.m_IsProduceable}, tradable={data.m_IsTradable}, " +
+            $"material={data.m_IsMaterial}");
+    }
+}</code></pre>
+
+  <h3>Check Resource Availability on a Road</h3>
+
+  <p>Read the ResourceAvailability buffer from a road edge to see what resources are nearby.</p>
+
+  <pre><code class="language-csharp">public void CheckRoadResourceAvailability(EntityManager em, Entity roadEdge)
+{
+    if (!em.HasBuffer&lt;ResourceAvailability&gt;(roadEdge))
+    {
+        Log.Info("Entity has no ResourceAvailability buffer.");
+        return;
+    }
+
+    DynamicBuffer&lt;ResourceAvailability&gt; availability =
+        em.GetBuffer&lt;ResourceAvailability&gt;(roadEdge);
+
+    ResourceIterator iterator = ResourceIterator.GetIterator();
+    int index = 0;
+    while (iterator.Next())
+    {
+        if (index &lt; availability.Length)
+        {
+            float2 avail = availability[index].m_Availability;
+            if (avail.x &gt; 0f)
+            {
+                Log.Info($"  {EconomyUtils.GetName(iterator.resource)}: " +
+                    $"amount={avail.x:F1}, distance-weighted={avail.y:F1}");
+            }
+        }
+        index++;
+    }
+}</code></pre>
+
+  <h3>Modify IndustrialProcessData at Runtime</h3>
+
+  <p>Change the output amount of production processes to adjust resource balance.</p>
+
+  <pre><code class="language-csharp">public void BoostSteelProduction(EntityManager em)
+{
+    EntityQuery processQuery = em.CreateEntityQuery(
+        ComponentType.ReadWrite&lt;IndustrialProcessData&gt;()
+    );
+
+    NativeArray&lt;Entity&gt; entities =
+        processQuery.ToEntityArray(Allocator.Temp);
+    NativeArray&lt;IndustrialProcessData&gt; processes =
+        processQuery.ToComponentDataArray&lt;IndustrialProcessData&gt;(Allocator.Temp);
+
+    for (int i = 0; i &lt; processes.Length; i++)
+    {
+        IndustrialProcessData p = processes[i];
+        if (p.m_Output.m_Resource == Resource.Steel)
+        {
+            p.m_Output.m_Amount *= 2;
+            em.SetComponentData(entities[i], p);
+            Log.Info($"Doubled steel output for process entity {entities[i].Index}");
+        }
+    }
+
+    entities.Dispose();
+    processes.Dispose();
+    processQuery.Dispose();
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Industrial price</td>
+        <td>ResourceData.m_Price.x</td>
+        <td>Varies by resource</td>
+        <td>Base price for inter-company trade</td>
+      </tr>
+      <tr>
+        <td>Commercial markup</td>
+        <td>ResourceData.m_Price.y</td>
+        <td>Varies by resource</td>
+        <td>Additional margin for consumer sales</td>
+      </tr>
+      <tr>
+        <td>Resource weight</td>
+        <td>ResourceData.m_Weight</td>
+        <td>Varies (0 for office)</td>
+        <td>Affects transport cost; 0 = virtual/weightless</td>
+      </tr>
+      <tr>
+        <td>Work per unit (industrial)</td>
+        <td>ResourceData.m_NeededWorkPerUnit.x</td>
+        <td>Varies by resource</td>
+        <td>Workforce needed to produce one unit industrially</td>
+      </tr>
+      <tr>
+        <td>Work per unit (commercial)</td>
+        <td>ResourceData.m_NeededWorkPerUnit.y</td>
+        <td>Varies by resource</td>
+        <td>Workforce needed to sell one unit commercially</td>
+      </tr>
+      <tr>
+        <td>Company updates/day</td>
+        <td>EconomyUtils.kCompanyUpdatesPerDay</td>
+        <td>256</td>
+        <td>Production ticks per game day</td>
+      </tr>
+      <tr>
+        <td>Buyer system interval</td>
+        <td>ResourceBuyerSystem.GetUpdateInterval</td>
+        <td>16 frames</td>
+        <td>How often buy/sell matching runs</td>
+      </tr>
+      <tr>
+        <td>Export threshold</td>
+        <td>ResourceProducerSystem</td>
+        <td>min(20000, storageCapacity)</td>
+        <td>Surplus level that triggers export</td>
+      </tr>
+      <tr>
+        <td>Consumption smoothing</td>
+        <td>CountConsumptionSystem.CopyConsumptionJob</td>
+        <td>0.3 lerp factor</td>
+        <td>How quickly consumption stats update</td>
+      </tr>
+      <tr>
+        <td>Transport cost</td>
+        <td>EconomyUtils.GetTransportCost</td>
+        <td>distance * 0.03 * weight * (1 + amount/1000)</td>
+        <td>Cost of physically moving resources</td>
+      </tr>
+      <tr>
+        <td>Service saturation threshold</td>
+        <td>GetCompanyProductionPerDay</td>
+        <td>80% of MaxService</td>
+        <td>Commercial companies throttle production above this</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <h3>Candidate 1: EconomyUtils.GetIndustrialPrice</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>public static float GetIndustrialPrice(Resource r, ResourcePrefabs prefabs, ref ComponentLookup&lt;ResourceData&gt; resourceDatas)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix</td></tr>
+      <tr><td>What it enables</td><td>Override resource pricing to create dynamic market effects, inflation, or resource-specific price adjustments</td></tr>
+      <tr><td>Risk level</td><td>Medium -- affects all economic calculations using industrial prices</td></tr>
+      <tr><td>Side effects</td><td>Changes propagate to company profit, trade cost, and net worth calculations</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 2: EconomyUtils.GetCompanyProductionPerDay</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>public static int GetCompanyProductionPerDay(float buildingEfficiency, bool isIndustrial, DynamicBuffer&lt;Employee&gt; employees, IndustrialProcessData processData, ResourceData resourceData, ref ComponentLookup&lt;Citizen&gt; citizens, ref EconomyParameterData economyParameters, ServiceAvailable serviceAvailable, ServiceCompanyData serviceCompanyData)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix</td></tr>
+      <tr><td>What it enables</td><td>Modify per-company production rates for bonuses, penalties, or policy effects</td></tr>
+      <tr><td>Risk level</td><td>Medium -- affects supply chain balance</td></tr>
+      <tr><td>Side effects</td><td>Over-production floods markets; under-production causes shortages</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 3: EconomyUtils.GetTransportCost</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>public static int GetTransportCost(float distance, Resource resource, int amount, float weight)</code></td></tr>
+      <tr><td>Patch type</td><td>Prefix or Postfix</td></tr>
+      <tr><td>What it enables</td><td>Modify transport costs to simulate fuel prices, infrastructure improvements, or trade agreements</td></tr>
+      <tr><td>Risk level</td><td>Low -- affects trade decisions but not core production</td></tr>
+      <tr><td>Side effects</td><td>Very low costs may cause unrealistic long-distance trade</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 4: EconomyUtils.IsProducedFrom</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>public static bool IsProducedFrom(Resource product, Resource material)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix</td></tr>
+      <tr><td>What it enables</td><td>Add new production chain relationships or remove existing ones</td></tr>
+      <tr><td>Risk level</td><td>Low -- primarily informational method</td></tr>
+      <tr><td>Side effects</td><td>Minimal; mostly affects UI display and chain categorization</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Full recipe set:</strong> The <code>IndustrialProcessData</code> defines per-prefab recipes,
+      but the complete set of recipes (all prefabs and their specific input/output amounts) requires
+      runtime enumeration. The <code>IsProducedFrom()</code> method provides a hardcoded summary but
+      may not cover all edge cases.
+    </li>
+    <li>
+      <strong>Service saturation curve:</strong> Commercial companies throttle production when
+      <code>ServiceAvailable</code> exceeds 80% of <code>MaxService</code> using
+      <code>math.saturate((ratio - 0.8) / 0.2)</code>. The exact behavior at boundary values and
+      interaction with multiple product types needs in-game testing.
+    </li>
+    <li>
+      <strong>Resource cap behavior:</strong> The Resources buffer clamps amounts to 1,000,000 during
+      save migration, but whether runtime production stops or amounts grow unbounded past this cap
+      is not clear from decompilation alone.
+    </li>
+    <li>
+      <strong>TradeCost NaN recovery:</strong> The <code>TradeCost</code> deserialization explicitly
+      checks for NaN and resets to 0. The conditions that create NaN trade costs in the first place
+      have not been identified.
+    </li>
+    <li>
+      <strong>Consumption smoothing lag:</strong> The 0.3 lerp factor in
+      <code>CountConsumptionSystem</code> means consumption data takes multiple update cycles to
+      stabilize. How this lag affects demand system responsiveness and whether it can cause oscillation
+      is an open question.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Economy.Resource, Game.Economy.Resources, Game.Economy.ResourceIterator, Game.Economy.EconomyUtils, Game.Economy.ResourceInfo</li>
+    <li>Prefab types: Game.Prefabs.IndustrialProcessData, Game.Prefabs.ResourceData, Game.Prefabs.ResourcePrefabs, Game.Prefabs.ResourcePrefab, Game.Prefabs.TaxableResourceData, Game.Prefabs.ResourceStack, Game.Prefabs.ResourceProductionData</li>
+    <li>Company components: Game.Companies.ResourceBuyer, Game.Companies.ResourceSeller, Game.Companies.ResourceExporter, Game.Companies.TradeCost</li>
+    <li>Building components: Game.Buildings.ResourceProducer, Game.Buildings.ResourceConsumer</li>
+    <li>Systems: Game.Simulation.ResourceBuyerSystem, Game.Simulation.ResourceExporterSystem, Game.Simulation.ResourceProducerSystem, Game.Simulation.CountConsumptionSystem, Game.Simulation.ResourceAvailabilitySystem, Game.Simulation.ResourceFlowSystem</li>
+    <li>Network types: Game.Net.ResourceAvailability, Game.Net.ResourceConnection</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- Resource, EconomyUtils, IndustrialProcessData, ResourceBuyerSystem, ResourceExporterSystem, ResourceProducerSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

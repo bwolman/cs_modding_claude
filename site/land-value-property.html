@@ -1,0 +1,817 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Land Value &amp; Property Market</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html" class="active">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Land Value &amp; Property Market</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 calculate land value across the map, determine rent
+      prices for buildings, process rent payments from households and companies, and drive the
+      building level-up and level-down lifecycle?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Land value is computed in two layers: per-road-edge values driven by
+      <strong>service coverage</strong> (health, education, police, transit) and <strong>resource availability</strong>
+      (commercial services), then aggregated into a <strong>128x128 cell map</strong> that blends edge values
+      with terrain attractiveness, telecom coverage, and pollution penalties. Rent is calculated from
+      land value using the formula: <code>(landValue * zoneModifier + baseRate * level) * lotSize * spaceMultiplier / renterCount</code>.
+      Building condition accumulates based on whether renters can afford upkeep, driving a
+      <strong>level-up</strong> (resource delivery + prefab swap) or <strong>level-down</strong> (abandonment) lifecycle.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Company profitability details are in
+      <a href="company-simulation.html">Company Simulation</a>. Household happiness and citizen
+      income are in <a href="citizens-households.html">Citizens &amp; Households</a>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The property market in CS2 connects several interconnected systems: land value computation
+    determines how desirable a location is, rent prices translate that desirability into costs,
+    rent payments transfer money from renters to upkeep, and building condition tracks whether
+    a building is improving (toward level-up) or deteriorating (toward abandonment).
+  </p>
+
+  <h3>Land Value: Two-Layer Computation</h3>
+
+  <p>
+    Land value is computed in two passes by <code>LandValueSystem</code>, which runs 32 times per
+    game day:
+  </p>
+
+  <h4>Layer 1: Edge Values (per road segment)</h4>
+
+  <p>
+    The <code>EdgeUpdateJob</code> runs on every road edge that has a <code>LandValue</code> component.
+    It sums weighted bonuses from six factors:
+  </p>
+
+  <ul>
+    <li><strong>Health coverage</strong> (index 0 in ServiceCoverage buffer) -- multiplied by 5.0</li>
+    <li><strong>Education coverage</strong> (index 5) -- multiplied by 5.0</li>
+    <li><strong>Police coverage</strong> (index 2) -- multiplied by 5.0</li>
+    <li><strong>Commercial services</strong> (index 1 in ResourceAvailability buffer) -- multiplied by 10.0</li>
+    <li><strong>Bus access</strong> (index 31 in ResourceAvailability) -- multiplied by 5.0</li>
+    <li><strong>Tram/subway access</strong> (index 32 in ResourceAvailability) -- multiplied by 50.0</li>
+  </ul>
+
+  <p>
+    Each service coverage is averaged between the start and end of the edge segment
+    (<code>lerp(coverage.x, coverage.y, 0.5)</code>). The result is smoothed toward the target
+    at a lerp rate of <strong>0.6</strong>, ensuring land value changes gradually rather than
+    jumping instantly.
+  </p>
+
+  <h4>Layer 2: Cell Map (128x128 grid)</h4>
+
+  <p>
+    The <code>LandValueMapUpdateJob</code> processes each cell in the 128x128 grid. For each cell:
+  </p>
+
+  <ol>
+    <li>If underwater (depth &gt; 1m), set to baseline value (10.0) and skip</li>
+    <li>Search nearby road edges within 1.5 cell widths using a quad tree</li>
+    <li>Average the <code>LandValue.m_LandValue</code> of nearby edges</li>
+    <li>Add bonuses: attractiveness (AvailabilityInfo * 3.0), telecom quality (* 20.0), terrain attractiveness (* 3.0) -- each capped at 100</li>
+    <li>Terrain attractiveness only applies if there is no water pollution and no ground pollution at the cell</li>
+    <li>Subtract penalties: ground pollution (* 10.0), air pollution (* 5.0), noise (* 0.01)</li>
+    <li>Floor at baseline value (10.0)</li>
+    <li>Smooth toward target at lerp rate <strong>0.4</strong></li>
+  </ol>
+
+  <h3>Rent Calculation</h3>
+
+  <p>
+    The <code>RentAdjustSystem</code> runs 16 times per day and recalculates rent for every
+    occupied building. The core formula lives in <code>PropertyUtils.GetRentPricePerRenter()</code>:
+  </p>
+
+  <pre><code class="language-csharp">// Simplified rent formula
+float totalRent;
+if (ignoreLandValue)
+    totalRent = baseRate * level * lotSize * spaceMultiplier;
+else
+    totalRent = (landValue * zoneModifier + baseRate * level) * lotSize * spaceMultiplier;
+
+int renterCount = IsMixedBuilding ? adjusted : countProperties;
+int rentPerRenter = Round(totalRent / renterCount);</code></pre>
+
+  <p>Where:</p>
+
+  <ul>
+    <li><strong>landValue</strong> = <code>LandValue.m_LandValue</code> from the building's road edge</li>
+    <li><strong>zoneModifier</strong> = <code>EconomyParameterData.m_LandValueModifier</code> (per zone type: x=residential, y=commercial, z=industrial)</li>
+    <li><strong>baseRate</strong> = <code>EconomyParameterData.m_RentPriceBuildingZoneTypeBase</code> (per zone type)</li>
+    <li><strong>level</strong> = building level from <code>SpawnableBuildingData.m_Level</code></li>
+    <li><strong>lotSize</strong> = <code>BuildingData.m_LotSize.x * m_LotSize.y</code></li>
+    <li><strong>spaceMultiplier</strong> = <code>BuildingPropertyData.m_SpaceMultiplier</code></li>
+  </ul>
+
+  <h3>Rent Payment and Renter Decisions</h3>
+
+  <p>
+    After rent is calculated, two systems handle the consequences:
+  </p>
+
+  <h4>RentAdjustSystem: Income Comparison</h4>
+
+  <p>
+    For each renter, the system compares rent + garbage fee against income:
+  </p>
+
+  <ul>
+    <li><strong>Households</strong>: income = sum of worker wages + current savings</li>
+    <li><strong>Companies</strong>: income = max of (company max profit per day, company total worth)</li>
+  </ul>
+
+  <p>
+    Based on this comparison:
+  </p>
+
+  <ul>
+    <li>If <code>rent + garbageFee &gt; income</code>: the renter becomes a <strong>PropertySeeker</strong> -- it starts looking for cheaper property</li>
+    <li>If <code>rent + garbageFee &lt; income / 2</code> (households only): the renter also becomes a PropertySeeker -- it can afford better</li>
+    <li>If &gt;70% of renters are overpaying and the building has vacancies: a <strong>high rent warning</strong> icon appears</li>
+  </ul>
+
+  <h4>PropertyRenterSystem: Actual Payment</h4>
+
+  <p>
+    The <code>PayRentJob</code> deducts money from each renter:
+  </p>
+
+  <ul>
+    <li>Regular renters pay: <code>rent / kUpdatesPerDay</code> (1/16 of daily rent per tick)</li>
+    <li>Storage companies pay their entire money balance as rent</li>
+    <li>Garbage fee is split equally among all renters</li>
+    <li>Invalid renters (no PropertyRenter component) are removed from the building</li>
+    <li>Vacant buildings are put back on market (<code>PropertyToBeOnMarket</code>)</li>
+  </ul>
+
+  <h3>Building Level-Up and Level-Down</h3>
+
+  <p>
+    The <code>BuildingUpkeepSystem</code> manages building condition through a straightforward
+    accumulator model:
+  </p>
+
+  <h4>Condition Change</h4>
+
+  <p>
+    Each tick (16x per day), the system:
+  </p>
+
+  <ol>
+    <li>Reads building upkeep from <code>ConsumptionData.m_Upkeep</code></li>
+    <li>Splits into material upkeep (1/4) and monetary upkeep (3/4)</li>
+    <li>Sums total renter wealth (household money or company total worth)</li>
+    <li>If renters can afford the monetary portion: <strong>condition increases</strong></li>
+    <li>If renters cannot afford it: <strong>condition decreases</strong></li>
+    <li>Change magnitude scales with: <code>pow(2, level) * max(1, renterCount)</code></li>
+  </ol>
+
+  <h4>Level-Up Trigger</h4>
+
+  <p>
+    When <code>BuildingCondition.m_Condition &gt;= levelingCost</code>:
+  </p>
+
+  <ol>
+    <li>System adds a <code>ResourceNeeding</code> buffer requesting level-up materials</li>
+    <li>Creates <code>GoodsDeliveryRequest</code> service requests for each material</li>
+    <li>Shows a "leveling" notification icon</li>
+    <li>When all materials are delivered: <code>LevelupJob</code> selects a new building prefab at level+1 with matching zone type, lot size, and access flags</li>
+    <li>Adds <code>UnderConstruction</code> component to trigger the visual upgrade</li>
+  </ol>
+
+  <h4>Level-Down (Abandonment)</h4>
+
+  <p>
+    When <code>BuildingCondition.m_Condition &lt;= -abandonCost</code> (and building is not a signature building):
+  </p>
+
+  <ol>
+    <li><code>LeveldownJob</code> adds the <code>Abandoned</code> component</li>
+    <li>Removes utility consumers (electricity, water, garbage, mail)</li>
+    <li>Evicts all renters (removes PropertyRenter from each)</li>
+    <li>Doubles crime production on the building</li>
+    <li>Shows abandoned notification icon</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Net</td>
+        <td>LandValue (per-edge land value component)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>LandValueSystem, LandValueCell, PropertyRenterSystem, RentAdjustSystem, BuildingUpkeepSystem, PropertyRenterRemoveSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>PropertyRenter, Renter (buffer), RentAction, RentersUpdated, PropertyOnMarket, BuildingCondition, PropertyUtils</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>LandValueParameterData, LandValuePrefab, BuildingPropertyData, BuildingConfigurationData, EconomyParameterData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>LandValue (Game.Net)</h3>
+
+  <p>Per-edge component on road segments. The primary value used for rent calculation.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_LandValue</td><td>float</td><td>Computed land value at this road edge -- sum of service coverage and resource availability bonuses</td></tr>
+      <tr><td>m_Weight</td><td>float</td><td>Weighting factor (serialized but not actively consumed by land value systems)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LandValueCell (Game.Simulation)</h3>
+
+  <p>Cell in the 128x128 land value grid. Used for the infoview overlay and general area queries.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_LandValue</td><td>float</td><td>Interpolated value combining nearby edge values, attractiveness, telecom, and pollution</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PropertyRenter (Game.Buildings)</h3>
+
+  <p>On households and companies that rent a property unit.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Property</td><td>Entity</td><td>The building entity being rented</td></tr>
+      <tr><td>m_Rent</td><td>int</td><td>Current daily rent amount</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Renter (Game.Buildings)</h3>
+
+  <p>Dynamic buffer on building entities listing occupants.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Renter</td><td>Entity</td><td>Household or company entity renting this building</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PropertyOnMarket (Game.Buildings)</h3>
+
+  <p>Added to buildings with vacant units. Property seekers evaluate these buildings.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_AskingRent</td><td>int</td><td>Advertised rent price for vacant units</td></tr>
+    </tbody>
+  </table>
+
+  <h3>BuildingCondition (Game.Buildings)</h3>
+
+  <p>Tracks building maintenance state. Drives leveling decisions.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Condition</td><td>int</td><td>Accumulator: positive = well-maintained (toward level-up), negative = neglected (toward abandonment)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>BuildingPropertyData (Game.Prefabs)</h3>
+
+  <p>Prefab component defining building capacity and allowed resources.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ResidentialProperties</td><td>int</td><td>Number of residential units (apartments)</td></tr>
+      <tr><td>m_AllowedSold</td><td>Resource</td><td>Resources that can be sold (commercial)</td></tr>
+      <tr><td>m_AllowedInput</td><td>Resource</td><td>Resources allowed as production inputs</td></tr>
+      <tr><td>m_AllowedManufactured</td><td>Resource</td><td>Resources that can be manufactured (industrial)</td></tr>
+      <tr><td>m_AllowedStored</td><td>Resource</td><td>Resources that can be stored</td></tr>
+      <tr><td>m_SpaceMultiplier</td><td>float</td><td>Space factor for rent calculation -- larger buildings have higher values</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LandValueParameterData (Game.Prefabs)</h3>
+
+  <p>Global singleton controlling all land value computation weights.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_LandValueBaseline</td><td>10.0</td><td>Minimum land value floor everywhere</td></tr>
+      <tr><td>m_HealthCoverageBonusMultiplier</td><td>5.0</td><td>Weight for healthcare service coverage</td></tr>
+      <tr><td>m_EducationCoverageBonusMultiplier</td><td>5.0</td><td>Weight for education service coverage</td></tr>
+      <tr><td>m_PoliceCoverageBonusMultiplier</td><td>5.0</td><td>Weight for police service coverage</td></tr>
+      <tr><td>m_AttractivenessBonusMultiplier</td><td>3.0</td><td>Weight for terrain/tourism attractiveness</td></tr>
+      <tr><td>m_TelecomCoverageBonusMultiplier</td><td>20.0</td><td>Weight for internet/telecom coverage</td></tr>
+      <tr><td>m_CommercialServiceBonusMultiplier</td><td>10.0</td><td>Weight for nearby commercial services</td></tr>
+      <tr><td>m_BusBonusMultiplier</td><td>5.0</td><td>Weight for bus transit accessibility</td></tr>
+      <tr><td>m_TramSubwayBonusMultiplier</td><td>50.0</td><td>Weight for tram/subway accessibility</td></tr>
+      <tr><td>m_CommonFactorMaxBonus</td><td>100</td><td>Per-factor bonus cap</td></tr>
+      <tr><td>m_GroundPollutionPenaltyMultiplier</td><td>10.0</td><td>Ground pollution penalty weight</td></tr>
+      <tr><td>m_AirPollutionPenaltyMultiplier</td><td>5.0</td><td>Air pollution penalty weight</td></tr>
+      <tr><td>m_NoisePollutionPenaltyMultiplier</td><td>0.01</td><td>Noise pollution penalty weight</td></tr>
+    </tbody>
+  </table>
+
+  <h3>RentAction (Game.Buildings)</h3>
+
+  <p>Queue entry for pending move-in/move-out actions.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Property</td><td>Entity</td><td>Target building</td></tr>
+      <tr><td>m_Renter</td><td>Entity</td><td>Household or company moving in/out</td></tr>
+      <tr><td>m_Flags</td><td>RentActionFlags</td><td>Storage (1) = storage company, Remove (2) = eviction</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+LAND VALUE CALCULATION (32x per game day)
+  LandValueSystem.EdgeUpdateJob
+    For each road edge with LandValue component:
+      health * 5.0 + education * 5.0 + police * 5.0
+      + commercial * 10.0 + bus * 5.0 + tram/subway * 50.0
+      LandValue.m_LandValue = lerp(current, sum, 0.6)
+          |
+          v
+  LandValueSystem.LandValueMapUpdateJob
+    For each cell in 128x128 grid:
+      avg nearby edge values (within 1.5 cells)
+      + attractiveness bonus (capped 100)
+      + telecom bonus (capped 100)
+      + terrain attractiveness (capped 100, only if no pollution)
+      - ground_pollution * 10 - air_pollution * 5 - noise * 0.01
+      floor at baseline (10.0)
+      LandValueCell = lerp(current, target, 0.4)
+          |
+          v
+RENT PRICING (16x per day)
+  RentAdjustSystem.AdjustRentJob
+    For each building:
+      landValue = Building.m_RoadEdge -&gt; LandValue.m_LandValue
+      rent = (landValue * zoneModifier + baseRate * level)
+             * lotSize * spaceMultiplier / renterCount
+      -&gt; PropertyRenter.m_Rent = rent
+      -&gt; PropertyOnMarket.m_AskingRent = rent
+      Compare rent vs income:
+        rent &gt; income   -&gt; enable PropertySeeker (find cheaper)
+        rent &lt; income/2 -&gt; enable PropertySeeker (find better)
+        &gt;70% overpaying -&gt; HighRentWarning icon
+          |
+          v
+RENT PAYMENT (16x per day)
+  PropertyRenterSystem.PayRentJob
+    renter.Money -= rent / 16
+    renter.Money -= garbageFee / renterCount / 16
+    Remove invalid renters
+    Vacant buildings -&gt; PropertyToBeOnMarket
+          |
+          v
+BUILDING CONDITION (16x per day)
+  BuildingUpkeepSystem.BuildingUpkeepJob
+    upkeep = ConsumptionData.m_Upkeep / 16
+    monetary = upkeep * 3/4, material = upkeep * 1/4
+    renterWealth &gt;= monetary?
+      YES: condition += increment * pow(2, level) * renters
+           Deduct upkeep from each renter
+      NO:  condition -= decrement * pow(2, level) * renters
+          |
+          v
+    condition &gt;= levelingCost
+      Request level-up materials (GoodsDeliveryRequest)
+      Materials delivered -&gt; LevelupJob
+        Select higher-level prefab -&gt; UnderConstruction
+          |
+    condition &lt;= -abandonCost
+      LeveldownJob -&gt; Abandoned
+        Evict all renters, remove services
+        Double crime, show abandoned icon
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read Land Value at a World Position</h3>
+
+  <p>Sample the 128x128 land value cell map at any world coordinate.</p>
+
+  <pre><code class="language-csharp">public partial class LandValueReaderSystem : GameSystemBase
+{
+    private LandValueSystem _landValueSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _landValueSystem = World.GetOrCreateSystemManaged&lt;LandValueSystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        float3 worldPos = new float3(500f, 0f, 300f);
+        int cellIndex = LandValueSystem.GetCellIndex(worldPos);
+
+        JobHandle deps;
+        NativeArray&lt;LandValueCell&gt; map = _landValueSystem.GetMap(
+            readOnly: true, out deps);
+        deps.Complete();
+
+        if (cellIndex &gt;= 0 &amp;&amp; cellIndex &lt; map.Length)
+        {
+            float landValue = map[cellIndex].m_LandValue;
+            Log.Info($"Land value at {worldPos}: {landValue:F1}");
+        }
+
+        _landValueSystem.AddReader(Dependency);
+    }
+}</code></pre>
+
+  <h3>Modify Land Value Parameters</h3>
+
+  <p>Adjust the global land value singleton to rebalance the economy. For example, boost
+  transit bonuses to incentivize public transport investment.</p>
+
+  <pre><code class="language-csharp">public void AdjustLandValueParameters(EntityManager em)
+{
+    EntityQuery paramQuery = em.CreateEntityQuery(
+        ComponentType.ReadWrite&lt;LandValueParameterData&gt;()
+    );
+
+    if (paramQuery.CalculateEntityCount() == 0) return;
+
+    Entity paramEntity = paramQuery.GetSingletonEntity();
+    LandValueParameterData data = em.GetComponentData&lt;LandValueParameterData&gt;(paramEntity);
+
+    // Double transit bonuses
+    data.m_TramSubwayBonusMultiplier = 100f;
+    data.m_BusBonusMultiplier = 10f;
+
+    // Reduce pollution penalties
+    data.m_GroundPollutionPenaltyMultiplier = 5f;
+    data.m_AirPollutionPenaltyMultiplier = 2.5f;
+
+    em.SetComponentData(paramEntity, data);
+    paramQuery.Dispose();
+}</code></pre>
+
+  <h3>Read a Building's Edge Land Value</h3>
+
+  <p>Look up the land value at the road edge adjacent to a specific building. This is the
+  value used directly in the rent formula.</p>
+
+  <pre><code class="language-csharp">public float GetBuildingLandValue(EntityManager em, Entity building)
+{
+    if (!em.HasComponent&lt;Building&gt;(building))
+        return 0f;
+
+    Building buildingData = em.GetComponentData&lt;Building&gt;(building);
+    Entity roadEdge = buildingData.m_RoadEdge;
+
+    if (roadEdge == Entity.Null || !em.HasComponent&lt;LandValue&gt;(roadEdge))
+        return 0f;
+
+    LandValue landValue = em.GetComponentData&lt;LandValue&gt;(roadEdge);
+    return landValue.m_LandValue;
+}</code></pre>
+
+  <h3>Override Rent Price via Harmony Postfix</h3>
+
+  <p>Patch the rent calculation to apply custom multipliers per zone type. Note that
+  <code>GetRentPricePerRenter</code> is a static method, making it straightforward to patch.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Buildings.PropertyUtils),
+    nameof(PropertyUtils.GetRentPricePerRenter))]
+public static class RentPricePatch
+{
+    public static void Postfix(ref int __result, int buildingLevel, AreaType areaType)
+    {
+        // 50% discount on residential rent
+        if (areaType == AreaType.Residential)
+        {
+            __result = Mathf.RoundToInt(__result * 0.5f);
+        }
+
+        // Cap industrial rent based on level
+        if (areaType == AreaType.Industrial)
+        {
+            int maxRent = buildingLevel * 500;
+            __result = Mathf.Min(__result, maxRent);
+        }
+    }
+}</code></pre>
+
+  <h3>Monitor High-Rent Buildings</h3>
+
+  <p>Find all buildings where renters are paying more than they can afford.</p>
+
+  <pre><code class="language-csharp">public partial class RentMonitorSystem : GameSystemBase
+{
+    private EntityQuery _buildingQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _buildingQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Building&gt;(),
+            ComponentType.ReadOnly&lt;Renter&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _buildingQuery.ToEntityArray(Allocator.Temp);
+        int highRentCount = 0;
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            Entity building = entities[i];
+            var renters = EntityManager.GetBuffer&lt;Renter&gt;(
+                building, isReadOnly: true);
+
+            for (int j = 0; j &lt; renters.Length; j++)
+            {
+                Entity renter = renters[j].m_Renter;
+                if (!EntityManager.HasComponent&lt;PropertyRenter&gt;(renter))
+                    continue;
+
+                PropertyRenter pr = EntityManager
+                    .GetComponentData&lt;PropertyRenter&gt;(renter);
+                int money = EconomyUtils.GetResources(
+                    Resource.Money,
+                    EntityManager.GetBuffer&lt;Game.Economy.Resources&gt;(
+                        renter, isReadOnly: true));
+
+                if (pr.m_Rent &gt; money)
+                    highRentCount++;
+            }
+        }
+
+        if (highRentCount &gt; 0)
+            Log.Info($"Renters with rent exceeding savings: {highRentCount}");
+
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Land value baseline</td>
+        <td>LandValueParameterData.m_LandValueBaseline</td>
+        <td>10.0</td>
+        <td>Minimum land value everywhere on the map</td>
+      </tr>
+      <tr>
+        <td>Tram/subway bonus</td>
+        <td>LandValueParameterData.m_TramSubwayBonusMultiplier</td>
+        <td>50.0</td>
+        <td>Land value boost near tram/subway lines (highest weight of any factor)</td>
+      </tr>
+      <tr>
+        <td>Telecom bonus</td>
+        <td>LandValueParameterData.m_TelecomCoverageBonusMultiplier</td>
+        <td>20.0</td>
+        <td>Land value boost from internet coverage</td>
+      </tr>
+      <tr>
+        <td>Common factor cap</td>
+        <td>LandValueParameterData.m_CommonFactorMaxBonus</td>
+        <td>100</td>
+        <td>Maximum bonus any single factor can contribute</td>
+      </tr>
+      <tr>
+        <td>Ground pollution penalty</td>
+        <td>LandValueParameterData.m_GroundPollutionPenaltyMultiplier</td>
+        <td>10.0</td>
+        <td>Land value reduction from ground contamination</td>
+      </tr>
+      <tr>
+        <td>Rent base rate</td>
+        <td>EconomyParameterData.m_RentPriceBuildingZoneTypeBase</td>
+        <td>float3 (per zone type)</td>
+        <td>Base rent rate for residential (x), commercial (y), industrial (z)</td>
+      </tr>
+      <tr>
+        <td>Land value modifier</td>
+        <td>EconomyParameterData.m_LandValueModifier</td>
+        <td>float3 (per zone type)</td>
+        <td>How strongly land value affects rent per zone type</td>
+      </tr>
+      <tr>
+        <td>Space multiplier</td>
+        <td>BuildingPropertyData.m_SpaceMultiplier</td>
+        <td>Varies by prefab</td>
+        <td>Scales rent based on building size and density</td>
+      </tr>
+      <tr>
+        <td>Updates per day</td>
+        <td>PropertyRenterSystem.kUpdatesPerDay</td>
+        <td>16</td>
+        <td>How many times per day rent is collected (hardcoded)</td>
+      </tr>
+      <tr>
+        <td>Land value update rate</td>
+        <td>LandValueSystem.kUpdatesPerDay</td>
+        <td>32</td>
+        <td>How often the cell map is recalculated</td>
+      </tr>
+      <tr>
+        <td>Edge lerp rate</td>
+        <td>EdgeUpdateJob (hardcoded)</td>
+        <td>0.6</td>
+        <td>How quickly edge land values approach their target</td>
+      </tr>
+      <tr>
+        <td>Cell lerp rate</td>
+        <td>LandValueMapUpdateJob (hardcoded)</td>
+        <td>0.4</td>
+        <td>How quickly cell map values approach their target</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>EconomyParameterData defaults:</strong> The exact default values of
+      <code>m_RentPriceBuildingZoneTypeBase</code> and <code>m_LandValueModifier</code> are set by
+      the EconomyPrefab, which was not decompiled. These float3 values control the base rent rate
+      and land value sensitivity per zone type (residential, commercial, industrial).
+    </li>
+    <li>
+      <strong>Mixed building rent split:</strong> <code>m_MixedBuildingCompanyRentPercentage</code>
+      controls how rent is divided in mixed-use buildings (residential + commercial). The formula
+      adjusts the effective renter count: <code>residentialProperties / (1 - percentage)</code>.
+      The exact default percentage is unknown.
+    </li>
+    <li>
+      <strong>Level-up material requirements:</strong> The specific resources and quantities
+      required for building level-up come from <code>ZoneLevelUpResourceData</code> buffers on
+      zone prefabs or <code>BuildingConfigurationData</code>. The exact per-level costs were not
+      traced.
+    </li>
+    <li>
+      <strong>BuildingCondition rates:</strong> The actual increment and decrement values come from
+      <code>BuildingConfigurationData.m_BuildingConditionDecrement</code> and
+      <code>BuildingUtils.GetBuildingConditionChange()</code>. The leveling cost and abandon cost
+      are computed by <code>BuildingUtils.GetLevelingCost()</code> and
+      <code>BuildingUtils.GetAbandonCost()</code>, which factor in area type, building properties,
+      current level, and city modifiers.
+    </li>
+    <li>
+      <strong>ZonePropertiesData.m_IgnoreLandValue:</strong> Some zone types can opt out of land
+      value in the rent formula entirely. Which zones use this flag was not determined.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.LandValueSystem, Game.Simulation.PropertyRenterSystem, Game.Simulation.RentAdjustSystem, Game.Simulation.BuildingUpkeepSystem, Game.Simulation.PropertyRenterRemoveSystem</li>
+    <li>Components: Game.Net.LandValue, Game.Simulation.LandValueCell, Game.Buildings.PropertyRenter, Game.Buildings.Renter, Game.Buildings.RentAction, Game.Buildings.RentersUpdated, Game.Buildings.PropertyOnMarket, Game.Buildings.BuildingCondition</li>
+    <li>Prefab types: Game.Prefabs.LandValueParameterData, Game.Prefabs.LandValuePrefab, Game.Prefabs.BuildingPropertyData</li>
+    <li>Utility: Game.Buildings.PropertyUtils (rent formula, property scoring)</li>
+    <li>Related: <a href="company-simulation.html">Company Simulation</a> (profitability), <a href="citizens-households.html">Citizens &amp; Households</a> (income), <a href="demand-systems.html">Demand Systems</a> (property demand)</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- LandValueSystem, PropertyRenterSystem, RentAdjustSystem, BuildingUpkeepSystem, PropertyUtils.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Trade &amp; Outside Connections</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html" class="active">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Trade &amp; Outside Connections</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 route resources, electricity, and water between
+      a city and the outside world? How are trade costs calculated, and what determines
+      import/export behavior?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Trade operates through three distinct pipelines.
+      <strong>Resource trade</strong> uses <code>TradeSystem</code> (128 updates/day) which maintains
+      per-resource trade balances and calculates costs from weight and distance multipliers, plus
+      <code>ResourceExporterSystem</code> (every 16 frames) which handles the pathfinding and
+      physical delivery of exports. <strong>Electricity trade</strong> and <strong>water trade</strong>
+      piggyback on their respective flow graph solvers, with dedicated trade systems
+      (<code>ElectricityTradeSystem</code>, <code>WaterTradeSystem</code>) that sum flow through
+      <code>TradeNode</code> entities and convert quantities to monetary fee events.
+      Outside connections are map-edge entities with transport type flags (Road, Train, Air, Ship)
+      and a remoteness factor that influences pathfinding costs.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Internal company production and consumption (see
+      <a href="resource-production.html">Resource Production</a> and
+      <a href="company-simulation.html">Company Simulation</a>). Budget integration
+      details (see <a href="economy-budget.html">Economy &amp; Budget</a>).
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The trade system connects the city economy to the outside world through three independent
+    mechanisms, each tuned to its domain.
+  </p>
+
+  <h3>Resource Trade: The TradeSystem Pipeline</h3>
+
+  <p>
+    Physical resources (timber, metals, food, manufactured goods, etc.) flow through the
+    <code>TradeSystem</code> which runs <strong>128 times per game day</strong>. The system
+    maintains a <strong>trade balance</strong> per resource type -- a running tally that
+    indicates whether the city is a net importer (negative balance) or net exporter
+    (positive balance).
+  </p>
+
+  <p>
+    At each update, the system decays the balance by 1% (<code>kRefreshRate = 0.01</code>),
+    then recalculates the <strong>trade cost</strong> for every combination of resource and
+    transport type. The cost formula is:
+  </p>
+
+  <pre><code class="language-csharp">// Import cost (when tradeBalance &lt; 0):
+BuyCost = WeightMultiplier * ResourceWeight * (1 + DistanceMultiplier * max(50, sqrt(-tradeBalance)))
+
+// Export cost (when tradeBalance &gt; 0):
+SellCost = WeightMultiplier * ResourceWeight * (1 + DistanceMultiplier * max(50, sqrt(tradeBalance)))</code></pre>
+
+  <p>
+    City modifiers (<code>CityModifierType.ImportCost</code> / <code>ExportCost</code>) are
+    applied on top. The key insight is that <strong>costs increase with the square root of
+    the trade balance magnitude</strong>, creating a natural dampening effect. A city importing
+    large quantities of a resource will see rising costs, encouraging local production.
+  </p>
+
+  <h3>Outside Connection Storage Companies</h3>
+
+  <p>
+    Each outside connection entity on the map edge functions as a virtual
+    <strong>StorageCompany</strong>. The <code>TradeJob</code> processes these entities like
+    warehouses, keeping their resource stocks near 50% of capacity. When stock drops below
+    the midpoint (city is importing), the system adds resources. When above (city is exporting),
+    it removes them. The fill rate accelerates when the imbalance is larger:
+  </p>
+
+  <pre><code class="language-csharp">int deficit = storageLimit / (2 * resourceCount) - currentStock;
+float urgency = abs(deficit / (storageLimit / 2.0));
+int transfer = (urgency &gt; 1) ? deficit : (deficit * urgency / updatesPerDay) * 8;</code></pre>
+
+  <h3>Export Pathfinding: ResourceExporterSystem</h3>
+
+  <p>
+    When a company has surplus resources to export, it receives a <code>ResourceExporter</code>
+    component. The <code>ResourceExporterSystem</code> (running every 16 frames) manages
+    the three-stage export pipeline:
+  </p>
+
+  <ol>
+    <li><strong>Pathfind</strong>: No path yet -- initiate pathfinding to
+    <code>SetupTargetType.ResourceExport</code> via the road network</li>
+    <li><strong>Dispatch</strong>: Path found to an outside connection storage company --
+    create an <code>ExportEvent</code>, add a <code>CurrentTrading</code> buffer entry,
+    and queue a <code>TripNeeded</code> with <code>Purpose.Exporting</code></li>
+    <li><strong>Settle</strong>: <code>HandleExportsJob</code> processes the event,
+    calculates transport cost from distance, smooths trade costs with
+    <code>lerp(old, new, 0.5)</code>, deducts resources from the seller, and credits
+    the money</li>
+  </ol>
+
+  <p>
+    For <strong>weightless resources</strong> (like software, financial services), the system
+    skips the delivery vehicle entirely -- the export resolves immediately to a random outside
+    connection storage entity.
+  </p>
+
+  <h3>Utility Trade: Electricity and Water</h3>
+
+  <p>
+    Electricity and water/sewage trade use the <strong>flow graph solvers</strong> rather than
+    the resource pathfinding pipeline. Both systems use <code>TradeNode</code>-tagged entities
+    in their respective flow graphs (electricity flow graph and water pipe flow graph).
+  </p>
+
+  <p>
+    The flow solver treats trade nodes as connections to the virtual source/sink nodes. Flow
+    into the sink = export; flow from the source = import. After each 128-frame solve cycle,
+    the trade systems (<code>ElectricityTradeSystem</code> at frame 126,
+    <code>WaterTradeSystem</code> at frame 62) sum the flow through trade edges and convert
+    to monetary amounts:
+  </p>
+
+  <pre><code class="language-csharp">// Both systems divide by 2048 to convert from per-tick to per-day units
+float dailyExport = (float)exportFlow / 2048f;
+float exportRevenue = dailyExport * exportPrice;
+float dailyImport = (float)importFlow / 2048f;
+float importCost = dailyImport * importPrice;</code></pre>
+
+  <p>
+    Water trade has an additional <strong>pollution penalty</strong>: polluted water reduces
+    export revenue proportionally to the pollution level relative to a tolerance threshold
+    (default 10%). Sewage can only be exported, not imported.
+  </p>
+
+  <h3>Connection Delay: Traffic Congestion</h3>
+
+  <p>
+    The <code>OutsideConnectionDelaySystem</code> runs 64 times per day and measures traffic
+    congestion at outside connection nodes. It walks the connection lanes, counts vehicles
+    with the <code>ResetSpeed</code> flag (stopped or slow-moving), and sums their wait
+    durations. The average delay is written to <code>Game.Net.OutsideConnection.m_Delay</code>
+    and fed back into the pathfinding system as an added border cost. This means congested
+    highway connections become less attractive to traffic, distributing load across
+    multiple entry points.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Companies</td>
+        <td>TradeCost, CurrentTrading, ResourceExporter</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Objects</td>
+        <td>OutsideConnection (tag), ElectricityOutsideConnection (tag), WaterPipeOutsideConnection (tag)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Net</td>
+        <td>OutsideConnection (m_Delay), OutsideConnectionSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>TradeSystem, ResourceExporterSystem, ElectricityTradeSystem, WaterTradeSystem, OutsideConnectionDelaySystem, TradeNode</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>OutsideConnectionData, OutsideTradeParameterData, OutsideConnectionTransferType, OutsideConnection (prefab), OutsideTradeParameterPrefab</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.City</td>
+        <td>ServiceImportBudget</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>TradeCost (Game.Companies)</h3>
+
+  <p>Buffer element tracking smoothed buy/sell costs per resource on companies and
+  outside connection storage entities.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>Resource</td><td>Which resource this cost entry applies to</td></tr>
+      <tr><td>m_BuyCost</td><td>float</td><td>Smoothed cost to buy (import) this resource</td></tr>
+      <tr><td>m_SellCost</td><td>float</td><td>Smoothed cost to sell (export) this resource</td></tr>
+      <tr><td>m_LastTransferRequestTime</td><td>long</td><td>Frame index of last transfer request</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CurrentTrading (Game.Companies)</h3>
+
+  <p>Buffer element tracking in-flight trade operations. Added when a company begins an export,
+  removed when the delivery completes.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TradingResourceAmount</td><td>int</td><td>Amount being traded (negative = exporting)</td></tr>
+      <tr><td>m_TradingResource</td><td>Resource</td><td>Which resource is being traded</td></tr>
+      <tr><td>m_TradingStartFrameIndex</td><td>uint</td><td>Simulation frame when this trade started</td></tr>
+      <tr><td>m_OutsideConnectionType</td><td>OutsideConnectionTransferType</td><td>Transport mode used (Road, Train, Air, Ship)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ResourceExporter (Game.Companies)</h3>
+
+  <p>Singleton component triggering the export pipeline. Added when a company has surplus;
+  removed after dispatch.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>Resource</td><td>Resource type to export</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Amount to export</td></tr>
+    </tbody>
+  </table>
+
+  <h3>OutsideConnectionTransferType (Game.Prefabs)</h3>
+
+  <p>Flags enum defining the four transport modes. A single outside connection can support
+  multiple modes.</p>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>None</td><td>0x00</td><td>No connection</td></tr>
+      <tr><td>Road</td><td>0x01</td><td>Highway connection</td></tr>
+      <tr><td>Train</td><td>0x02</td><td>Rail connection</td></tr>
+      <tr><td>Air</td><td>0x04</td><td>Airport connection</td></tr>
+      <tr><td>Ship</td><td>0x10</td><td>Harbor connection</td></tr>
+      <tr><td>All</td><td>0x17</td><td>Road | Train | Air | Ship</td></tr>
+    </tbody>
+  </table>
+
+  <h3>OutsideConnectionData (Game.Prefabs)</h3>
+
+  <p>Prefab component defining the transport mode and remoteness of an outside connection.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Type</td><td>OutsideConnectionTransferType</td><td>Transport modes this connection supports</td></tr>
+      <tr><td>m_Remoteness</td><td>float</td><td>Distance factor affecting pathfinding cost between connections</td></tr>
+    </tbody>
+  </table>
+
+  <h3>OutsideTradeParameterData (Game.Prefabs)</h3>
+
+  <p>Global singleton controlling all trade pricing. Contains utility prices, transport cost
+  multipliers, and service import fee rates.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ElectricityImportPrice</td><td>float</td><td>Cost per 0.1 kW imported for 24h</td></tr>
+      <tr><td>m_ElectricityExportPrice</td><td>float</td><td>Revenue per 0.1 kW exported for 24h</td></tr>
+      <tr><td>m_WaterImportPrice</td><td>float</td><td>Cost per 1 m^3 water imported for 24h</td></tr>
+      <tr><td>m_WaterExportPrice</td><td>float</td><td>Revenue per 1 m^3 water exported for 24h</td></tr>
+      <tr><td>m_WaterExportPollutionTolerance</td><td>float</td><td>Pollution % at which water export revenue = 0 (default 0.1)</td></tr>
+      <tr><td>m_SewageExportPrice</td><td>float</td><td>Cost per 1 m^3 sewage exported for 24h</td></tr>
+      <tr><td>m_AirWeightMultiplier</td><td>float</td><td>Base cost per unit weight via air</td></tr>
+      <tr><td>m_RoadWeightMultiplier</td><td>float</td><td>Base cost per unit weight via road</td></tr>
+      <tr><td>m_TrainWeightMultiplier</td><td>float</td><td>Base cost per unit weight via train</td></tr>
+      <tr><td>m_ShipWeightMultiplier</td><td>float</td><td>Base cost per unit weight via ship</td></tr>
+      <tr><td>m_AirDistanceMultiplier</td><td>float</td><td>Distance scaling factor for air trade</td></tr>
+      <tr><td>m_RoadDistanceMultiplier</td><td>float</td><td>Distance scaling factor for road trade</td></tr>
+      <tr><td>m_TrainDistanceMultiplier</td><td>float</td><td>Distance scaling factor for train trade</td></tr>
+      <tr><td>m_ShipDistanceMultiplier</td><td>float</td><td>Distance scaling factor for ship trade</td></tr>
+      <tr><td>m_AmbulanceImportServiceFee</td><td>float</td><td>Service fee per population unit for ambulance imports (default 1.0)</td></tr>
+      <tr><td>m_HearseImportServiceFee</td><td>float</td><td>Service fee per population unit for hearse imports (default 1.0)</td></tr>
+      <tr><td>m_FireEngineImportServiceFee</td><td>float</td><td>Service fee per population unit for fire engine imports (default 1.0)</td></tr>
+      <tr><td>m_GarbageImportServiceFee</td><td>float</td><td>Service fee per population unit for garbage imports (default 1.0)</td></tr>
+      <tr><td>m_PoliceImportServiceFee</td><td>float</td><td>Service fee per population unit for police imports (default 1.0)</td></tr>
+      <tr><td>m_OCServiceTradePopulationRange</td><td>int</td><td>Population bracket size for service fee scaling (default 1000)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Game.Net.OutsideConnection</h3>
+
+  <p>Network-level component on connection lane entities storing traffic delay.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Delay</td><td>float</td><td>Average traffic delay at this connection (seconds)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ServiceImportBudget (Game.City)</h3>
+
+  <p>Buffer element on the city entity capping utility import spending.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>PlayerResource</td><td>Which service (Electricity, Water, Sewage)</td></tr>
+      <tr><td>m_MaximumBudget</td><td>int</td><td>Maximum import spending allowed for this service</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+RESOURCE TRADE PIPELINE
+========================
+
+[Company has surplus resources]
+      |
+      v
+ResourceBuyerSystem / CompanySystem
+  Adds ResourceExporter component to company
+      |
+      v
+ResourceExporterSystem (every 16 frames)
+  ExportJob:
+    No path? --&gt; Pathfind to SetupTargetType.ResourceExport
+    Path found? --&gt; Create ExportEvent + CurrentTrading + TripNeeded
+      |
+      v
+  HandleExportsJob:
+    Calculate transport cost from distance
+    Smooth TradeCost on buyer/seller (lerp 0.5)
+    Deduct resources from seller
+    Add resources to buyer (OC storage)
+      |
+      v
+TradeSystem (128x/day)
+  TradeJob:
+    Decay trade balances (1%/update)
+    Recalculate cached costs per (resource, transport type)
+    For each OC storage: rebalance toward half capacity
+    Record import/export statistics
+      |
+      v
+[Resources flow in/out through outside connections]
+
+
+UTILITY TRADE PIPELINE
+========================
+
+[Electricity / Water flow solvers run on 128-frame cycle]
+      |
+      v
+ElectricityFlowSystem / WaterPipeFlowSystem
+  TradeNode entities connect to source/sink in flow graph
+  Flow solver determines import/export quantities
+      |
+      v
+ElectricityTradeSystem (frame 126) / WaterTradeSystem (frame 62)
+  SumJob: Count flow through trade node edges
+  TradeJob: flow/2048 * price = fee
+  Enqueue FeeEvent to ServiceFeeSystem
+      |
+      v
+ServiceFeeSystem --&gt; BudgetSystem
+  Records utility trade as income/expense
+
+
+CONNECTION DELAY FEEDBACK
+========================
+
+OutsideConnectionDelaySystem (64x/day)
+  Count queued vehicles at OC nodes
+  Sum wait durations --&gt; average delay
+  Write to Game.Net.OutsideConnection.m_Delay
+  Update pathfinding: borderCost += delay
+      |
+      v
+PathfindSystem
+  Congested connections cost more --&gt; traffic spreads
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read Trade Costs for a Company</h3>
+
+  <p>Query a company's current trade costs to understand what it pays for imports and
+  receives for exports.</p>
+
+  <pre><code class="language-csharp">public void LogCompanyTradeCosts(EntityManager em, Entity company)
+{
+    if (!em.HasBuffer&lt;TradeCost&gt;(company)) return;
+
+    DynamicBuffer&lt;TradeCost&gt; costs = em.GetBuffer&lt;TradeCost&gt;(company);
+    for (int i = 0; i &lt; costs.Length; i++)
+    {
+        TradeCost tc = costs[i];
+        Log.Info($"Resource: {tc.m_Resource}");
+        Log.Info($"  Buy cost: {tc.m_BuyCost:F3}");
+        Log.Info($"  Sell cost: {tc.m_SellCost:F3}");
+        Log.Info($"  Last transfer: frame {tc.m_LastTransferRequestTime}");
+    }
+}</code></pre>
+
+  <h3>Modify Utility Trade Prices at Runtime</h3>
+
+  <p>Change electricity and water import/export prices by modifying the
+  <code>OutsideTradeParameterData</code> singleton.</p>
+
+  <pre><code class="language-csharp">public partial class UtilityPriceModSystem : GameSystemBase
+{
+    private EntityQuery _tradeParamQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _tradeParamQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;OutsideTradeParameterData&gt;()
+        );
+        RequireForUpdate(_tradeParamQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        Entity paramEntity = _tradeParamQuery.GetSingletonEntity();
+        OutsideTradeParameterData data =
+            EntityManager.GetComponentData&lt;OutsideTradeParameterData&gt;(paramEntity);
+
+        // Halve electricity import cost
+        data.m_ElectricityImportPrice *= 0.5f;
+        // Double water export revenue
+        data.m_WaterExportPrice *= 2.0f;
+
+        EntityManager.SetComponentData(paramEntity, data);
+        Enabled = false; // Only run once
+    }
+}</code></pre>
+
+  <h3>Find All Outside Connections and Their Types</h3>
+
+  <p>Enumerate all outside connection entities and log their transport types and remoteness.</p>
+
+  <pre><code class="language-csharp">public void ListOutsideConnections(EntityManager em)
+{
+    EntityQuery ocQuery = em.CreateEntityQuery(
+        ComponentType.ReadOnly&lt;Game.Objects.OutsideConnection&gt;(),
+        ComponentType.ReadOnly&lt;PrefabRef&gt;()
+    );
+
+    NativeArray&lt;Entity&gt; entities = ocQuery.ToEntityArray(Allocator.Temp);
+    for (int i = 0; i &lt; entities.Length; i++)
+    {
+        Entity e = entities[i];
+        PrefabRef prefabRef = em.GetComponentData&lt;PrefabRef&gt;(e);
+
+        string type = "General";
+        if (em.HasComponent&lt;ElectricityOutsideConnection&gt;(e))
+            type = "Electricity";
+        else if (em.HasComponent&lt;WaterPipeOutsideConnection&gt;(e))
+            type = "Water";
+
+        if (em.HasComponent&lt;OutsideConnectionData&gt;(prefabRef.m_Prefab))
+        {
+            OutsideConnectionData ocd =
+                em.GetComponentData&lt;OutsideConnectionData&gt;(prefabRef.m_Prefab);
+            Log.Info($"OC {e.Index}: type={type}, transfer={ocd.m_Type}, " +
+                     $"remoteness={ocd.m_Remoteness}");
+        }
+    }
+
+    entities.Dispose();
+    ocQuery.Dispose();
+}</code></pre>
+
+  <h3>Monitor Electricity Import/Export Volumes</h3>
+
+  <p>Read the <code>ElectricityTradeSystem</code>'s last cycle values to display in a
+  custom UI.</p>
+
+  <pre><code class="language-csharp">public partial class ElectricityTradeMonitorSystem : GameSystemBase
+{
+    private ElectricityTradeSystem _elecTradeSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _elecTradeSystem = World.GetOrCreateSystemManaged&lt;ElectricityTradeSystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        int exported = _elecTradeSystem.export;
+        int imported = _elecTradeSystem.import;
+
+        if (exported &gt; 0 || imported &gt; 0)
+        {
+            Log.Info($"Electricity trade: export={exported}, import={imported}");
+            Log.Info($"  Export (kW/day): {(float)exported / 2048f:F1}");
+            Log.Info($"  Import (kW/day): {(float)imported / 2048f:F1}");
+        }
+    }
+}</code></pre>
+
+  <h3>Harmony Patch to Apply a Trade Cost Multiplier</h3>
+
+  <p>Apply a configurable multiplier to all import/export costs via a postfix patch on
+  <code>CalculateTradeCost</code>.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.TradeSystem), "CalculateTradeCost")]
+public static class TradeCostPatch
+{
+    public static float ImportCostMultiplier { get; set; } = 1.0f;
+    public static float ExportCostMultiplier { get; set; } = 1.0f;
+
+    static void Postfix(ref TradeCost __result)
+    {
+        __result.m_BuyCost *= ImportCostMultiplier;
+        __result.m_SellCost *= ExportCostMultiplier;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Trade balance decay</td>
+        <td>TradeSystem.kRefreshRate</td>
+        <td>0.01 (1%)</td>
+        <td>How fast trade balances return to zero each update</td>
+      </tr>
+      <tr>
+        <td>Trade updates/day</td>
+        <td>TradeSystem.kUpdatesPerDay</td>
+        <td>128</td>
+        <td>How many times per day outside connection storage rebalances</td>
+      </tr>
+      <tr>
+        <td>Export update rate</td>
+        <td>ResourceExporterSystem interval</td>
+        <td>16 frames</td>
+        <td>How often export pathfinding/dispatch runs</td>
+      </tr>
+      <tr>
+        <td>Utility trade cycle</td>
+        <td>ElectricityTradeSystem / WaterTradeSystem</td>
+        <td>128 frames</td>
+        <td>Aligned with flow solver cycle</td>
+      </tr>
+      <tr>
+        <td>Connection delay cycle</td>
+        <td>OutsideConnectionDelaySystem</td>
+        <td>4096 frames (64/day)</td>
+        <td>How often traffic delay at connections is recalculated</td>
+      </tr>
+      <tr>
+        <td>Water pollution tolerance</td>
+        <td>OutsideTradeParameterData.m_WaterExportPollutionTolerance</td>
+        <td>0.1 (10%)</td>
+        <td>Pollution level at which water export revenue reaches zero</td>
+      </tr>
+      <tr>
+        <td>Service fee population range</td>
+        <td>OutsideTradeParameterData.m_OCServiceTradePopulationRange</td>
+        <td>1000</td>
+        <td>Population bracket size for scaling service import fees</td>
+      </tr>
+      <tr>
+        <td>TradeCost smoothing</td>
+        <td>HandleExportsJob lerp factor</td>
+        <td>0.5</td>
+        <td>How quickly actual trade costs converge to current transport costs</td>
+      </tr>
+      <tr>
+        <td>Outside connection max transports</td>
+        <td>TransportCompanyData.m_MaxTransports</td>
+        <td>int.MaxValue</td>
+        <td>OC entities have unlimited vehicle capacity</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Default pricing values:</strong> The actual numeric values for weight/distance
+      multipliers and utility prices come from the prefab asset data, which is not embedded in
+      the DLL. Only the field names and types are visible; the actual defaults must be read
+      from a running game or extracted from asset bundles.
+    </li>
+    <li>
+      <strong>Service import fee pipeline:</strong> The
+      <code>m_*ImportServiceFee</code> fields and
+      <code>m_OCServiceTradePopulationRange</code> on <code>OutsideTradeParameterData</code>
+      suggest service import costs scale with population in discrete brackets. The exact
+      system that consumes these values was not found in the types decompiled for this topic.
+    </li>
+    <li>
+      <strong>Sewage import:</strong> <code>WaterTradeSystem</code> tracks sewage export but
+      there is no sewage import path. <code>OutsideTradeParameterData.GetFee</code> returns 0
+      for sewage import. This appears intentional -- the game does not model sewage import.
+    </li>
+    <li>
+      <strong>Trade cost NaN protection:</strong> Both <code>TradeSystem</code> and
+      <code>ResourceExporterSystem</code> have explicit NaN checks on
+      <code>TradeCost</code> values. The deserialization code also clamps NaN to 0.
+      The edge conditions that produce NaN in practice are not fully characterized.
+    </li>
+    <li>
+      <strong>Trade balance persistence:</strong> <code>TradeSystem</code> serializes
+      <code>m_TradeBalances</code>, so trade state persists across save/load. The exact
+      recovery behavior after loading a save with stale balances is governed by the 1%
+      decay rate but has not been tested in practice.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.TradeSystem, Game.Simulation.ResourceExporterSystem, Game.Simulation.ElectricityTradeSystem, Game.Simulation.WaterTradeSystem, Game.Simulation.OutsideConnectionDelaySystem, Game.Net.OutsideConnectionSystem</li>
+    <li>Components: Game.Companies.TradeCost, Game.Companies.CurrentTrading, Game.Companies.ResourceExporter, Game.Objects.OutsideConnection, Game.Net.OutsideConnection, Game.Simulation.TradeNode</li>
+    <li>Prefab types: Game.Prefabs.OutsideConnectionData, Game.Prefabs.OutsideTradeParameterData, Game.Prefabs.OutsideConnectionTransferType, Game.Prefabs.OutsideConnection, Game.Prefabs.OutsideTradeParameterPrefab</li>
+    <li>City data: Game.City.ServiceImportBudget</li>
+    <li>UI: Game.UI.InGame.TradedResourcesSection</li>
+    <li>Related: <a href="resource-production.html">Resource Production</a>, <a href="company-simulation.html">Company Simulation</a>, <a href="economy-budget.html">Economy &amp; Budget</a>, <a href="electricity-grid.html">Electricity Grid</a>, <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a></li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- TradeSystem, ResourceExporterSystem, ElectricityTradeSystem, WaterTradeSystem, OutsideConnectionDelaySystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
