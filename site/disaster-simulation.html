@@ -1,0 +1,753 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Disaster Simulation (Non-Fire)</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+      <a href="disaster-simulation.html" class="active">Disaster Simulation</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="localization.html">Localization</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Disaster Simulation (Non-Fire)</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 handle non-fire disasters -- tornadoes, storms,
+      floods, tsunamis, and lightning strikes? How do buildings take damage, how do citizens
+      evacuate, and what systems drive the entire pipeline?
+    </p>
+    <p>
+      <strong>Verdict:</strong> CS2 has two distinct disaster damage pipelines. The
+      <strong>weather phenomenon pipeline</strong> handles tornadoes and storms via a moving hotspot
+      that damages buildings within its radius and triggers lightning strikes. The
+      <strong>flood/tsunami pipeline</strong> uses the actual water surface simulation to detect
+      submerged buildings. Both pipelines feed into a shared <strong>three-channel damage system</strong>
+      (weather/fire/water stored as a float3), and when total damage reaches 1.0, the building is
+      destroyed. An evacuation pipeline warns citizens via <code>InDanger</code> components and
+      dispatches vehicles from emergency shelters.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Fire ignition and spread are covered in
+      <a href="fire-ignition.html">Fire Ignition</a>. Weather condition spawning (temperature,
+      rain thresholds that trigger disasters) is covered in
+      <a href="weather-climate.html">Weather &amp; Climate</a>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <h3>The Three Damage Channels</h3>
+
+  <p>
+    Every damageable object in CS2 carries a <code>Damaged</code> component with a <code>float3 m_Damage</code>
+    vector. Each channel tracks a different damage source independently:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Channel</th><th>Index</th><th>Source</th><th>Applied By</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Weather (tornado/storm)</td><td>x</td><td>WeatherDamageSystem</td><td><code>m_Damage.x += value</code></td></tr>
+      <tr><td>Fire</td><td>y</td><td>FireSpreadSystem</td><td><code>m_Damage.y += value</code></td></tr>
+      <tr><td>Water (flood/tsunami)</td><td>z</td><td>WaterDamageSystem</td><td><code>m_Damage.z += value</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    When the sum of all three channels reaches 1.0, the object is destroyed. Each channel is capped
+    at 1.0 individually, and per-tick damage is capped at 0.5 to prevent instant destruction.
+  </p>
+
+  <h3>Structural Integrity</h3>
+
+  <p>
+    Each object's prefab defines a <code>DestructibleObjectData.m_StructuralIntegrity</code> value.
+    Raw damage is divided by this value before being applied -- a building with integrity 100 takes
+    100x longer to destroy than one with integrity 1. Objects with integrity &gt;= 100,000,000 are
+    effectively <strong>indestructible</strong> (the weather damage system zeroes out their damage).
+  </p>
+
+  <p>
+    A <code>CityModifierType.DisasterDamageRate</code> further scales building damage. Early Disaster
+    Warning buildings can apply a modifier that reduces this rate city-wide.
+  </p>
+
+  <h3>Weather Phenomenon Pipeline (Tornadoes &amp; Storms)</h3>
+
+  <p>
+    Weather disasters are represented by event entities with a <code>WeatherPhenomenon</code>
+    component. Each event has two concentric circles:
+  </p>
+
+  <ul>
+    <li><strong>Phenomenon radius</strong> -- the outer boundary of the weather system</li>
+    <li><strong>Hotspot radius</strong> -- the inner damage-dealing area (eye of the storm)</li>
+  </ul>
+
+  <p>
+    The <code>WeatherPhenomenonSystem</code> runs every 16 frames and drives the entire lifecycle:
+  </p>
+
+  <ol>
+    <li><strong>Movement</strong>: The phenomenon drifts with wind. The hotspot moves semi-independently
+    with configurable instability (<code>m_HotspotInstability</code>), creating erratic tornado-like paths.</li>
+    <li><strong>Intensity ramping</strong>: Intensity increases by 0.2/sec after the start frame and
+    decreases by 0.2/sec after the end frame, creating gradual buildup and fadeout.</li>
+    <li><strong>Building damage</strong>: Buildings within the hotspot radius receive a <code>FacingWeather</code>
+    component. Severity is calculated as a linear falloff from the center: <code>intensity * damageSeverity * (1 - distance/radius)</code>.</li>
+    <li><strong>Lightning strikes</strong>: A timer fires at random intervals. Each strike searches
+    the static object quad tree for the tallest building or tree within the hotspot. Lightning can
+    start fires based on the event's <code>FireData.m_StartProbability</code>.</li>
+    <li><strong>Traffic accidents</strong>: Moving cars on roads within the hotspot can lose control
+    via <code>Impact</code> events.</li>
+    <li><strong>Danger warnings</strong>: Before the storm arrives, buildings in the projected path
+    (based on wind direction and warning time) get <code>Endanger</code> events.</li>
+  </ol>
+
+  <h3>Flood &amp; Tsunami Pipeline</h3>
+
+  <p>
+    Flood damage uses the actual water surface simulation rather than event entities. The pipeline
+    works in three stages:
+  </p>
+
+  <ol>
+    <li><strong>Detection</strong>: <code>FloodCheckSystem</code> (every 16 frames) samples the water
+    surface at each building's position. If water depth exceeds <strong>0.5 meters</strong> above
+    terrain height, the building is "flooded" via a <code>Submerge</code> event.</li>
+    <li><strong>Damage</strong>: <code>WaterDamageSystem</code> (every 64 frames) applies damage to
+    flooded buildings. The rate depends on water depth relative to building height:
+    <code>min(FloodDamageRate, depth * FloodDamageRate / max(0.5, buildingHeight))</code>. Taller
+    buildings take proportionally less damage from shallow water.</li>
+    <li><strong>Recovery</strong>: When water recedes below 0.5m, the <code>Flooded</code> component
+    is removed and damage stops (but existing damage remains).</li>
+  </ol>
+
+  <p>
+    Objects with the <code>CanSubmerge</code> geometry flag or <code>Floating|Swaying</code> placement
+    flags are excluded from flood checks.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <h3>Event Components</h3>
+
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Namespace</th><th>Key Fields</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>WeatherPhenomenon</code></td>
+        <td>Game.Events</td>
+        <td>m_PhenomenonPosition, m_HotspotPosition, m_HotspotVelocity, m_PhenomenonRadius, m_HotspotRadius, m_Intensity, m_LightningTimer</td>
+        <td>Runtime state of a tornado/storm event</td>
+      </tr>
+      <tr>
+        <td><code>Flooded</code></td>
+        <td>Game.Events</td>
+        <td>m_Event, m_Depth</td>
+        <td>Added to objects submerged by flood water</td>
+      </tr>
+      <tr>
+        <td><code>FacingWeather</code></td>
+        <td>Game.Events</td>
+        <td>m_Event, m_Severity</td>
+        <td>Added to buildings in a weather hotspot radius</td>
+      </tr>
+      <tr>
+        <td><code>InDanger</code></td>
+        <td>Game.Events</td>
+        <td>m_Event, m_EvacuationRequest, m_Flags, m_EndFrame</td>
+        <td>Marks buildings in disaster danger zone; triggers evacuation</td>
+      </tr>
+      <tr>
+        <td><code>WaterLevelChange</code></td>
+        <td>Game.Events</td>
+        <td>m_Intensity, m_MaxIntensity, m_DangerHeight, m_Direction</td>
+        <td>Active tsunami or flood event changing water levels</td>
+      </tr>
+      <tr>
+        <td><code>Duration</code></td>
+        <td>Game.Events</td>
+        <td>m_StartFrame, m_EndFrame</td>
+        <td>Time bounds for any disaster event</td>
+      </tr>
+      <tr>
+        <td><code>DangerLevel</code></td>
+        <td>Game.Events</td>
+        <td>m_DangerLevel</td>
+        <td>Current danger level reported to UI</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Damage Components</h3>
+
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Namespace</th><th>Key Fields</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Damaged</code></td>
+        <td>Game.Objects</td>
+        <td>m_Damage (float3: x=weather, y=fire, z=water)</td>
+        <td>Accumulated damage on any object</td>
+      </tr>
+      <tr>
+        <td><code>Damage</code></td>
+        <td>Game.Objects</td>
+        <td>m_Object, m_Delta (float3)</td>
+        <td>Transient event requesting damage be applied</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Danger &amp; Evacuation Flags</h3>
+
+  <table>
+    <thead>
+      <tr><th>DangerFlags Value</th><th>Constant</th><th>Behavior</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>StayIndoors</td><td>Citizens remain in their building</td></tr>
+      <tr><td>2</td><td>Evacuate</td><td>Citizens must leave the building</td></tr>
+      <tr><td>4</td><td>UseTransport</td><td>Evacuation vehicles should be dispatched</td></tr>
+      <tr><td>8</td><td>WaitingCitizens</td><td>Citizens are waiting for transport to arrive</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram"><pre>
+WEATHER PHENOMENON PIPELINE (Tornado/Storm)
+  WeatherPhenomenonSystem creates event entity with WeatherPhenomenon + Duration
+      |
+      v
+  Event moves with wind; hotspot oscillates with instability
+      |
+      +---> FindEndangeredObjects() creates Endanger events
+      |         -> Buildings get InDanger component
+      |         -> CitizenEvacuateSystem sends citizens to shelters
+      |         -> EvacuationDispatchSystem dispatches vehicles
+      |
+      +---> FindAffectedObjects() creates FaceWeather events
+      |         -> Buildings get FacingWeather component
+      |         -> WeatherDamageSystem applies damage to m_Damage.x
+      |              -> If total damage >= 1.0: Destroy event
+      |              -> CollapsedBuildingSystem handles rubble + rescue
+      |
+      +---> LightningStrike() finds tallest building/tree in hotspot
+      |         -> May create Ignite event (fire starts)
+      |
+      +---> FindAffectedEdges() finds vehicles on roads
+                -> Impact events cause vehicles to lose control
+
+FLOOD/TSUNAMI PIPELINE
+  WaterLevelChangeSystem raises water surface
+      |
+      v
+  FloodCheckSystem samples water depth at each building
+      |  (threshold: 0.5m above terrain)
+      v
+  Creates Submerge events -> Buildings get Flooded component
+      |
+      v
+  WaterDamageSystem applies damage to m_Damage.z
+      |  (rate: depth * FloodDamageRate / buildingHeight)
+      v
+  If total damage >= 1.0: Destroy event
+      -> CollapsedBuildingSystem handles rubble
+      -> FireRescueRequest(Disaster) dispatches rescue teams
+
+SHARED DAMAGE APPLICATION
+  DamageSystem aggregates all Damage event entities
+      -> Applies delta to Damaged.m_Damage float3
+      -> Adds Damaged component if not present
+      -> Removes Damaged when all channels reach 0
+  </pre></div>
+
+  <!-- ============================================================ -->
+  <h2>Key Systems</h2>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Namespace</th><th>Update Interval</th><th>Responsibility</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>WeatherPhenomenonSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>16 frames</td>
+        <td>Moves weather events, triggers damage/lightning/danger zones</td>
+      </tr>
+      <tr>
+        <td><code>WeatherDamageSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>64 frames</td>
+        <td>Applies weather damage to buildings with FacingWeather</td>
+      </tr>
+      <tr>
+        <td><code>FloodCheckSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>16 frames</td>
+        <td>Detects flooded buildings by sampling water surface</td>
+      </tr>
+      <tr>
+        <td><code>WaterDamageSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>64 frames</td>
+        <td>Applies flood damage to buildings with Flooded</td>
+      </tr>
+      <tr>
+        <td><code>DamageSystem</code></td>
+        <td>Game.Objects</td>
+        <td>Every frame</td>
+        <td>Aggregates Damage events and applies to Damaged components</td>
+      </tr>
+      <tr>
+        <td><code>CollapsedBuildingSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>64 frames</td>
+        <td>Manages destroyed building lifecycle and rescue requests</td>
+      </tr>
+      <tr>
+        <td><code>CitizenEvacuateSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>16 frames</td>
+        <td>Sends citizens from endangered buildings to shelters</td>
+      </tr>
+      <tr>
+        <td><code>EvacuationDispatchSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>16 frames</td>
+        <td>Dispatches evacuation vehicles to endangered buildings</td>
+      </tr>
+      <tr>
+        <td><code>DamagedVehicleSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>512 frames</td>
+        <td>Creates maintenance requests for damaged stopped vehicles</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Monitor Active Disasters</h3>
+
+  <p>
+    Query all active weather phenomena and flood events to track disaster state in real time.
+  </p>
+
+  <pre><code>using Game;
+using Game.Events;
+using Game.Simulation;
+using Unity.Entities;
+using Colossal.Logging;
+
+public class DisasterMonitorSystem : GameSystemBase
+{
+    private static readonly ILog Log = LogManager.GetLogger(nameof(DisasterMonitorSystem));
+
+    private EntityQuery _weatherQuery;
+    private EntityQuery _floodedQuery;
+    private EntityQuery _damagedQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _weatherQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;WeatherPhenomenon&gt;(),
+            ComponentType.ReadOnly&lt;Duration&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+        _floodedQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Flooded&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+        _damagedQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Damaged&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        int activeStorms = _weatherQuery.CalculateEntityCount();
+        int floodedBuildings = _floodedQuery.CalculateEntityCount();
+        int damagedObjects = _damagedQuery.CalculateEntityCount();
+
+        if (activeStorms &gt; 0 || floodedBuildings &gt; 0)
+        {
+            Log.Info($"Active storms: {activeStorms}, " +
+                     $"Flooded: {floodedBuildings}, " +
+                     $"Damaged: {damagedObjects}");
+        }
+    }
+}</code></pre>
+
+  <h3>Example 2: Modify Damage Severity via Harmony</h3>
+
+  <p>
+    Patch <code>EventUtils.GetSeverity</code> to apply a custom damage multiplier. This is one
+    of the few non-Burst methods in the pipeline, making it safe for Prefix/Postfix patching.
+  </p>
+
+  <pre><code>using HarmonyLib;
+using Game.Events;
+using Game.Prefabs;
+using Unity.Mathematics;
+
+[HarmonyPatch(typeof(EventUtils), nameof(EventUtils.GetSeverity))]
+public static class SeverityPatch
+{
+    public static float DamageMultiplier { get; set; } = 0.5f; // Half damage
+
+    static void Postfix(ref float __result)
+    {
+        __result *= DamageMultiplier;
+    }
+}</code></pre>
+
+  <h3>Example 3: Query Buildings in Danger Zones</h3>
+
+  <p>
+    Find all buildings under evacuation orders and categorize by danger type.
+  </p>
+
+  <pre><code>using Game;
+using Game.Buildings;
+using Game.Events;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
+public class EvacuationStatusSystem : GameSystemBase
+{
+    private EntityQuery _inDangerQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _inDangerQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Building&gt;(),
+            ComponentType.ReadOnly&lt;InDanger&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        var dangers = _inDangerQuery.ToComponentDataArray&lt;InDanger&gt;(Allocator.Temp);
+
+        int evacuating = 0;
+        int stayingIndoors = 0;
+        for (int i = 0; i &lt; dangers.Length; i++)
+        {
+            if ((dangers[i].m_Flags &amp; DangerFlags.Evacuate) != 0)
+                evacuating++;
+            else if ((dangers[i].m_Flags &amp; DangerFlags.StayIndoors) != 0)
+                stayingIndoors++;
+        }
+
+        dangers.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 4: Read Damage Channels from a Building</h3>
+
+  <p>
+    Inspect the three independent damage channels on a specific building entity.
+  </p>
+
+  <pre><code>using Game.Objects;
+using Unity.Entities;
+using Unity.Mathematics;
+
+public static class DamageUtils
+{
+    /// &lt;summary&gt;
+    /// Returns (weather, fire, water) damage channels for a building.
+    /// Each channel ranges from 0 (undamaged) to 1 (fully damaged).
+    /// &lt;/summary&gt;
+    public static (float weather, float fire, float water) GetDamageChannels(
+        EntityManager em, Entity building)
+    {
+        if (!em.HasComponent&lt;Damaged&gt;(building))
+            return (0f, 0f, 0f);
+
+        Damaged damaged = em.GetComponentData&lt;Damaged&gt;(building);
+        return (damaged.m_Damage.x, damaged.m_Damage.y, damaged.m_Damage.z);
+    }
+
+    public static float GetTotalDamage(EntityManager em, Entity building)
+    {
+        if (!em.HasComponent&lt;Damaged&gt;(building))
+            return 0f;
+
+        Damaged damaged = em.GetComponentData&lt;Damaged&gt;(building);
+        return math.csum(math.min(damaged.m_Damage, 1f));
+    }
+}</code></pre>
+
+  <h3>Example 5: Programmatically Flood a Building</h3>
+
+  <p>
+    Create a <code>Submerge</code> event to flood a target building, useful for scenario mods
+    or custom disaster triggers.
+  </p>
+
+  <pre><code>using Game;
+using Game.Events;
+using Game.Simulation;
+using Unity.Entities;
+
+public class CustomFloodSystem : GameSystemBase
+{
+    private EndFrameBarrier _barrier;
+    private EntityArchetype _submergeArchetype;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _barrier = World.GetOrCreateSystemManaged&lt;EndFrameBarrier&gt;();
+        _submergeArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+            ComponentType.ReadWrite&lt;Submerge&gt;());
+    }
+
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Flood a target building with the given water depth.
+    /// Call from another system's OnUpdate.
+    /// &lt;/summary&gt;
+    public void FloodBuilding(Entity target, float depth)
+    {
+        var cmd = _barrier.CreateCommandBuffer();
+        Entity floodEvent = cmd.CreateEntity(_submergeArchetype);
+        cmd.SetComponent(floodEvent, new Submerge
+        {
+            m_Event = Entity.Null,
+            m_Target = target,
+            m_Depth = depth
+        });
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>WeatherPhenomenonData (Prefab)</h3>
+
+  <p>
+    Each weather disaster type (tornado, thunderstorm, etc.) is configured via prefab data:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_OccurenceProbability</code></td><td>float</td><td>Base probability of this disaster occurring</td></tr>
+      <tr><td><code>m_HotspotInstability</code></td><td>float</td><td>How erratically the hotspot moves (higher = more chaotic)</td></tr>
+      <tr><td><code>m_DamageSeverity</code></td><td>float</td><td>Base damage per tick at hotspot center</td></tr>
+      <tr><td><code>m_DangerLevel</code></td><td>float</td><td>Danger level reported to UI systems</td></tr>
+      <tr><td><code>m_PhenomenonRadius</code></td><td>Bounds1</td><td>Min/max outer radius of the weather system</td></tr>
+      <tr><td><code>m_HotspotRadius</code></td><td>Bounds1</td><td>Min/max inner damage radius</td></tr>
+      <tr><td><code>m_LightningInterval</code></td><td>Bounds1</td><td>Min/max seconds between lightning strikes (0 = no lightning)</td></tr>
+      <tr><td><code>m_Duration</code></td><td>Bounds1</td><td>Min/max duration in seconds</td></tr>
+      <tr><td><code>m_OccurenceTemperature</code></td><td>Bounds1</td><td>Temperature range for occurrence</td></tr>
+      <tr><td><code>m_OccurenceRain</code></td><td>Bounds1</td><td>Rain level range for occurrence</td></tr>
+      <tr><td><code>m_DangerFlags</code></td><td>DangerFlags</td><td>What danger response to trigger (StayIndoors, Evacuate, etc.)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>DisasterConfigurationData (Global Singleton)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_FloodDamageRate</code></td><td>float</td><td>Base flood damage rate per tick</td></tr>
+      <tr><td><code>m_WeatherDamageNotificationPrefab</code></td><td>Entity</td><td>Icon shown on weather-damaged buildings</td></tr>
+      <tr><td><code>m_WaterDamageNotificationPrefab</code></td><td>Entity</td><td>Icon shown on flood-damaged buildings</td></tr>
+      <tr><td><code>m_WeatherDestroyedNotificationPrefab</code></td><td>Entity</td><td>Icon shown on weather-destroyed buildings</td></tr>
+      <tr><td><code>m_WaterDestroyedNotificationPrefab</code></td><td>Entity</td><td>Icon shown on flood-destroyed buildings</td></tr>
+    </tbody>
+  </table>
+
+  <h3>DestructibleObjectData (Per-Object Prefab)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_FireHazard</code></td><td>float</td><td>Fire susceptibility (0 = cannot catch fire from lightning)</td></tr>
+      <tr><td><code>m_StructuralIntegrity</code></td><td>float</td><td>Damage resistance (higher = harder to destroy)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>WaterLevelChangeData (Tsunami/Flood Prefab)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_TargetType</code></td><td>WaterLevelTargetType</td><td>None, River, Sea, or All</td></tr>
+      <tr><td><code>m_ChangeType</code></td><td>WaterLevelChangeType</td><td>None, Sine (tsunami wave), or RainControlled</td></tr>
+      <tr><td><code>m_EscalationDelay</code></td><td>float</td><td>Delay before water starts rising</td></tr>
+      <tr><td><code>m_DangerFlags</code></td><td>DangerFlags</td><td>Danger response type</td></tr>
+      <tr><td><code>m_DangerLevel</code></td><td>float</td><td>Danger level for this flood event</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Patch Type</th><th>What It Enables</th><th>Risk</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>EventUtils.GetSeverity</code></td>
+        <td>Prefix / Postfix</td>
+        <td>Override damage severity calculation globally (e.g., custom distance falloff, building-type resistance)</td>
+        <td>Medium -- static utility, affects all severity calcs</td>
+      </tr>
+      <tr>
+        <td><code>WeatherDamageSystem+WeatherDamageJob.Execute</code></td>
+        <td>Transpiler only</td>
+        <td>Modify weather damage rates, make buildings immune, change damage channels</td>
+        <td>High -- Burst-compiled job</td>
+      </tr>
+      <tr>
+        <td><code>FloodCheckSystem+FloodCheckJob.IsFlooded</code></td>
+        <td>Transpiler only</td>
+        <td>Change flood detection threshold (default 0.5m)</td>
+        <td>Medium -- Burst-compiled</td>
+      </tr>
+      <tr>
+        <td><code>CollapsedBuildingSystem+CollapsedBuildingJob.Execute</code></td>
+        <td>Transpiler only</td>
+        <td>Modify collapsed building behavior, change rescue request logic</td>
+        <td>Medium -- Burst-compiled</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Note:</strong> Most disaster systems use Burst-compiled jobs, limiting patching to
+    transpilers. The <code>EventUtils.GetSeverity</code> static method is the primary safe
+    Prefix/Postfix target.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li><strong>Tornado path prediction</strong>: The danger zone projection uses wind direction
+    and <code>CityModifierType.DisasterWarningTime</code>, but the exact interaction between
+    changing wind and path prediction needs in-game testing.</li>
+    <li><strong>Structural integrity values</strong>: Specific values for each building type are
+    set in prefab data. A comprehensive list would require scanning all building prefabs.</li>
+    <li><strong>WaterLevelChangeSystem internals</strong>: The tsunami wave propagation system
+    modifies the water simulation directly. Its full implementation was not decompiled.</li>
+    <li><strong>Emergency shelter capacity</strong>: How shelter capacity limits affect evacuation
+    flow and overflow behavior needs testing.</li>
+    <li><strong>Disaster event creation</strong>: The exact code path that creates
+    <code>WeatherPhenomenon</code> event entities (likely triggered by weather conditions) was not
+    fully traced.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: <code>Game.dll</code> -- Game.Events (WeatherPhenomenon, Flooded, FacingWeather, InDanger, DangerFlags, WaterLevelChange, Duration, DangerLevel, EventUtils, Submerge, FaceWeather, Endanger, LightningStrike, Destruction, Flood)</li>
+    <li>Decompiled from: <code>Game.dll</code> -- Game.Objects (Damaged, Damage, DamageSystem)</li>
+    <li>Decompiled from: <code>Game.dll</code> -- Game.Simulation (WeatherPhenomenonSystem, WaterDamageSystem, WeatherDamageSystem, FloodCheckSystem, CollapsedBuildingSystem, DamagedVehicleSystem, CitizenEvacuateSystem, EvacuationDispatchSystem)</li>
+    <li>Decompiled from: <code>Game.dll</code> -- Game.Prefabs (WeatherPhenomenonData, DisasterConfigurationData, DestructibleObjectData, WaterLevelChangeData, FloodData, DestructionData, DisasterFacilityData, EarlyDisasterWarningEventData)</li>
+  </ul>
+
+  </main>
+</div>
+
+<footer>
+  <p>CS2 Modding Research -- <a href="index.html">Home</a></p>
+</footer>
+
+</body>
+</html>
