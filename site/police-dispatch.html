@@ -90,22 +90,21 @@
 
   <main class="content">
 
-  <h1>Police Dispatch with Lights &amp; Sirens</h1>
+  <h1>Police Dispatch with Lights &amp; Sirens -- Deep Dive</h1>
 
   <div class="scope">
     <h2>Scope</h2>
     <p>
       <strong>Question:</strong> How does CS2 dispatch police cars with emergency lights and
-      sirens, and how can a mod trigger this to send a police car to a specific location?
+      sirens, and what are ALL possible ways a mod can trigger this?
     </p>
     <p>
       <strong>Verdict:</strong> The entire lights-and-sirens behavior is controlled by a single
-      flag: <code>CarFlags.Emergency</code> on the <code>Car</code> component. When the
-      <code>PoliceCarAISystem</code> processes an emergency dispatch, it sets this flag, which
-      activates the siren audio, flashing lights, traffic yielding, and lane rule exemptions.
-      A mod can either create proper <code>PoliceEmergencyRequest</code> entities to go through
-      the full dispatch pipeline, or directly set <code>CarFlags.Emergency</code> on any police
-      car entity and assign it a target.
+      flag: <code>CarFlags.Emergency</code> (value <code>0x01</code>) on the <code>Car</code> component.
+      There are five distinct code paths to activate it, ranging from creating full event hierarchies
+      to directly setting the flag on a vehicle entity. The <strong>recommended approach</strong>
+      for mods is direct vehicle manipulation (Path D below), optionally combined with an
+      "Emergency Flag Guardian" system to prevent the game's AI from clearing it.
     </p>
     <p>
       <strong>Out of scope:</strong> Police helicopter dispatch (<code>PoliceAircraftAISystem</code>),
@@ -130,7 +129,7 @@
 
   <table>
     <thead>
-      <tr><th>Role</th><th>Request Type</th><th>Dispatch System</th><th>Lights/Sirens?</th></tr>
+      <tr><th>Role</th><th>Request Type</th><th>Dispatch System</th><th>Lights/Sirens?</th><th>PoliceCar State</th></tr>
     </thead>
     <tbody>
       <tr>
@@ -138,15 +137,22 @@
         <td><code>PoliceEmergencyRequest</code></td>
         <td><code>PoliceEmergencyDispatchSystem</code></td>
         <td><strong>Yes</strong> -- <code>CarFlags.Emergency</code> set</td>
+        <td><code>AccidentTarget</code> flag set</td>
       </tr>
       <tr>
         <td>Patrol</td>
         <td><code>PolicePatrolRequest</code></td>
         <td><code>PolicePatrolDispatchSystem</code></td>
-        <td><strong>No</strong> -- <code>CarFlags.Emergency</code> cleared</td>
+        <td><strong>No</strong> -- <code>CarFlags.Emergency</code> explicitly cleared</td>
+        <td>No <code>AccidentTarget</code></td>
       </tr>
     </tbody>
   </table>
+
+  <p><strong>Patrol dispatch CANNOT be leveraged for emergency response.</strong> When
+  <code>PoliceCarAISystem.SelectNextDispatch()</code> processes a <code>PolicePatrolRequest</code>,
+  it explicitly clears <code>CarFlags.Emergency</code>. The only way to get lights and sirens
+  is through <code>PoliceEmergencyRequest</code> or direct flag manipulation.</p>
 
   <h3>The Emergency Flag: CarFlags.Emergency</h3>
 
@@ -164,7 +170,7 @@
   </ul>
 
   <p>
-    When <code>PoliceCarAISystem</code> selects an emergency request, it sets:
+    When <code>PoliceCarAISystem.SelectNextDispatch()</code> selects an emergency request, it sets:
   </p>
 
   <pre><code class="language-csharp">// Emergency dispatch -- lights and sirens ON
@@ -182,79 +188,251 @@ car.m_Flags |= CarFlags.StayOnRoad | CarFlags.AnyLaneTarget | CarFlags.UsePublic
   <p>
     After any flag change, the system adds an <code>EffectsUpdated</code> tag component to the
     vehicle entity, which triggers the rendering pipeline to recalculate visual and audio
-    effects on the next frame.
+    effects on the next frame. Without <code>EffectsUpdated</code>, the flag change takes effect
+    for navigation/yielding but the visual lights and audio may not update immediately.
   </p>
 
-  <h3>The Dispatch Pipeline in Detail</h3>
+  <p>
+    The <code>CarFlags.Warning</code> flag (value <code>0x08</code>) activates amber/warning lights
+    without full emergency sirens -- used by utility vehicles like garbage trucks.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Five Dispatch Paths</h2>
+
+  <h3>Path A: Crime Event (Game Pipeline)</h3>
+
+  <ol>
+    <li><code>CrimeAccumulationSystem</code> detects crime threshold exceeded on building, creates crime event entity, adds <code>AccidentSite</code> with <code>CrimeScene</code> flag</li>
+    <li><code>AccidentSiteSystem</code> (every 64 frames): clears <code>RequirePolice</code> unconditionally, then re-evaluates -- if <code>CrimeDetected</code> flag set (after alarm delay), sets <code>RequirePolice</code> and calls <code>RequestPoliceIfNeeded()</code></li>
+    <li><code>ServiceRequestSystem</code> assigns <code>UpdateFrame</code>, removes <code>RequestGroup</code></li>
+    <li><code>PoliceEmergencyDispatchSystem</code>: validates site, pathfinds from <code>PolicePatrol</code> origin to <code>AccidentLocation</code> destination</li>
+    <li><code>PoliceCarAISystem.SelectNextDispatch()</code>: sets <code>CarFlags.Emergency</code>, <code>PoliceCarFlags.AccidentTarget</code>, adds <code>EffectsUpdated</code> -- SIREN + LIGHTS ACTIVATE</li>
+    <li>Car drives with emergency privileges, arrives within 30m, secures site</li>
+  </ol>
+
+  <h3>Path B: Traffic Accident (Game Pipeline)</h3>
+
+  <p>Same as Path A, but triggered by <code>InvolvedInAccident</code> severity instead of <code>Criminal</code> entities. <code>AddAccidentSiteSystem</code> creates the <code>TrafficAccident</code> event.</p>
+
+  <h3>Path C: Request Pipeline (Mod-Created -- Unreliable)</h3>
+
+  <div class="warning">
+    <p>
+      <strong>Warning -- Unreliable for mod-created requests.</strong> The request pipeline often
+      silently fails for synthetically created requests due to district resolution failure,
+      <code>AccidentSite</code> being cleared/removed by <code>AccidentSiteSystem</code>, and
+      routing constraints. See "Why the Request Pipeline Fails" below for details.
+    </p>
+  </div>
+
+  <p>Create a <code>PoliceEmergencyRequest</code> entity and ensure the target has a valid
+  <code>AccidentSite</code> with <code>RequirePolice</code>. The request must survive
+  <code>AccidentSiteSystem</code>'s clear-then-evaluate cycle.</p>
+
+  <h3 id="path-d">Path D: Direct Vehicle Manipulation (RECOMMENDED)</h3>
+
+  <p>
+    Directly set a police car's <code>CarFlags.Emergency</code>, <code>PoliceCarFlags.AccidentTarget</code>,
+    <code>Target</code>, and trigger path recalculation. Bypasses the dispatch pipeline entirely -- no
+    <code>AccidentSite</code> needed. This is the most reliable approach.
+  </p>
+
+  <h3>Path E: Fake Crime Event (Alternative)</h3>
+
+  <p>
+    Create a complete event entity hierarchy with <code>Criminal</code> or <code>InvolvedInAccident</code>
+    components that satisfy <code>AccidentSiteSystem</code>'s validation. The system then naturally
+    maintains <code>RequirePolice</code> and the full dispatch pipeline works. More complex than
+    Path D but uses the game's official pipeline.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Why the Request Pipeline Fails for Mods</h2>
+
+  <p>The core problem is <code>FindVehicleSource()</code> in <code>PoliceEmergencyDispatchSystem</code>.
+  It requires:</p>
 
   <ol>
     <li>
-      <strong>Trigger:</strong> <code>AccidentSiteSystem</code> detects a crime or accident,
-      sets <code>AccidentSiteFlags.RequirePolice</code> on the site entity, and creates a
-      <code>PoliceEmergencyRequest</code> entity.
+      <strong>District resolution:</strong> The method calls <code>m_CurrentDistrictData.HasComponent(target)</code>
+      first. If the target lacks <code>CurrentDistrict</code>, it falls back to a spatial lookup via
+      <code>Transform</code>. If neither exists, the district is <code>Entity.Null</code> and the
+      pathfinder's <code>SetupTargetType.PolicePatrol</code> origin finds no matching stations.
     </li>
     <li>
-      <strong>Frame assignment:</strong> <code>ServiceRequestSystem</code> assigns the request
-      to a random <code>UpdateFrame</code> group for load balancing.
+      <strong>AccidentSite cleared by AccidentSiteSystem:</strong> The system unconditionally clears
+      <code>RequirePolice</code> every 64 frames, then only re-sets it if valid
+      <code>InvolvedInAccident</code> or <code>Criminal</code> entities exist in the event's
+      <code>TargetElement</code> buffer. A mod-created <code>AccidentSite</code> without these
+      has <code>RequirePolice</code> stripped within 64 frames, causing <code>ValidateSite()</code>
+      to fail and the request to be destroyed.
     </li>
     <li>
-      <strong>Pathfinding:</strong> <code>PoliceEmergencyDispatchSystem</code> validates the
-      site (must have <code>RequirePolice</code> and not <code>Secured</code>), then enqueues
-      a pathfind from available police stations/cars to the target. The pathfind uses:
-      <ul>
-        <li>Origin: <code>SetupTargetType.PolicePatrol</code> -- matches stations with available
-          cars and on-patrol cars with matching <code>PolicePurpose</code></li>
-        <li>Destination: <code>SetupTargetType.AccidentLocation</code> with a 30m arrival radius</li>
-        <li>Max speed: 111.1 m/s (400 km/h) -- effectively no speed limit for pathfinding cost calculation</li>
-        <li>Ignored rules: all traffic restrictions (emergency vehicles ignore all lane rules)</li>
-      </ul>
+      <strong>AccidentSite removed entirely:</strong> When the <code>TargetElement</code> buffer
+      has zero matching entities and <code>StageAccident</code> is not set,
+      <code>AccidentSiteSystem</code> removes the <code>AccidentSite</code> component entirely.
     </li>
     <li>
-      <strong>Dispatch:</strong> When pathfinding completes, the system adds
-      <code>Dispatched(handler)</code> to the request and <code>ServiceDispatch(request)</code>
-      to the vehicle/station's buffer.
-    </li>
-    <li>
-      <strong>Vehicle AI:</strong> <code>PoliceCarAISystem</code> picks up the dispatch from
-      its <code>ServiceDispatch</code> buffer, sets <code>CarFlags.Emergency</code>, sets the
-      <code>Target</code> to the accident site, and begins driving.
-    </li>
-    <li>
-      <strong>Arrival:</strong> The car stops within 30m of the target (or at path end). It
-      enters the <code>AtTarget</code> state and secures the accident site.
-    </li>
-    <li>
-      <strong>Completion:</strong> After securing the site, the car either takes the next
-      dispatch or returns to the station. <code>CarFlags.Emergency</code> is cleared when
-      returning.
+      <strong>Path routing:</strong> The destination is <code>SetupTargetType.AccidentLocation</code>
+      which requires the site entity to be on or near a road network.
     </li>
   </ol>
+
+  <!-- ============================================================ -->
+  <h2>The Dispatch Pipeline in Detail</h2>
+
+  <div class="diagram">
+<pre>
+TRIGGER: Crime event or accident occurs
+    |
+    v
+AccidentSiteSystem (every 64 frames)
+    1. Clears RequirePolice unconditionally (line 227)
+    2. Iterates TargetElement buffer on m_Event
+       - Counts InvolvedInAccident (severity) and Criminal (not arrested)
+    3. If severity &gt; 0 OR (unsecured CrimeScene AND CrimeDetected):
+       Sets RequirePolice, calls RequestPoliceIfNeeded()
+    4. If num == 0 AND not staging: REMOVES AccidentSite entirely
+    |
+    v
+REQUEST ENTITY CREATION
+    Creates entity: ServiceRequest + PoliceEmergencyRequest + RequestGroup(4)
+      m_Site = AccidentSite entity
+      m_Target = highest-severity non-moving target entity
+      m_Priority = severity (or 1.0 for crime)
+      m_Purpose = CrimeMonitored ? Intelligence : Emergency
+    |
+    v
+ServiceRequestSystem
+    Sees RequestGroup(4), assigns random UpdateFrame index (0-3)
+    Removes RequestGroup -- request is now scheduled
+    |
+    v
+PoliceEmergencyDispatchSystem (every 16 frames)
+    1. ValidateSite(): AccidentSite has RequirePolice &amp; not Secured?
+    2. FindVehicleSource(): district resolution + pathfind
+       Origin:  SetupTargetType.PolicePatrol (stations/cars in district)
+       Dest:    SetupTargetType.AccidentLocation (30m radius)
+       Speed:   111.1 m/s (no speed limit for cost calc)
+       Weights: (1, 0, 0, 0) -- distance only
+       Rules:   ignores ALL traffic restrictions
+    |
+    ~~ pathfinding runs asynchronously ~~
+    |
+    3. DispatchVehicle():
+       Resolves PathInformation.m_Origin (ParkedCar -&gt; Owner)
+       Adds Dispatched(handler) to request entity
+       Adds ServiceDispatch(request) to vehicle/station buffer
+    |
+    v
+PoliceStationAISystem (every 256 frames, offset 128)
+    If dispatched to station: SpawnVehicle()
+      Creates/unparks police car with AccidentTarget flag
+      Copies path from request to vehicle
+    |
+    v
+PoliceCarAISystem (every 16 frames, offset 5)
+    CheckServiceDispatches(): validates new dispatch
+      Emergency requests PRIORITY over patrol requests
+      Existing patrol cancelled (PoliceCarFlags.Cancelled)
+    |
+    SelectNextDispatch():
+      Reads ServiceDispatch buffer, finds PoliceEmergencyRequest
+      +-- Sets PoliceCarFlags.AccidentTarget
+      +-- Sets Car.m_Flags: Emergency | StayOnRoad | UsePublicTransportLanes
+      +-- Clears CarFlags.AnyLaneTarget
+      +-- Sets Target.m_Target = site entity
+      +-- Adds EffectsUpdated tag --&gt; SIREN + LIGHTS ACTIVATE
+    |
+    v
+CarNavigationSystem (every frame)
+    Reads CarFlags.Emergency:
+      - Other cars yield to this vehicle
+      - Can use any lane including oncoming
+      - Ignores traffic signals
+      - Emergency lights and siren rendered
+    |
+    v
+ARRIVAL (path end reached OR within 30m when blocked)
+    PoliceCarAISystem:
+      Sets PoliceCarFlags.AtTarget
+      StopVehicle(): removes Moving, adds Stopped
+      SecureAccidentSite(): sets AccidentSiteFlags.Secured + m_SecuredFrame
+    |
+    v
+COMPLETION
+    SelectNextDispatch() or ReturnToStation()
+    ReturnToStation(): clears AccidentTarget, sets Returning
+    ResetPath(): clears Emergency flag --&gt; SIREN + LIGHTS OFF
+</pre>
+  </div>
 
   <h3>Reverse Dispatch: Vehicles Seeking Work</h3>
 
   <p>
     CS2 uses a <strong>bidirectional dispatch</strong> pattern. In addition to sites requesting
-    vehicles (forward), vehicles and stations also proactively create <strong>reverse
-    requests</strong> to seek targets:
+    vehicles (forward), vehicles and stations proactively create <strong>reverse requests</strong>
+    (with <code>ServiceRequestFlags.Reversed</code>) to seek targets:
   </p>
 
   <ul>
     <li>
-      <code>PoliceCarAISystem.RequestTargetIfNeeded()</code> -- when a car has few active
-      dispatches, it creates a reverse <code>PoliceEmergencyRequest</code> (with
-      <code>ServiceRequestFlags.Reversed</code>) so that the dispatch system can match it
-      to an existing unserved emergency.
+      <code>PoliceCarAISystem.RequestTargetIfNeeded()</code> -- cars with few active dispatches
+      create reverse <code>PoliceEmergencyRequest</code> (interval: every 64 frames, RequestGroup 4)
+      or reverse <code>PolicePatrolRequest</code> (interval: every 512 frames, RequestGroup 32).
     </li>
     <li>
-      <code>PoliceStationAISystem</code> -- stations create reverse requests when they
-      have available vehicles.
+      <code>PoliceStationAISystem</code> -- stations with available vehicles create reverse
+      requests when they have available capacity.
     </li>
   </ul>
 
-  <p>
-    This means police cars are not idle -- they actively search for emergencies even when no
-    specific dispatch has been created for them.
-  </p>
+  <!-- ============================================================ -->
+  <h2>Emergency vs Patrol: Comparison</h2>
+
+  <table>
+    <thead>
+      <tr><th>Aspect</th><th>Emergency Dispatch</th><th>Patrol Dispatch</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Request type</td><td><code>PoliceEmergencyRequest</code></td><td><code>PolicePatrolRequest</code></td></tr>
+      <tr><td>Validation</td><td><code>AccidentSite</code> with <code>RequirePolice</code>, not <code>Secured</code></td><td><code>CrimeProducer.m_Crime &gt;= tolerance</code></td></tr>
+      <tr><td>Vehicle flags</td><td><code>Emergency | StayOnRoad | UsePublicTransportLanes</code></td><td><code>StayOnRoad | AnyLaneTarget | UsePublicTransportLanes</code></td></tr>
+      <tr><td>Lights/sirens</td><td><strong>Yes</strong></td><td><strong>No</strong></td></tr>
+      <tr><td>PoliceCar state</td><td><code>AccidentTarget</code> flag set</td><td>No <code>AccidentTarget</code></td></tr>
+      <tr><td>Pathfind speed</td><td>111.1 m/s (400 km/h)</td><td>277.8 m/s (1000 km/h)</td></tr>
+      <tr><td>Pathfind weights</td><td>(1, 0, 0, 0) -- distance only</td><td>(1, 1, 1, 1) -- all factors</td></tr>
+      <tr><td>Pathfind methods</td><td>Road only</td><td>Road + Flying (helicopters)</td></tr>
+      <tr><td>Reverse request interval</td><td>64 frames</td><td>512 frames</td></tr>
+      <tr><td>Purpose filter</td><td>Emergency | Intelligence</td><td>Patrol</td></tr>
+      <tr><td>Car availability</td><td>ShiftEnded OK, requestCount &gt; 1 OK</td><td>Must be Empty, no EstimatedShiftEnd</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Double-Dispatch Prevention</h2>
+
+  <p>The game uses three mechanisms to prevent duplicate dispatches:</p>
+
+  <ol>
+    <li>
+      <strong><code>AccidentSite.m_PoliceRequest</code>:</strong> Each site tracks its current
+      request entity. <code>AccidentSiteSystem.RequestPoliceIfNeeded()</code> only creates a new
+      request if the existing one is stale. <code>ValidateSite()</code> updates the field to
+      the current request.
+    </li>
+    <li>
+      <strong><code>Dispatched</code> component:</strong> Added to the request once a handler
+      is assigned. Subsequent ticks validate the handler via <code>ValidateHandler()</code>
+      instead of re-pathfinding.
+    </li>
+    <li>
+      <strong><code>m_TargetRequest</code> on stations/cars:</strong> Each station and car tracks
+      its reverse-search request. <code>ValidateReversed()</code> rejects new requests if the
+      slot is already occupied.
+    </li>
+  </ol>
 
   <!-- ============================================================ -->
   <h2>Key Components</h2>
@@ -267,12 +445,12 @@ car.m_Flags |= CarFlags.StayOnRoad | CarFlags.AnyLaneTarget | CarFlags.UsePublic
       <tr>
         <td>Game.dll</td>
         <td>Game.Simulation</td>
-        <td>PoliceEmergencyDispatchSystem, PolicePatrolDispatchSystem, PoliceCarAISystem, PoliceStationAISystem, PoliceEmergencyRequest, PolicePatrolRequest, ServiceRequest, ServiceDispatch, Dispatched</td>
+        <td>PoliceEmergencyDispatchSystem, PolicePatrolDispatchSystem, PoliceCarAISystem, PoliceStationAISystem, AccidentSiteSystem, PoliceEmergencyRequest, PolicePatrolRequest, ServiceRequest, ServiceDispatch, Dispatched, HandleRequest, RequestGroup</td>
       </tr>
       <tr>
         <td>Game.dll</td>
         <td>Game.Vehicles</td>
-        <td>PoliceCar (component), PoliceCarFlags, Car, CarFlags, CarCurrentLane</td>
+        <td>PoliceCar (component), PoliceCarFlags, Car, CarFlags, CarCurrentLane, CarLaneFlags (vehicle-side)</td>
       </tr>
       <tr>
         <td>Game.dll</td>
@@ -281,8 +459,18 @@ car.m_Flags |= CarFlags.StayOnRoad | CarFlags.AnyLaneTarget | CarFlags.UsePublic
       </tr>
       <tr>
         <td>Game.dll</td>
+        <td>Game.Citizens</td>
+        <td>Criminal, CriminalFlags (NOTE: not in Game.Events)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Events</td>
+        <td>AccidentSite, AccidentSiteFlags, InvolvedInAccident</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
         <td>Game.Prefabs</td>
-        <td>PoliceCarData, PoliceStationData, PoliceConfigurationData, PolicePurpose</td>
+        <td>PoliceCarData, PoliceStationData, PoliceConfigurationData, PolicePurpose, CrimeData, TrafficAccidentData</td>
       </tr>
       <tr>
         <td>Game.dll</td>
@@ -291,28 +479,24 @@ car.m_Flags |= CarFlags.StayOnRoad | CarFlags.AnyLaneTarget | CarFlags.UsePublic
       </tr>
       <tr>
         <td>Game.dll</td>
-        <td>Game.Events</td>
-        <td>AccidentSite, AccidentSiteFlags</td>
+        <td>Game.Pathfind</td>
+        <td>PathOwner, PathInformation, PathElement, SetupQueueItem, SetupTargetType, PathFlags</td>
       </tr>
     </tbody>
   </table>
 
-  <h3>PoliceCar (Game.Vehicles)</h3>
-
-  <p>Runtime state on every active police car entity.</p>
+  <h3>CarFlags (Game.Vehicles) -- Key Flags</h3>
 
   <table>
     <thead>
-      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
     </thead>
     <tbody>
-      <tr><td>m_TargetRequest</td><td>Entity</td><td>Current reverse-search request this car is seeking work through</td></tr>
-      <tr><td>m_State</td><td>PoliceCarFlags</td><td>Bitfield of current state flags</td></tr>
-      <tr><td>m_RequestCount</td><td>int</td><td>Number of accepted service dispatches</td></tr>
-      <tr><td>m_PathElementTime</td><td>float</td><td>Average time per path element (for shift estimation)</td></tr>
-      <tr><td>m_ShiftTime</td><td>uint</td><td>Frames elapsed since shift started</td></tr>
-      <tr><td>m_EstimatedShift</td><td>uint</td><td>Estimated remaining frames for current route</td></tr>
-      <tr><td>m_PurposeMask</td><td>PolicePurpose</td><td>Which purposes this car serves (Patrol, Emergency, Intelligence)</td></tr>
+      <tr><td><strong>Emergency</strong></td><td><strong>0x01</strong></td><td><strong>THE KEY FLAG. Enables lights, sirens, traffic yielding, lane exemptions.</strong></td></tr>
+      <tr><td>StayOnRoad</td><td>0x02</td><td>Prevents using parking/garage lanes</td></tr>
+      <tr><td>AnyLaneTarget</td><td>0x04</td><td>Can target any lane position (patrol mode)</td></tr>
+      <tr><td>Warning</td><td>0x08</td><td>Amber/warning lights (not full emergency)</td></tr>
+      <tr><td>UsePublicTransportLanes</td><td>0x20</td><td>Can use bus/tram lanes</td></tr>
     </tbody>
   </table>
 
@@ -326,28 +510,30 @@ car.m_Flags |= CarFlags.StayOnRoad | CarFlags.AnyLaneTarget | CarFlags.UsePublic
       <tr><td>Returning</td><td>0x01</td><td>Heading back to station</td></tr>
       <tr><td>ShiftEnded</td><td>0x02</td><td>Shift timer expired</td></tr>
       <tr><td>AccidentTarget</td><td>0x04</td><td>Dispatched to emergency/accident site</td></tr>
-      <tr><td>AtTarget</td><td>0x08</td><td>Has arrived at target location</td></tr>
+      <tr><td>AtTarget</td><td>0x08</td><td>Arrived at target location</td></tr>
       <tr><td>Disembarking</td><td>0x10</td><td>Unloading passengers (criminals)</td></tr>
-      <tr><td>Cancelled</td><td>0x20</td><td>Current patrol preempted by emergency</td></tr>
+      <tr><td>Cancelled</td><td>0x20</td><td>Patrol preempted by emergency</td></tr>
       <tr><td>Full</td><td>0x40</td><td>Criminal capacity filled</td></tr>
       <tr><td>Empty</td><td>0x80</td><td>No passengers</td></tr>
-      <tr><td>EstimatedShiftEnd</td><td>0x100</td><td>Current route would exceed shift</td></tr>
+      <tr><td>EstimatedShiftEnd</td><td>0x100</td><td>Route would exceed shift</td></tr>
       <tr><td>Disabled</td><td>0x200</td><td>Car disabled (no station capacity)</td></tr>
     </tbody>
   </table>
 
-  <h3>CarFlags (Game.Vehicles) -- Key Flags</h3>
+  <h3>PoliceCar (Game.Vehicles)</h3>
 
   <table>
     <thead>
-      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
     </thead>
     <tbody>
-      <tr><td><strong>Emergency</strong></td><td><strong>0x01</strong></td><td><strong>Enables lights, sirens, traffic yielding, lane exemptions</strong></td></tr>
-      <tr><td>StayOnRoad</td><td>0x02</td><td>Prevents using parking/garage lanes</td></tr>
-      <tr><td>AnyLaneTarget</td><td>0x04</td><td>Can target any lane position (patrol mode)</td></tr>
-      <tr><td>Warning</td><td>0x08</td><td>Warning lights (not full emergency)</td></tr>
-      <tr><td>UsePublicTransportLanes</td><td>0x20</td><td>Can use bus/tram lanes</td></tr>
+      <tr><td>m_TargetRequest</td><td>Entity</td><td>Current reverse-search request</td></tr>
+      <tr><td>m_State</td><td>PoliceCarFlags</td><td>Bitfield of state flags</td></tr>
+      <tr><td>m_RequestCount</td><td>int</td><td>Accepted service dispatch count</td></tr>
+      <tr><td>m_PathElementTime</td><td>float</td><td>Average time per path element</td></tr>
+      <tr><td>m_ShiftTime</td><td>uint</td><td>Frames since shift started</td></tr>
+      <tr><td>m_EstimatedShift</td><td>uint</td><td>Estimated remaining frames</td></tr>
+      <tr><td>m_PurposeMask</td><td>PolicePurpose</td><td>Patrol, Emergency, Intelligence</td></tr>
     </tbody>
   </table>
 
@@ -361,21 +547,67 @@ car.m_Flags |= CarFlags.StayOnRoad | CarFlags.AnyLaneTarget | CarFlags.UsePublic
       <tr><td>m_Site</td><td>Entity</td><td>AccidentSite entity to respond to</td></tr>
       <tr><td>m_Target</td><td>Entity</td><td>Specific target entity at the site</td></tr>
       <tr><td>m_Priority</td><td>float</td><td>Dispatch priority (higher = more urgent)</td></tr>
-      <tr><td>m_Purpose</td><td>PolicePurpose</td><td>Purpose flags (Emergency, Intelligence)</td></tr>
+      <tr><td>m_Purpose</td><td>PolicePurpose</td><td>Emergency or Intelligence</td></tr>
     </tbody>
   </table>
 
-  <h3>PoliceStation (Game.Buildings)</h3>
+  <h3>AccidentSite (Game.Events)</h3>
 
   <table>
     <thead>
       <tr><th>Field</th><th>Type</th><th>Description</th></tr>
     </thead>
     <tbody>
-      <tr><td>m_PrisonerTransportRequest</td><td>Entity</td><td>Active prisoner transport request</td></tr>
-      <tr><td>m_TargetRequest</td><td>Entity</td><td>Active reverse-search request</td></tr>
-      <tr><td>m_Flags</td><td>PoliceStationFlags</td><td>HasAvailablePatrolCars (1), HasAvailablePoliceHelicopters (2), NeedPrisonerTransport (4)</td></tr>
-      <tr><td>m_PurposeMask</td><td>PolicePurpose</td><td>Patrol, Emergency, Intelligence</td></tr>
+      <tr><td>m_Event</td><td>Entity</td><td>Persistent event entity (must be valid Game.Events.Event)</td></tr>
+      <tr><td>m_PoliceRequest</td><td>Entity</td><td>Current police emergency request</td></tr>
+      <tr><td>m_Flags</td><td>AccidentSiteFlags</td><td>State flags (RequirePolice, Secured, CrimeScene, etc.)</td></tr>
+      <tr><td>m_CreationFrame</td><td>uint</td><td>Frame when created</td></tr>
+      <tr><td>m_SecuredFrame</td><td>uint</td><td>Frame when secured by police</td></tr>
+    </tbody>
+  </table>
+
+  <h3>AccidentSiteFlags (Game.Events)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>StageAccident</td><td>0x01</td><td>Staging additional impacts</td></tr>
+      <tr><td>Secured</td><td>0x02</td><td>Police have secured the site</td></tr>
+      <tr><td>CrimeScene</td><td>0x04</td><td>This is a crime scene</td></tr>
+      <tr><td>TrafficAccident</td><td>0x08</td><td>This is a traffic accident</td></tr>
+      <tr><td>CrimeFinished</td><td>0x10</td><td>Crime has concluded</td></tr>
+      <tr><td>CrimeDetected</td><td>0x20</td><td>Crime detected by citizens/monitoring</td></tr>
+      <tr><td>CrimeMonitored</td><td>0x40</td><td>CCTV or similar monitoring</td></tr>
+      <tr><td>RequirePolice</td><td>0x80</td><td>Police needed (set each tick by AccidentSiteSystem)</td></tr>
+      <tr><td>MovingVehicles</td><td>0x100</td><td>Involved vehicles still moving</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Criminal (Game.Citizens)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Event</td><td>Entity</td><td>Crime event entity</td></tr>
+      <tr><td>m_JailTime</td><td>ushort</td><td>Jail time in frames</td></tr>
+      <tr><td>m_Flags</td><td>CriminalFlags</td><td>Robber(1), Prisoner(2), Planning(4), Preparing(8), Monitored(0x10), Arrested(0x20), Sentenced(0x40)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CrimeProducer (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_PatrolRequest</td><td>Entity</td><td>Active patrol request for this building</td></tr>
+      <tr><td>m_Crime</td><td>float</td><td>Current crime level</td></tr>
+      <tr><td>m_DispatchIndex</td><td>byte</td><td>Dispatch ordering index</td></tr>
     </tbody>
   </table>
 
@@ -386,96 +618,20 @@ car.m_Flags |= CarFlags.StayOnRoad | CarFlags.AnyLaneTarget | CarFlags.UsePublic
       <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
     </thead>
     <tbody>
-      <tr><td>Patrol</td><td>1</td><td>Regular patrol duty (crime reduction by presence)</td></tr>
-      <tr><td>Emergency</td><td>2</td><td>Emergency response (accident sites, crime scenes)</td></tr>
-      <tr><td>Intelligence</td><td>4</td><td>Intelligence gathering (monitored crime scenes)</td></tr>
+      <tr><td>Patrol</td><td>1</td><td>Routine patrol</td></tr>
+      <tr><td>Emergency</td><td>2</td><td>Emergency response</td></tr>
+      <tr><td>Intelligence</td><td>4</td><td>Intelligence/surveillance</td></tr>
     </tbody>
   </table>
 
   <!-- ============================================================ -->
-  <h2>Data Flow</h2>
-
-  <div class="diagram">
-<pre>
-TRIGGER: Crime event or accident occurs
-    |
-    v
-AccidentSiteSystem (every 64 frames)
-    1. Clears RequirePolice unconditionally
-    2. Re-evaluates: if severity &gt; 0 or unsecured crime detected
-       sets RequirePolice, calls RequestPoliceIfNeeded()
-    |
-    v
-REQUEST ENTITY CREATION
-    Creates entity: ServiceRequest + PoliceEmergencyRequest + RequestGroup(4)
-      m_Site = AccidentSite entity
-      m_Target = highest-severity target entity
-      m_Priority = 1.0
-      m_Purpose = PolicePurpose.Emergency
-    |
-    v
-ServiceRequestSystem
-    Sees RequestGroup, assigns random UpdateFrame index
-    Removes RequestGroup -- request is now scheduled
-    |
-    v
-PoliceEmergencyDispatchSystem (every 16 frames)
-    1. ValidateSite(): AccidentSite has RequirePolice &amp; not Secured?
-    2. FindVehicleSource(): enqueue pathfind
-       Origin:  SetupTargetType.PolicePatrol (stations/cars in district)
-       Dest:    SetupTargetType.AccidentLocation (30m radius)
-       Speed:   111.1 m/s (no speed limit for cost calc)
-       Rules:   ignores ALL traffic restrictions
-    |
-    ~~ pathfinding runs asynchronously ~~
-    |
-    3. DispatchVehicle():
-       Adds Dispatched(handler) to request entity
-       Adds ServiceDispatch(request) to vehicle's buffer
-    |
-    v
-PoliceCarAISystem.SelectNextDispatch() (every 16 frames, offset 5)
-    Reads ServiceDispatch buffer, finds PoliceEmergencyRequest
-    |
-    +-- Sets PoliceCarFlags.AccidentTarget
-    +-- Sets Car.m_Flags: Emergency | StayOnRoad | UsePublicTransportLanes
-    +-- Clears CarFlags.AnyLaneTarget
-    +-- Sets Target.m_Target = site entity
-    +-- Adds EffectsUpdated tag --&gt; SIREN + LIGHTS ACTIVATE
-    |
-    v
-CarNavigationSystem
-    Reads CarFlags.Emergency:
-      - Other cars yield to this vehicle
-      - Can use any lane including oncoming
-      - Ignores traffic signals
-      - Emergency lights and siren rendered
-    |
-    v
-ARRIVAL (path end reached OR within 30m of target)
-    PoliceCarAISystem:
-      Sets PoliceCarFlags.AtTarget
-      Calls StopVehicle() -- removes Moving, adds Stopped
-      SecureAccidentSite() -- sets AccidentSite.Secured flag
-    |
-    v
-COMPLETION
-    Creates HandleRequest(completed: true)
-    ServiceRequestSystem destroys request entity
-    SelectNextDispatch() or ReturnToStation()
-    ReturnToStation() clears Emergency flag -- SIREN + LIGHTS OFF
-</pre>
-  </div>
-
-  <!-- ============================================================ -->
   <h2>Examples</h2>
 
-  <h3>Activate Emergency Lights on a Police Car</h3>
+  <h3>Example 1: Activate Emergency Lights on Any Police Car</h3>
 
   <p>
-    The simplest approach: set <code>CarFlags.Emergency</code> directly on any police car
-    entity. This immediately enables lights and sirens without going through the full dispatch
-    pipeline.
+    The simplest approach: set <code>CarFlags.Emergency</code> directly. This immediately enables
+    lights and sirens without going through the dispatch pipeline.
   </p>
 
   <pre><code class="language-csharp">public void ActivateEmergencyLights(EntityManager em, Entity policeCarEntity)
@@ -496,151 +652,107 @@ COMPLETION
     }
 }</code></pre>
 
-  <h3>Dispatch Police to a Building via the Full Pipeline</h3>
-
-  <div class="warning">
-    <p>
-      <strong>Warning -- Unreliable for mod-created requests:</strong> This request-based approach
-      compiles and creates valid-looking entities, but the <code>PoliceEmergencyDispatchSystem</code>
-      pipeline often silently fails to match and dispatch vehicles for synthetically created requests.
-      The pathfinding and reverse-dispatch matching assumes requests originate from real game events,
-      and mod-created requests frequently get stuck without ever dispatching a car.
-    </p>
-    <p>
-      <strong>Use <a href="#force-a-police-car-to-a-specific-target-with-sirens">Example 3
-      (direct car manipulation)</a> as the preferred approach</strong> for reliably sending police
-      cars to specific locations.
-    </p>
-  </div>
+  <h3>Example 2: Direct Dispatch -- Send Police Car to Target with Sirens (RECOMMENDED)</h3>
 
   <p>
-    Create a proper <code>PoliceEmergencyRequest</code> entity targeting a specific building.
-    The target must have an <code>AccidentSite</code> component with <code>RequirePolice</code>
-    for the dispatch system to validate it.
+    The recommended approach for reliably sending a police car to a specific entity.
+    Bypasses the dispatch pipeline entirely -- no <code>AccidentSite</code> needed.
   </p>
 
-  <pre><code class="language-csharp">[UpdateAfter(typeof(AccidentSiteSystem))]
-public partial class DispatchPoliceToLocationSystem : GameSystemBase
+  <pre><code class="language-csharp">public partial class ForcePoliceToLocationSystem : GameSystemBase
 {
-    /// &lt;summary&gt;Tracks the dummy event entity so it can be cleaned up.&lt;/summary&gt;
-    private Entity m_DummyEventEntity;
+    protected override void OnCreate() { base.OnCreate(); }
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Send a specific police car to a target entity with lights and sirens.
+    /// The targetEntity should be on or near the road network.
+    /// &lt;/summary&gt;
+    public void SendPoliceCarTo(Entity policeCarEntity, Entity targetEntity)
+    {
+        // 1. Set emergency flags on Car component
+        Car car = EntityManager.GetComponentData&lt;Car&gt;(policeCarEntity);
+        car.m_Flags |= CarFlags.Emergency | CarFlags.StayOnRoad
+                     | CarFlags.UsePublicTransportLanes;
+        car.m_Flags &amp;= ~CarFlags.AnyLaneTarget;
+        EntityManager.SetComponentData(policeCarEntity, car);
+
+        // 2. Set AccidentTarget state on PoliceCar component
+        var policeCar = EntityManager.GetComponentData&lt;Game.Vehicles.PoliceCar&gt;(
+            policeCarEntity);
+        policeCar.m_State |= PoliceCarFlags.AccidentTarget;
+        policeCar.m_State &amp;= ~(PoliceCarFlags.Returning | PoliceCarFlags.AtTarget
+                               | PoliceCarFlags.Cancelled);
+        EntityManager.SetComponentData(policeCarEntity, policeCar);
+
+        // 3. Set navigation target
+        EntityManager.SetComponentData(policeCarEntity, new Target(targetEntity));
+
+        // 4. Request new path calculation
+        PathOwner po = EntityManager.GetComponentData&lt;PathOwner&gt;(policeCarEntity);
+        po.m_State |= PathFlags.Updated;
+        EntityManager.SetComponentData(policeCarEntity, po);
+
+        // 5. Trigger rendering update for lights/sirens
+        if (!EntityManager.HasComponent&lt;EffectsUpdated&gt;(policeCarEntity))
+        {
+            EntityManager.AddComponent&lt;EffectsUpdated&gt;(policeCarEntity);
+        }
+    }
+}</code></pre>
+
+  <h3>Example 3: Emergency Flag Guardian System</h3>
+
+  <p>
+    Prevents <code>PoliceCarAISystem</code> from clearing the Emergency flag on mod-controlled
+    cars. Add a custom <code>ModControlledEmergency</code> tag to cars you want to keep in
+    emergency mode.
+  </p>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Runs after PoliceCarAISystem to re-apply Emergency flags on mod-controlled cars.
+/// &lt;/summary&gt;
+[UpdateAfter(typeof(PoliceCarAISystem))]
+public partial class EmergencyFlagGuardianSystem : GameSystemBase
+{
+    public struct ModControlledEmergency : IComponentData { }
+
+    private EntityQuery m_ModCarQuery;
 
     protected override void OnCreate()
     {
         base.OnCreate();
+        m_ModCarQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;ModControlledEmergency&gt;(),
+            ComponentType.ReadWrite&lt;Car&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+        RequireForUpdate(m_ModCarQuery);
     }
 
-    protected override void OnUpdate() { }
-
-    protected override void OnDestroy()
+    protected override void OnUpdate()
     {
-        // Clean up the dummy event entity if it exists
-        if (m_DummyEventEntity != Entity.Null
-            &amp;&amp; EntityManager.Exists(m_DummyEventEntity))
+        var entities = m_ModCarQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
         {
-            EntityManager.DestroyEntity(m_DummyEventEntity);
-        }
-        base.OnDestroy();
-    }
-
-    public void DispatchTo(Entity targetEntity)
-    {
-        // Create a dummy Event entity so AccidentSiteSystem does not
-        // immediately remove the AccidentSite component.
-        // Entity.Null in m_Event causes AccidentSiteSystem to treat the
-        // site as invalid and remove it.
-        if (m_DummyEventEntity == Entity.Null
-            || !EntityManager.Exists(m_DummyEventEntity))
-        {
-            m_DummyEventEntity = EntityManager.CreateEntity();
-            EntityManager.AddComponentData&lt;Game.Common.Event&gt;(
-                m_DummyEventEntity, default);
-        }
-
-        // Ensure target has AccidentSite with RequirePolice
-        if (!EntityManager.HasComponent&lt;AccidentSite&gt;(targetEntity))
-        {
-            EntityManager.AddComponentData(targetEntity, new AccidentSite
+            Car car = EntityManager.GetComponentData&lt;Car&gt;(entities[i]);
+            if ((car.m_Flags &amp; CarFlags.Emergency) == 0)
             {
-                m_Flags = AccidentSiteFlags.RequirePolice
-                        | AccidentSiteFlags.CrimeScene
-                        | AccidentSiteFlags.CrimeDetected,
-                m_Event = m_DummyEventEntity,
-                m_PoliceRequest = Entity.Null
-            });
-        }
-        else
-        {
-            var site = EntityManager.GetComponentData&lt;AccidentSite&gt;(targetEntity);
-            site.m_Flags |= AccidentSiteFlags.RequirePolice;
-            if (site.m_Event == Entity.Null)
-            {
-                site.m_Event = m_DummyEventEntity;
+                car.m_Flags |= CarFlags.Emergency | CarFlags.StayOnRoad
+                             | CarFlags.UsePublicTransportLanes;
+                car.m_Flags &amp;= ~CarFlags.AnyLaneTarget;
+                EntityManager.SetComponentData(entities[i], car);
+                if (!EntityManager.HasComponent&lt;EffectsUpdated&gt;(entities[i]))
+                {
+                    EntityManager.AddComponent&lt;EffectsUpdated&gt;(entities[i]);
+                }
             }
-            EntityManager.SetComponentData(targetEntity, site);
         }
-
-        // Create emergency request entity with individual AddComponentData
-        // calls (CreateArchetype is not available on netstandard2.1)
-        Entity request = EntityManager.CreateEntity();
-        EntityManager.AddComponentData(request, new ServiceRequest());
-        EntityManager.AddComponentData(request, new PoliceEmergencyRequest(
-            targetEntity, targetEntity, 1f, PolicePurpose.Emergency));
-        EntityManager.AddComponentData(request, new RequestGroup(4u));
+        entities.Dispose();
     }
 }</code></pre>
 
-  <p>
-    <strong>Important:</strong> This system uses <code>[UpdateAfter(typeof(AccidentSiteSystem))]</code>
-    because <code>AccidentSiteSystem</code> unconditionally clears <code>RequirePolice</code>
-    every 64 frames before re-evaluating. A system that sets <code>RequirePolice</code> must
-    run <em>after</em> this clearing occurs. See the
-    <a href="emergency-dispatch.html">Emergency Dispatch</a> page for details on this pattern.
-  </p>
-
-  <h3>Force a Police Car to a Specific Target with Sirens</h3>
-
-  <p>
-    Directly set a police car's target entity and enable emergency mode. This bypasses the
-    dispatch pipeline entirely -- no <code>AccidentSite</code> needed.
-  </p>
-
-  <pre><code class="language-csharp">public void SendPoliceCarTo(EntityManager em, Entity policeCarEntity, Entity targetEntity)
-{
-    // 1. Set emergency flags on Car component
-    Car car = em.GetComponentData&lt;Car&gt;(policeCarEntity);
-    car.m_Flags |= CarFlags.Emergency | CarFlags.StayOnRoad
-                 | CarFlags.UsePublicTransportLanes;
-    car.m_Flags &amp;= ~CarFlags.AnyLaneTarget;
-    em.SetComponentData(policeCarEntity, car);
-
-    // 2. Set AccidentTarget state on PoliceCar component
-    var policeCar = em.GetComponentData&lt;Game.Vehicles.PoliceCar&gt;(policeCarEntity);
-    policeCar.m_State |= PoliceCarFlags.AccidentTarget;
-    policeCar.m_State &amp;= ~(PoliceCarFlags.Returning | PoliceCarFlags.AtTarget
-                           | PoliceCarFlags.Cancelled);
-    em.SetComponentData(policeCarEntity, policeCar);
-
-    // 3. Set navigation target
-    em.SetComponentData(policeCarEntity, new Target(targetEntity));
-
-    // 4. Request new path calculation
-    PathOwner pathOwner = em.GetComponentData&lt;PathOwner&gt;(policeCarEntity);
-    pathOwner.m_State |= PathFlags.Updated;
-    em.SetComponentData(policeCarEntity, pathOwner);
-
-    // 5. Trigger rendering update for lights/sirens
-    if (!em.HasComponent&lt;EffectsUpdated&gt;(policeCarEntity))
-    {
-        em.AddComponent&lt;EffectsUpdated&gt;(policeCarEntity);
-    }
-}</code></pre>
-
-  <h3>Find Available Police Cars for Custom Dispatch</h3>
-
-  <p>
-    Query for police cars that are not busy, not returning, and have available dispatch slots.
-  </p>
+  <h3>Example 4: Find Available Police Cars</h3>
 
   <pre><code class="language-csharp">public partial class FindAvailablePoliceCarsSystem : GameSystemBase
 {
@@ -664,17 +776,14 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
     {
         var result = new NativeList&lt;Entity&gt;(allocator);
         var entities = m_PoliceCarQuery.ToEntityArray(Allocator.Temp);
-
         for (int i = 0; i &lt; entities.Length; i++)
         {
-            var pc = EntityManager.GetComponentData&lt;Game.Vehicles.PoliceCar&gt;(entities[i]);
-
-            // Available: not returning, not at target, shift not ended, not disabled
+            var pc = EntityManager.GetComponentData&lt;Game.Vehicles.PoliceCar&gt;(
+                entities[i]);
             PoliceCarFlags busyFlags = PoliceCarFlags.Returning
                                      | PoliceCarFlags.AtTarget
                                      | PoliceCarFlags.ShiftEnded
                                      | PoliceCarFlags.Disabled;
-
             if ((pc.m_State &amp; busyFlags) == 0 &amp;&amp; pc.m_RequestCount &lt;= 1)
             {
                 result.Add(entities[i]);
@@ -685,11 +794,225 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
     }
 }</code></pre>
 
-  <h3>Monitor Active Emergency Responses</h3>
+  <h3>Example 5: Complete Dispatch-and-Guard System</h3>
 
   <p>
-    Track which police cars are currently responding to emergencies with lights and sirens.
+    The most robust approach: finds an available car, sets emergency flags, tracks it with a
+    <code>ModDispatched</code> tag, and guards against the AI clearing the flags.
   </p>
+
+  <pre><code class="language-csharp">[UpdateAfter(typeof(PoliceCarAISystem))]
+public partial class RobustPoliceDispatchSystem : GameSystemBase
+{
+    public struct ModDispatched : IComponentData
+    {
+        public Entity m_Target;
+    }
+
+    private EntityQuery m_PoliceCarQuery;
+    private EntityQuery m_ModDispatchedQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_PoliceCarQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Vehicles.PoliceCar&gt;(),
+            ComponentType.ReadOnly&lt;Car&gt;(),
+            ComponentType.ReadOnly&lt;Target&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;()
+        );
+        m_ModDispatchedQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;ModDispatched&gt;(),
+            ComponentType.ReadWrite&lt;Car&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        // Guardian: re-apply Emergency on mod-dispatched cars
+        var modCars = m_ModDispatchedQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; modCars.Length; i++)
+        {
+            ModDispatched md = EntityManager.GetComponentData&lt;ModDispatched&gt;(
+                modCars[i]);
+            Target target = EntityManager.GetComponentData&lt;Target&gt;(modCars[i]);
+
+            // Re-set target if AI changed it
+            if (target.m_Target != md.m_Target &amp;&amp; md.m_Target != Entity.Null
+                &amp;&amp; EntityManager.Exists(md.m_Target))
+            {
+                EntityManager.SetComponentData(modCars[i],
+                    new Target(md.m_Target));
+            }
+
+            Car car = EntityManager.GetComponentData&lt;Car&gt;(modCars[i]);
+            if ((car.m_Flags &amp; CarFlags.Emergency) == 0)
+            {
+                car.m_Flags |= CarFlags.Emergency | CarFlags.StayOnRoad
+                             | CarFlags.UsePublicTransportLanes;
+                car.m_Flags &amp;= ~CarFlags.AnyLaneTarget;
+                EntityManager.SetComponentData(modCars[i], car);
+                if (!EntityManager.HasComponent&lt;EffectsUpdated&gt;(modCars[i]))
+                {
+                    EntityManager.AddComponent&lt;EffectsUpdated&gt;(modCars[i]);
+                }
+            }
+
+            // Release car when it arrives
+            var pc = EntityManager.GetComponentData&lt;Game.Vehicles.PoliceCar&gt;(
+                modCars[i]);
+            if ((pc.m_State &amp; PoliceCarFlags.AtTarget) != 0)
+            {
+                EntityManager.RemoveComponent&lt;ModDispatched&gt;(modCars[i]);
+            }
+        }
+        modCars.Dispose();
+    }
+
+    /// &lt;summary&gt;
+    /// Find nearest available car and dispatch with sirens.
+    /// Returns Entity.Null if none available.
+    /// &lt;/summary&gt;
+    public Entity DispatchNearestTo(Entity targetEntity)
+    {
+        var entities = m_PoliceCarQuery.ToEntityArray(Allocator.Temp);
+        Entity bestCar = Entity.Null;
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var pc = EntityManager.GetComponentData&lt;Game.Vehicles.PoliceCar&gt;(
+                entities[i]);
+            if ((pc.m_State &amp; (PoliceCarFlags.Returning | PoliceCarFlags.AtTarget
+                | PoliceCarFlags.ShiftEnded | PoliceCarFlags.Disabled)) != 0)
+                continue;
+            if (pc.m_RequestCount &gt; 1) continue;
+            if (EntityManager.HasComponent&lt;ModDispatched&gt;(entities[i])) continue;
+            bestCar = entities[i];
+            break;
+        }
+        entities.Dispose();
+        if (bestCar == Entity.Null) return Entity.Null;
+
+        // Set emergency flags
+        Car car = EntityManager.GetComponentData&lt;Car&gt;(bestCar);
+        car.m_Flags |= CarFlags.Emergency | CarFlags.StayOnRoad
+                     | CarFlags.UsePublicTransportLanes;
+        car.m_Flags &amp;= ~CarFlags.AnyLaneTarget;
+        EntityManager.SetComponentData(bestCar, car);
+
+        // Set PoliceCar state
+        var policeCar = EntityManager.GetComponentData&lt;Game.Vehicles.PoliceCar&gt;(
+            bestCar);
+        policeCar.m_State |= PoliceCarFlags.AccidentTarget;
+        policeCar.m_State &amp;= ~(PoliceCarFlags.Returning | PoliceCarFlags.AtTarget
+                               | PoliceCarFlags.Cancelled);
+        EntityManager.SetComponentData(bestCar, policeCar);
+
+        // Set target, request path, trigger effects
+        EntityManager.SetComponentData(bestCar, new Target(targetEntity));
+        PathOwner po = EntityManager.GetComponentData&lt;PathOwner&gt;(bestCar);
+        po.m_State |= PathFlags.Updated;
+        EntityManager.SetComponentData(bestCar, po);
+        if (!EntityManager.HasComponent&lt;EffectsUpdated&gt;(bestCar))
+            EntityManager.AddComponent&lt;EffectsUpdated&gt;(bestCar);
+
+        // Tag for guardian tracking
+        EntityManager.AddComponentData(bestCar, new ModDispatched
+        {
+            m_Target = targetEntity
+        });
+        return bestCar;
+    }
+}</code></pre>
+
+  <h3>Example 6: Full Pipeline Dispatch with Fake Event</h3>
+
+  <div class="warning">
+    <p>
+      <strong>Warning:</strong> This approach requires careful lifecycle management. The mod must
+      clean up the event entity, AccidentSite, and InvolvedInAccident components when done.
+      Consider using <a href="#path-d">Path D (direct manipulation)</a> instead.
+    </p>
+  </div>
+
+  <pre><code class="language-csharp">[UpdateAfter(typeof(AccidentSiteSystem))]
+public partial class FullPipelinePoliceDispatchSystem : GameSystemBase
+{
+    private SimulationSystem m_SimulationSystem;
+    private Entity m_EventEntity;
+    private Entity m_DummyEntity;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_SimulationSystem = World.GetOrCreateSystemManaged&lt;SimulationSystem&gt;();
+    }
+
+    protected override void OnUpdate() { }
+    protected override void OnDestroy() { CleanUp(); base.OnDestroy(); }
+
+    /// &lt;summary&gt;
+    /// Dispatch police via full pipeline. Target must be on road network.
+    /// &lt;/summary&gt;
+    public void DispatchTo(Entity targetEntity)
+    {
+        CleanUp();
+        uint frame = m_SimulationSystem.frameIndex;
+
+        // 1. Create event entity with TargetElement buffer
+        m_EventEntity = EntityManager.CreateEntity();
+        EntityManager.AddComponentData&lt;Game.Events.Event&gt;(m_EventEntity, default);
+        var buf = EntityManager.AddBuffer&lt;TargetElement&gt;(m_EventEntity);
+
+        // 2. Create dummy with InvolvedInAccident (severity &gt; 0, not moving)
+        m_DummyEntity = EntityManager.CreateEntity();
+        EntityManager.AddComponentData(m_DummyEntity, new InvolvedInAccident
+        {
+            m_Event = m_EventEntity,
+            m_Severity = 1f,
+            m_InvolvedFrame = frame
+        });
+        buf.Add(new TargetElement { m_Entity = m_DummyEntity });
+
+        // 3. Add AccidentSite to target
+        if (!EntityManager.HasComponent&lt;AccidentSite&gt;(targetEntity))
+        {
+            EntityManager.AddComponentData(targetEntity, new AccidentSite
+            {
+                m_Event = m_EventEntity,
+                m_Flags = AccidentSiteFlags.TrafficAccident
+                        | AccidentSiteFlags.RequirePolice,
+                m_PoliceRequest = Entity.Null,
+                m_CreationFrame = frame
+            });
+        }
+
+        // 4. Create emergency request
+        Entity request = EntityManager.CreateEntity();
+        EntityManager.AddComponentData(request, new ServiceRequest());
+        EntityManager.AddComponentData(request, new PoliceEmergencyRequest(
+            targetEntity, targetEntity, 1f, PolicePurpose.Emergency));
+        EntityManager.AddComponentData(request, new RequestGroup(4u));
+    }
+
+    public void CleanUp()
+    {
+        if (m_EventEntity != Entity.Null &amp;&amp; EntityManager.Exists(m_EventEntity))
+        {
+            EntityManager.DestroyEntity(m_EventEntity);
+            m_EventEntity = Entity.Null;
+        }
+        if (m_DummyEntity != Entity.Null &amp;&amp; EntityManager.Exists(m_DummyEntity))
+        {
+            EntityManager.DestroyEntity(m_DummyEntity);
+            m_DummyEntity = Entity.Null;
+        }
+    }
+}</code></pre>
+
+  <h3>Example 7: Monitor Police Emergency Response</h3>
 
   <pre><code class="language-csharp">public partial class PoliceResponseMonitorSystem : GameSystemBase
 {
@@ -716,7 +1039,8 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
         for (int i = 0; i &lt; entities.Length; i++)
         {
             Car car = EntityManager.GetComponentData&lt;Car&gt;(entities[i]);
-            var pc = EntityManager.GetComponentData&lt;Game.Vehicles.PoliceCar&gt;(entities[i]);
+            var pc = EntityManager.GetComponentData&lt;Game.Vehicles.PoliceCar&gt;(
+                entities[i]);
 
             if ((car.m_Flags &amp; CarFlags.Emergency) != 0)
                 emergencyCount++;
@@ -731,15 +1055,12 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
             Log.Info($"Police: {emergencyCount} emergency, " +
                      $"{patrolCount} patrol, {returningCount} returning");
         }
-
         entities.Dispose();
     }
 }</code></pre>
 
   <!-- ============================================================ -->
   <h2>Configuration</h2>
-
-  <h3>Key Tuning Points</h3>
 
   <table>
     <thead>
@@ -783,28 +1104,58 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
         <td>Prisoners per station</td>
       </tr>
       <tr>
-        <td>Crime accumulation tolerance</td>
+        <td>Crime tolerance</td>
         <td>PoliceConfigurationData.m_CrimeAccumulationTolerance</td>
-        <td>From singleton prefab</td>
+        <td>Singleton prefab</td>
         <td>Threshold before patrol dispatch triggers</td>
       </tr>
       <tr>
-        <td>Dispatch update interval</td>
+        <td>Emergency dispatch interval</td>
         <td>Hardcoded</td>
         <td>16 frames</td>
         <td>How often dispatch systems run</td>
       </tr>
       <tr>
-        <td>Emergency pathfind max speed</td>
+        <td>AccidentSite eval interval</td>
+        <td>Hardcoded</td>
+        <td>64 frames</td>
+        <td>How often RequirePolice is re-evaluated</td>
+      </tr>
+      <tr>
+        <td>Station AI interval</td>
+        <td>Hardcoded</td>
+        <td>256 frames, offset 128</td>
+        <td>How often stations evaluate vehicles</td>
+      </tr>
+      <tr>
+        <td>Emergency pathfind speed</td>
         <td>Hardcoded</td>
         <td>111.1 m/s (400 km/h)</td>
-        <td>Speed used for pathfinding cost (not actual speed)</td>
+        <td>Speed for pathfinding cost (not actual speed)</td>
+      </tr>
+      <tr>
+        <td>Patrol pathfind speed</td>
+        <td>Hardcoded</td>
+        <td>277.8 m/s (1000 km/h)</td>
+        <td>Higher because patrol considers all weight factors</td>
       </tr>
       <tr>
         <td>Arrival distance</td>
         <td>Hardcoded</td>
         <td>30m</td>
         <td>How close the car must be to consider itself at target</td>
+      </tr>
+      <tr>
+        <td>Staging timeout</td>
+        <td>Hardcoded</td>
+        <td>3600 frames (~60s)</td>
+        <td>How long AccidentSite can stage additional impacts</td>
+      </tr>
+      <tr>
+        <td>Secured cleanup</td>
+        <td>Hardcoded</td>
+        <td>1024 frames after secured</td>
+        <td>How long after securing before AccidentSite is removed</td>
       </tr>
     </tbody>
   </table>
@@ -817,25 +1168,13 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
       <strong>Rendering pipeline for emergency effects:</strong> The <code>EffectsUpdated</code>
       tag triggers effect recalculation, and <code>CarFlags.Emergency</code> is checked to
       enable emergency lights/siren. The specific rendering system that converts this flag to
-      actual siren mesh animation and audio is deep in the rendering pipeline and not fully
-      traced. The flag is sufficient for a mod to control -- the rendering follows automatically.
+      actual siren mesh animation and audio is deep in the rendering pipeline and not accessible
+      via Game.dll decompilation. The flag is sufficient for a mod -- rendering follows automatically.
     </li>
     <li>
       <strong>Traffic yielding mechanics:</strong> How exactly does <code>CarNavigationSystem</code>
-      make other vehicles yield to emergency vehicles? This is likely in the lane reservation
-      system (<code>CarNavigationHelpers.LaneReservation</code>) but the exact interaction is
-      not traced.
-    </li>
-    <li>
-      <strong>Synthetic AccidentSite cleanup:</strong> If a mod creates an <code>AccidentSite</code>
-      on a non-event entity (e.g., a building), what system cleans it up? The
-      <code>AccidentSiteSystem</code> manages lifecycle for event-created sites, but mod-created
-      sites may need manual cleanup.
-    </li>
-    <li>
-      <strong>Priority-based vehicle selection:</strong> When multiple police cars are available,
-      does the pathfinding system always select the nearest one, or does
-      <code>PoliceEmergencyRequest.m_Priority</code> influence which car responds?
+      make other vehicles yield to emergency vehicles? Likely in <code>CarNavigationHelpers.LaneReservation</code>
+      but the exact interaction is not traced.
     </li>
   </ul>
 
@@ -843,10 +1182,9 @@ public partial class DispatchPoliceToLocationSystem : GameSystemBase
   <h2>Sources</h2>
 
   <ul>
-    <li>Decompiled from: Game.dll -- Game.Simulation.PoliceEmergencyDispatchSystem, Game.Simulation.PolicePatrolDispatchSystem, Game.Simulation.PoliceCarAISystem, Game.Simulation.PoliceStationAISystem</li>
-    <li>Components: Game.Vehicles.PoliceCar, Game.Vehicles.Car, Game.Vehicles.PoliceCarFlags, Game.Vehicles.CarFlags, Game.Buildings.PoliceStation, Game.Buildings.PoliceStationFlags</li>
-    <li>Request types: Game.Simulation.PoliceEmergencyRequest, Game.Simulation.PolicePatrolRequest, Game.Simulation.ServiceRequest, Game.Simulation.ServiceDispatch, Game.Simulation.Dispatched</li>
-    <li>Prefab data: Game.Prefabs.PoliceCarData, Game.Prefabs.PoliceStationData, Game.Prefabs.PoliceConfigurationData, Game.Prefabs.PolicePurpose</li>
+    <li>Decompiled (full systems): Game.Simulation.PoliceCarAISystem, Game.Simulation.PoliceEmergencyDispatchSystem, Game.Simulation.PolicePatrolDispatchSystem, Game.Simulation.PoliceStationAISystem, Game.Simulation.AccidentSiteSystem</li>
+    <li>Decompiled (components): Game.Vehicles.PoliceCar, Car, PoliceCarFlags, CarFlags, CarCurrentLane, CarLaneFlags; Game.Net.CarLaneFlags; Game.Buildings.PoliceStation, CrimeProducer; Game.Citizens.Criminal, CriminalFlags; Game.Events.AccidentSite, AccidentSiteFlags; Game.Simulation.PoliceEmergencyRequest, PolicePatrolRequest, ServiceRequest, Dispatched</li>
+    <li>Prefab data: PoliceCarData, PoliceStationData, PoliceConfigurationData, PolicePurpose</li>
     <li>Related: <a href="emergency-dispatch.html">Emergency Dispatch</a> (general dispatch framework), <a href="crime-trigger.html">Crime Trigger</a> (what triggers police)</li>
   </ul>
 
