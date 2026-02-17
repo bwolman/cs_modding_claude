@@ -382,6 +382,21 @@ pollution2 = math.clamp(pollution2, 0, 32767);</code></pre>
     </tbody>
   </table>
 
+  <p>
+    <strong>Modding note on <code>m_NoiseMultiplier</code>:</strong> This is the global scaling factor
+    for ALL building noise pollution. <code>BuildingPollutionAddSystem</code> multiplies every building's
+    <code>PollutionData.m_NoisePollution</code> by this value before applying distance-based spreading.
+    Similarly, <code>m_GroundMultiplier</code> and <code>m_AirMultiplier</code> scale their respective
+    types globally. The net-specific multipliers (<code>m_NetAirMultiplier</code>,
+    <code>m_NetNoiseMultiplier</code>) only affect road/traffic pollution.
+  </p>
+
+  <pre><code class="language-csharp">// Halve all building noise pollution globally
+var paramQuery = GetEntityQuery(ComponentType.ReadWrite&lt;PollutionParameterData&gt;());
+var data = paramQuery.GetSingleton&lt;PollutionParameterData&gt;();
+data.m_NoiseMultiplier = 0.5f;
+paramQuery.SetSingleton(data);</code></pre>
+
   <h3>PollutionModifierData (Game.Prefabs)</h3>
 
   <p>Upgrade component that modifies a building's pollution. Multiple upgrades combine additively,

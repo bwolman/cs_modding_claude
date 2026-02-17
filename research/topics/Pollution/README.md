@@ -134,6 +134,17 @@ Singleton component controlling global pollution parameters.
 | m_HomelessNoisePollution | int | Noise pollution per homeless citizen |
 | m_GroundPollutionLandValueDivisor | int | Divisor for ground pollution's land value impact |
 
+**Modding note on `m_NoiseMultiplier`**: The `m_NoiseMultiplier` field is the global scaling factor for ALL building noise pollution. `BuildingPollutionAddSystem` multiplies every building's `PollutionData.m_NoisePollution` by this value before applying distance-based spreading. Community mods that want quieter or louder cities can modify this singleton field at runtime:
+
+```csharp
+var paramQuery = GetEntityQuery(ComponentType.ReadWrite<PollutionParameterData>());
+var data = paramQuery.GetSingleton<PollutionParameterData>();
+data.m_NoiseMultiplier = 0.5f; // Halve all building noise
+paramQuery.SetSingleton(data);
+```
+
+Similarly, `m_GroundMultiplier` and `m_AirMultiplier` scale their respective pollution types globally. The net-specific multipliers (`m_NetAirMultiplier`, `m_NetNoiseMultiplier`) only affect road/traffic pollution via `NetPollutionSystem`.
+
 ### `PollutionModifierData` (Game.Prefabs)
 
 Upgrade component that modifies a building's pollution emission.
