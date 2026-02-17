@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Save/Load &amp; Custom Data Persistence - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="top-bar">
+    <a href="index.html" class="site-title">CS2 Modding Research</a>
+    <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+  </div>
+
+  <div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html" class="active">Save/Load Persistence</a>
+    </aside>
+
+    <main class="content">
+    <h1>Save/Load &amp; Custom Data Persistence</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 serialize game state to save files, and how can a mod
+      persist custom data (custom ECS components, system-level state) across save/load cycles?
+    </p>
+    <p>
+      <strong>Verdict:</strong> CS2's serialization is <strong>fully automatic</strong> for any ECS
+      component implementing <code>ISerializable</code> (for data components) or
+      <code>IEmptySerializable</code> (for tag components). The <code>ComponentSerializerLibrary</code>
+      discovers all such types at startup via reflection. For system-level state, implement
+      <code>IDefaultSerializable</code> on your <code>GameSystemBase</code> subclass. No registration
+      code is required -- just implement the interface and your data persists.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Save file binary format on disk, asset database system, map editor
+      serialization flow.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    CS2 uses a binary serialization framework in <code>Colossal.Serialization.Entities</code>. When
+    saving, the game iterates every ECS entity and writes each serializable component's data to a
+    binary buffer. When loading, it reads the buffer back and reconstructs the entities with their
+    component data. The key is the <code>ISerializable</code> interface -- any component that
+    implements it gets automatic persistence.
+  </p>
+
+  <h3>Two Levels of Persistence</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Level</th>
+        <th>Interface</th>
+        <th>Use Case</th>
+        <th>Discovery</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Per-Entity (Component)</td>
+        <td><code>ISerializable</code> on <code>IComponentData</code></td>
+        <td>Per-building settings, per-citizen stats, per-vehicle data</td>
+        <td>Auto via <code>ComponentSerializerLibrary</code></td>
+      </tr>
+      <tr>
+        <td>Per-Entity (Tag)</td>
+        <td><code>IEmptySerializable</code> on <code>IComponentData</code></td>
+        <td>Presence-only markers (no data, just "this entity has this tag")</td>
+        <td>Auto via <code>ComponentSerializerLibrary</code></td>
+      </tr>
+      <tr>
+        <td>Per-Entity (Buffer)</td>
+        <td><code>ISerializable</code> on <code>IBufferElementData</code></td>
+        <td>Variable-length lists per entity (history, event logs)</td>
+        <td>Auto via <code>ComponentSerializerLibrary</code></td>
+      </tr>
+      <tr>
+        <td>Global (System)</td>
+        <td><code>IDefaultSerializable</code> on <code>GameSystemBase</code></td>
+        <td>Mod-wide counters, global settings, singleton state</td>
+        <td>Auto via <code>SystemSerializerLibrary</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>The Discovery Mechanism</h3>
+
+  <p>
+    At startup, the <code>ComponentSerializerLibrary</code> iterates ALL registered ECS types
+    (via <code>TypeManager.GetTypeCount()</code>) and checks each for <code>ISerializable</code> or
+    <code>IEmptySerializable</code>. For each match, it creates the appropriate generic serializer:
+  </p>
+
+  <ul>
+    <li><code>IEmptySerializable</code> &rarr; <code>EmptyComponentSerializer</code> (preserves component presence, writes no data)</li>
+    <li><code>ISerializable</code> + <code>IComponentData</code> &rarr; <code>ComponentDataSerializer&lt;T&gt;</code></li>
+    <li><code>ISerializable</code> + <code>IBufferElementData</code> &rarr; <code>BufferElementDataSerializer&lt;T&gt;</code></li>
+    <li><code>ISerializable</code> + <code>ISharedComponentData</code> &rarr; <code>SharedComponentDataSerializer&lt;T&gt;</code></li>
+  </ul>
+
+  <p>
+    Similarly, <code>SystemSerializerLibrary</code> iterates all systems in the ECS World and checks
+    for <code>IDefaultSerializable</code> or <code>IJobSerializable</code>. <strong>No registration
+    code is needed</strong> -- implementing the interface is sufficient.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Interfaces</h2>
+
+  <h3><code>ISerializable</code></h3>
+
+  <p>The core serialization contract for components with data:</p>
+
+  <pre><code class="language-csharp">public interface ISerializable
+{
+    void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter;
+    void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader;
+}</code></pre>
+
+  <h3><code>IEmptySerializable</code></h3>
+
+  <p>Marker interface for tag components (zero-size, no data to write):</p>
+
+  <pre><code class="language-csharp">public interface IEmptySerializable { }</code></pre>
+
+  <h3><code>IDefaultSerializable</code></h3>
+
+  <p>
+    For systems that need both serialization and defaults for new games. <code>SetDefaults()</code>
+    is called when <code>context.purpose == Purpose.NewGame</code>:
+  </p>
+
+  <pre><code class="language-csharp">public interface IDefaultSerializable : ISerializable
+{
+    void SetDefaults(Context context);
+}</code></pre>
+
+  <h3><code>IWriter</code> and <code>IReader</code></h3>
+
+  <p>
+    Binary write/read interfaces with overloads for all common types:
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Category</th>
+        <th>IWriter Method</th>
+        <th>IReader Method</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Primitives</td>
+        <td><code>Write(int)</code>, <code>Write(float)</code>, <code>Write(bool)</code>, <code>Write(byte)</code>, etc.</td>
+        <td><code>Read(out int)</code>, <code>Read(out float)</code>, <code>Read(out bool)</code>, etc.</td>
+      </tr>
+      <tr>
+        <td>Strings</td>
+        <td><code>Write(string)</code></td>
+        <td><code>Read(out string)</code></td>
+      </tr>
+      <tr>
+        <td>Entity refs</td>
+        <td><code>Write(Entity)</code></td>
+        <td><code>Read(out Entity)</code> (automatically remapped)</td>
+      </tr>
+      <tr>
+        <td>Unity math</td>
+        <td><code>Write(float3)</code>, <code>Write(quaternion)</code>, etc.</td>
+        <td><code>Read(out float3)</code>, <code>Read(out quaternion)</code>, etc.</td>
+      </tr>
+      <tr>
+        <td>Nested types</td>
+        <td><code>Write&lt;T&gt;(T)</code> where T : ISerializable</td>
+        <td><code>Read&lt;T&gt;(out T)</code> where T : struct, ISerializable</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3><code>Context</code></h3>
+
+  <p>
+    Carries metadata about the current save/load operation:
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Property</th>
+        <th>Type</th>
+        <th>Description</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>purpose</code></td>
+        <td>Purpose</td>
+        <td>SaveGame, LoadGame, NewGame, SaveMap, NewMap, LoadMap, Cleanup</td>
+      </tr>
+      <tr>
+        <td><code>version</code></td>
+        <td>Version</td>
+        <td>Save format version -- use for backward-compatible deserialization</td>
+      </tr>
+      <tr>
+        <td><code>format</code></td>
+        <td>ContextFormat</td>
+        <td>Feature tags for conditional serialization (e.g., new game features)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3><code>FormerlySerializedAsAttribute</code></h3>
+
+  <p>
+    Allows renaming types without breaking save compatibility. Both
+    <code>ComponentSerializerLibrary</code> and <code>SystemSerializerLibrary</code> build a
+    type-name lookup table from these attributes during initialization:
+  </p>
+
+  <pre><code class="language-csharp">[FormerlySerializedAs("MyMod.OldTypeName, MyModAssembly")]
+public struct NewTypeName : IComponentData, ISerializable { ... }</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+  [SAVE]
+  GameManager.SaveGameAsync()
+       |
+       v
+  SaveGameSystem.RunOnce()
+       |-- Sets context (Purpose.SaveGame, current Version)
+       |
+       v
+  UpdateSystem.Update(SystemUpdatePhase.Serialize)
+       |
+       +---> BeginPrefabSerializationSystem: maps prefabs to indices
+       |
+       +---> SerializerSystem orchestrates:
+       |         |
+       |         +-- ComponentSerializerLibrary
+       |         |       For each entity, for each serializable component:
+       |         |           calls component.Serialize&lt;TWriter&gt;(writer)
+       |         |
+       |         +-- SystemSerializerLibrary
+       |         |       For each serializable system:
+       |         |           calls system.Serialize&lt;TWriter&gt;(writer)
+       |
+       +---> WriteSystem: flushes buffers to save file stream
+       |
+       v
+  Save file on disk
+
+
+  [LOAD]
+  GameManager.LoadGameAsync()
+       |
+       v
+  LoadGameSystem.RunOnce()
+       |-- Sets context (Purpose.LoadGame, save's Version)
+       |
+       v
+  UpdateSystem.Update(SystemUpdatePhase.Deserialize)
+       |
+       +---> ReadSystem: reads buffers from save file
+       |
+       +---> SerializerSystem orchestrates:
+       |         |
+       |         +-- ComponentSerializerLibrary
+       |         |       Resolves type names (FormerlySerializedAs fallback)
+       |         |       For each entity, for each saved component:
+       |         |           calls component.Deserialize&lt;TReader&gt;(reader)
+       |         |       Unknown types: ObsoleteComponentSerializer skips data
+       |         |
+       |         +-- SystemSerializerLibrary
+       |         |       Resolves type names (FormerlySerializedAs fallback)
+       |         |       For each saved system:
+       |         |           calls system.Deserialize&lt;TReader&gt;(reader)
+       |         |       Unknown types: ObsoleteSystemSerializer skips data
+       |
+       +---> Post-load fix-up systems (PrefabReferences, DataMigration)
+       |
+       v
+  LoadGameSystem fires onOnSaveGameLoaded(context)
+
+
+  [NEW GAME]
+       |
+       v
+  SystemSerializerLibrary: for each IDefaultSerializable system
+       |-- Calls system.SetDefaults(context)
+       |       where context.purpose == Purpose.NewGame
+       |
+       v
+  Game starts with default state
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Basic Persistent Component</h3>
+
+  <p>
+    A custom component that stores per-building mod data. This automatically persists across save/load
+    because it implements <code>ISerializable</code>.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Custom per-building data that persists across save/load.
+/// The serialization system auto-discovers this via ISerializable.
+/// &lt;/summary&gt;
+public struct BuildingModSettings : IComponentData, ISerializable
+{
+    public float m_EfficiencyMultiplier;
+    public int m_CustomLevel;
+    public bool m_IsEnabled;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(m_EfficiencyMultiplier);
+        writer.Write(m_CustomLevel);
+        writer.Write(m_IsEnabled);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out m_EfficiencyMultiplier);
+        reader.Read(out m_CustomLevel);
+        reader.Read(out m_IsEnabled);
+    }
+}</code></pre>
+
+  <h3>Version-Aware Deserialization</h3>
+
+  <p>
+    When adding fields in a mod update, older saves won't have them. Include a version byte in
+    your serialization to handle this:
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+public struct VersionedData : IComponentData, ISerializable
+{
+    public int m_BaseValue;       // v1
+    public float m_NewMultiplier; // v2
+    public bool m_NewFlag;        // v2
+
+    private const byte kCurrentVersion = 2;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        writer.Write(m_BaseValue);
+        writer.Write(m_NewMultiplier);
+        writer.Write(m_NewFlag);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out m_BaseValue);
+
+        if (version &gt;= 2)
+        {
+            reader.Read(out m_NewMultiplier);
+            reader.Read(out m_NewFlag);
+        }
+        else
+        {
+            // Defaults for saves made before v2
+            m_NewMultiplier = 1.0f;
+            m_NewFlag = false;
+        }
+    }
+}</code></pre>
+
+  <h3>Persistent System State (Global Mod Data)</h3>
+
+  <p>
+    For mod-wide state that is not per-entity, implement <code>IDefaultSerializable</code> on your
+    system. <code>SetDefaults()</code> runs on new game creation:
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Game;
+
+public partial class ModGlobalStateSystem : GameSystemBase, IDefaultSerializable
+{
+    public int TotalBuildingsModified { get; private set; }
+    public float AccumulatedBonus { get; private set; }
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(TotalBuildingsModified);
+        writer.Write(AccumulatedBonus);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out int total);
+        TotalBuildingsModified = total;
+        reader.Read(out float bonus);
+        AccumulatedBonus = bonus;
+    }
+
+    public void SetDefaults(Context context)
+    {
+        TotalBuildingsModified = 0;
+        AccumulatedBonus = 0f;
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <h3>Tag Component with IEmptySerializable</h3>
+
+  <p>
+    For components that carry no data but whose <em>presence</em> on an entity must persist:
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Marks a building as managed by this mod. Persists across save/load.
+/// &lt;/summary&gt;
+public struct ManagedByMod : IComponentData, IEmptySerializable { }</code></pre>
+
+  <h3>Renaming Types Without Breaking Saves</h3>
+
+  <p>
+    Use <code>[FormerlySerializedAs]</code> when refactoring. The old fully-qualified type name
+    (including assembly) is matched during deserialization:
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+[FormerlySerializedAs("MyMod.Components.OldName, MyModAssembly")]
+public struct NewBetterName : IComponentData, ISerializable
+{
+    public int m_Value;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(m_Value);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out m_Value);
+    }
+}</code></pre>
+
+  <h3>Post-Load Validation via Event Subscription</h3>
+
+  <p>
+    Subscribe to <code>LoadGameSystem.onOnSaveGameLoaded</code> to validate or fix up custom data
+    after every load:
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Game;
+using Game.Serialization;
+
+public partial class PostLoadValidationSystem : GameSystemBase
+{
+    private LoadGameSystem m_LoadGameSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_LoadGameSystem = World.GetOrCreateSystemManaged&lt;LoadGameSystem&gt;();
+        m_LoadGameSystem.onOnSaveGameLoaded += OnGameLoaded;
+    }
+
+    protected override void OnDestroy()
+    {
+        m_LoadGameSystem.onOnSaveGameLoaded -= OnGameLoaded;
+        base.OnDestroy();
+    }
+
+    private void OnGameLoaded(Context context)
+    {
+        Mod.Log.Info($"Game loaded (purpose={context.purpose})");
+        // Validate custom data, apply migrations, etc.
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>How the Game Does It: Citizen Component Example</h2>
+
+  <p>
+    The vanilla <code>Citizen</code> component demonstrates best practices for serialization,
+    including version-aware deserialization and format tag checks:
+  </p>
+
+  <pre><code class="language-csharp">// From Game.Citizens.Citizen (decompiled)
+public struct Citizen : IComponentData, ISerializable
+{
+    public CitizenFlags m_State;
+    public byte m_WellBeing;
+    public byte m_Health;
+    // ... more fields
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write((short)m_State);
+        writer.Write(m_WellBeing);
+        writer.Write(m_Health);
+        // ... write all fields in order
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        // Version check: skip obsolete field in old saves
+        if (reader.context.version &lt; Version.saveOptimizations)
+            reader.Read(out uint _);  // skip removed field
+
+        reader.Read(out short state);
+        reader.Read(out m_WellBeing);
+        reader.Read(out m_Health);
+
+        // Conditionally read fields added in later versions
+        if (reader.context.version &gt;= Version.penaltyCounter)
+            reader.Read(out m_PenaltyCounter);
+
+        if (reader.context.version &gt;= Version.snow)
+            reader.Read(out m_PseudoRandom);
+
+        // Format tags for feature-gated fields
+        if (reader.context.format.Has(FormatTags.UnemploymentAffectHappiness))
+            reader.Read(out m_UnemploymentTimeCounter);
+    }
+}</code></pre>
+
+  <p>
+    The key patterns here: fields removed in newer versions are conditionally skipped with
+    <code>reader.Read(out _)</code>; fields added in newer versions use <code>version</code> checks
+    and default to zero/false if missing; feature-gated fields use format tags.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Value</th>
+        <th>Source</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Save file location</td>
+        <td><code>EnvPath.kUserDataPath + "Saves/"</code></td>
+        <td><code>%AppData%/LocalLow/Colossal Order/Cities Skylines II/Saves/</code></td>
+      </tr>
+      <tr>
+        <td>Mod settings location</td>
+        <td><code>EnvPath.kUserDataPath + "ModsSettings/"</code></td>
+        <td>Separate from save files -- persists per mod, not per save</td>
+      </tr>
+      <tr>
+        <td>Auto-save interval</td>
+        <td><code>GeneralSettings.autoSave</code></td>
+        <td>Configurable in game settings</td>
+      </tr>
+      <tr>
+        <td>Buffer compression</td>
+        <td><code>BufferFormat</code> enum</td>
+        <td>Raw or ZStd-compressed chunks</td>
+      </tr>
+      <tr>
+        <td>Serialize update phase</td>
+        <td><code>SystemUpdatePhase.Serialize</code></td>
+        <td>Triggered by SaveGameSystem</td>
+      </tr>
+      <tr>
+        <td>Deserialize update phase</td>
+        <td><code>SystemUpdatePhase.Deserialize</code></td>
+        <td>Triggered by LoadGameSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Important Warnings</h2>
+
+  <h3>Serialization Field Order Must Be Stable</h3>
+
+  <p>
+    The <code>Serialize</code> and <code>Deserialize</code> methods must write and read fields in
+    exactly the same order. If you reorder fields in a mod update without a version check, existing
+    saves will read garbage values. Always add new fields at the end and use a version byte.
+  </p>
+
+  <h3>Entity References Are Remapped</h3>
+
+  <p>
+    When you write an <code>Entity</code> value via <code>writer.Write(entity)</code>, the
+    serialization system records the entity's index/version. On load, all entity references are
+    remapped to the new entity indices. This means cross-entity references (e.g., "this building
+    tracks that citizen") survive save/load automatically.
+  </p>
+
+  <h3>Uninstalling a Mod with Serialized Components</h3>
+
+  <p>
+    If a mod is uninstalled and a save contains its custom components, the deserialization system
+    resolves the type name and fails to find it. The <code>ComponentSerializer.DeserializeType</code>
+    method logs a warning (<code>"Not serializable type: ..."</code>) and the data is skipped via
+    <code>ObsoleteComponentSerializer</code>. The save should still load, but the custom components
+    will be missing. The same applies to system serializers via <code>ObsoleteSystemSerializer</code>.
+  </p>
+
+  <h3>Don't Confuse UI Serialization with ECS Persistence</h3>
+
+  <p>
+    CS2 has two separate serialization systems. The <strong>ECS persistence</strong> interfaces
+    (<code>ISerializable</code>, <code>IWriter</code>/<code>IReader</code>) documented here are for
+    saving game state. The <strong>UI binding</strong> interfaces (<code>IJsonWritable</code>,
+    <code>IJsonReader</code>) in <code>Colossal.UI.Binding</code> are for sending data to the
+    frontend. Don't implement the wrong one.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>How does the serialization handle entity references when the referenced entity doesn't exist in an older save?</li>
+    <li>Is there a size limit on custom component data per entity?</li>
+    <li>Can <code>ISharedComponentData</code> with <code>ISerializable</code> be reliably used by mods?</li>
+    <li>Does the <code>ObsoleteComponentSerializer</code> always cleanly skip unknown data, or can mismatched sizes cause corruption?</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Colossal.Core.dll -- Colossal.Serialization.Entities (ISerializable, IWriter, IReader, IDefaultSerializable, IEmptySerializable, IJobSerializable, ComponentSerializer, ComponentSerializerLibrary, SystemSerializerLibrary, SystemSerializer, FormerlySerializedAsAttribute, Context, Purpose)</li>
+    <li>Decompiled from: Game.dll -- Game.Serialization (SaveGameSystem, LoadGameSystem, WriteSystem, ReadSystem, ClearSystem, BeginPrefabSerializationSystem)</li>
+    <li>Decompiled from: Game.dll -- Game.Citizens.Citizen (example of vanilla ISerializable with version-aware deserialization)</li>
+  </ul>
+
+    <footer>
+      <p>Source: Decompiled from Colossal.Core.dll and Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-16.</p>
+      <div class="attribution-footer">
+        <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+      </div>
+    </footer>
+    </main>
+
+  </div>
+</body>
+</html>
