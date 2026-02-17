@@ -320,7 +320,9 @@ int availableFertility = fertility.m_Base - fertility.m_Used;</code></pre>
   <p>
     Trees are entities with a <code>Tree</code> component (in <code>Game.Objects</code>)
     that tracks lifecycle state and growth progress. The <code>TreeGrowthSystem</code>
-    advances all trees through a state machine 32 times per game day.
+    advances all trees through a state machine 32 times per game day. The system queries
+    all tree entities, filtering out <code>Deleted</code>, <code>Temp</code>,
+    <code>Overridden</code> (Game.Common), and non-matching <code>UpdateFrame</code>.
   </p>
 
   <h3>Tree Component</h3>
@@ -376,10 +378,32 @@ int availableFertility = fertility.m_Base - fertility.m_Used;</code></pre>
 
   <p>
     After the Dead stage, the tree resets to Child (all state flags cleared, growth = 0) and
-    the cycle repeats indefinitely. Damaged trees slowly heal (damage decreases by up to 0.031
-    per tick). Destroyed trees increment a <code>m_Cleared</code> counter until it reaches 1.0,
-    then also reset to Child.
+    the cycle repeats indefinitely.
   </p>
+
+  <h3>Damaged &amp; Destroyed Trees</h3>
+
+  <p>
+    The tree tick job follows one of three code paths depending on the tree's state:
+  </p>
+
+  <ol>
+    <li>
+      <strong>Destroyed trees</strong> (<code>Destroyed</code> component from Game.Common):
+      The system increments <code>Destroyed.m_Cleared</code> (float) each tick. No lifecycle transitions occur.
+      When <code>m_Cleared &gt;= 1.0</code>, the tree resets (<code>m_State = 0</code>, <code>m_Growth = 0</code>)
+      and both <code>Destroyed</code> and <code>Damaged</code> components are removed.
+    </li>
+    <li>
+      <strong>Damaged trees</strong> (<code>Damaged</code> component from Game.Common):
+      Each tick heals damage by subtracting a random value (up to ~0.031) from each axis of
+      <code>Damaged.m_Damage</code> (float3). The tree still processes normal lifecycle transitions
+      while healing. When all damage axes reach 0, the <code>Damaged</code> component is removed.
+    </li>
+    <li>
+      <strong>Normal trees</strong>: Standard lifecycle transitions as described above.
+    </li>
+  </ol>
 
   <p>
     Each tree species has a <code>TreeData</code> prefab component with a single field:

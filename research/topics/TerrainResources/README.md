@@ -18,6 +18,7 @@
 |----------|-----------|-------------|
 | Game.dll | Game.Simulation | TerrainSystem, TerrainUtils, TerrainHeightData, NaturalResourceSystem, NaturalResourceCell, NaturalResourceAmount, TreeGrowthSystem, TerrainAttractivenessSystem, TerrainAttractiveness, GameModeNaturalResourcesAdjustSystem |
 | Game.dll | Game.Objects | Tree (component), TreeState (enum) |
+| Game.dll | Game.Common | Damaged, Destroyed, Overridden (tree lifecycle interaction) |
 | Game.dll | Game.Prefabs | TreeData, TerrainPropertiesData, TerrainAreaData |
 | Game.dll | Game.Tools | TerrainToolSystem |
 | Game.dll | Game.Rendering | TerrainRenderSystem, VegetationRenderSystem |
@@ -72,7 +73,17 @@ Trees use a lifecycle state machine managed by `TreeGrowthSystem`. Each tree ent
 - `m_State` (TreeState flags): Child (no flags), Teen, Adult, Elderly, Dead, Stump, Collected
 - `m_Growth` (byte): Progress within current stage (0-255)
 
-The system updates 32 times per day (update interval = 512 frames). Each tick, a random increment is added to `m_Growth`. When it reaches 256, the tree transitions to the next stage. The random range controls average time in each stage:
+The system queries all tree entities, filtering out `Deleted`, `Temp`, `Overridden`, and non-matching `UpdateFrame`. The `Overridden` filter (from `Game.Common`) is important — it marks entities that should not be processed by normal simulation (e.g., placeholder entities or overridden sub-objects).
+
+The system updates 32 times per day (update interval = 512 frames). Each tick, the tree tick job follows one of three code paths:
+
+**Path 1 — Destroyed trees**: If the tree has a `Destroyed` component (`Game.Common`), the system increments `Destroyed.m_Cleared` (float) each tick. No lifecycle transitions occur. When `m_Cleared >= 1.0`, the tree resets (`m_State = 0`, `m_Growth = 0`) and the `Destroyed` and `Damaged` components are removed.
+
+**Path 2 — Damaged trees**: If the tree has a `Damaged` component (`Game.Common`), each tick heals damage by subtracting a random value up to ~0.031 from each axis of `Damaged.m_Damage` (float3). The tree still processes normal lifecycle transitions while healing. When all damage axes reach 0, the `Damaged` component is removed.
+
+**Path 3 — Normal trees**: Standard lifecycle — adds a random increment to `m_Growth`. When it reaches 256, the tree transitions to the next stage.
+
+The random range for growth increments controls average time in each stage:
 
 | Stage | Tick Speed Constant | Random Range | Relative Duration |
 |-------|-------------------|--------------|-------------------|
@@ -82,7 +93,7 @@ The system updates 32 times per day (update interval = 512 frames). Each tick, a
 | Elderly | 548 | `random.NextInt(548) >> 8` | ~43% of child |
 | Dead | 2304 | `random.NextInt(2304) >> 8` | ~180% of child |
 
-After the Dead stage, the tree resets to Child (no flags, growth = 0) and the cycle repeats. Damaged trees heal over time (damage -= random up to 0.031 per tick). Destroyed trees increment a `m_Cleared` counter until it reaches 1.0, then reset.
+After the Dead stage, the tree resets to Child (no flags, growth = 0) and the cycle repeats.
 
 ### Terrain Attractiveness
 
@@ -143,6 +154,33 @@ where HeightBonus is a clamped linear function of terrain elevation above a thre
 | m_Growth | byte | Progress within current stage (0-255, transitions at 256) |
 
 *Source: `Game.dll` -> `Game.Objects.Tree`*
+
+### `Damaged` (Game.Common)
+
+Applied to trees (and other objects) that have taken damage. TreeGrowthSystem heals damaged trees over time.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Damage | float3 | Damage amount per axis; healed ~0.031 per tick per axis until all reach 0 |
+
+*Source: `Game.dll` -> `Game.Common.Damaged`*
+
+### `Destroyed` (Game.Common)
+
+Applied to trees (and other objects) that are fully destroyed. TreeGrowthSystem clears destroyed trees over time.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Cleared | float | Clearing progress (0 to 1.0); tree resets when >= 1.0 |
+| m_Event | Entity | The event that caused destruction |
+
+*Source: `Game.dll` -> `Game.Common.Destroyed`*
+
+### `Overridden` (Game.Common)
+
+Tag component that marks entities excluded from normal simulation processing. TreeGrowthSystem filters out Overridden entities.
+
+*Source: `Game.dll` -> `Game.Common.Overridden`*
 
 ### `TreeData` (Game.Prefabs)
 

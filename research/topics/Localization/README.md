@@ -130,8 +130,9 @@ Readonly struct used in UI bindings to reference localized text. Supports string
 CS2 uses a hierarchical dot-separated ID format:
 
 ```
-// Prefab names
-Assets.NAME:PrefabName
+// Prefab names (square brackets, NOT colon)
+Assets.NAME[PrefabName]
+Assets.DESCRIPTION[PrefabName]
 
 // Settings
 Options.SECTION[ModName.ModName.Mod]:Setting.DisplayName

@@ -295,11 +295,14 @@ int rentPerRenter = Round(totalRent / renterCount);</code></pre>
   </p>
 
   <ol>
-    <li><code>LeveldownJob</code> adds the <code>Abandoned</code> component</li>
-    <li>Removes utility consumers (electricity, water, garbage, mail)</li>
-    <li>Evicts all renters (removes PropertyRenter from each)</li>
-    <li>Doubles crime production on the building</li>
-    <li>Shows abandoned notification icon</li>
+    <li>Removes utility consumers (electricity, water, garbage, mail, telecom)</li>
+    <li>Doubles crime production: <code>CrimeProducer.m_Crime *= 2f</code></li>
+    <li>Clears <code>BuildingFlags.HighRentWarning</code> and removes the high-rent notification icon</li>
+    <li>Removes all problem/fatal-problem icons, adds <code>m_AbandonedNotification</code> at <code>IconPriority.FatalProblem</code></li>
+    <li>Evicts all renters (iterates <code>Renter</code> buffer in reverse, removes <code>PropertyRenter</code> from each)</li>
+    <li>Enqueues utility road edge updates for electricity and water pipe networks</li>
+    <li>Emits trigger actions: <code>LevelDownCommercialBuilding</code>, <code>LevelDownIndustrialBuilding</code> (if not office), or <code>LevelDownOfficeBuilding</code>. Note: no residential level-down trigger exists.</li>
+    <li>Adds <code>Abandoned</code> component with <code>m_AbandonmentTime = currentSimulationFrame</code></li>
   </ol>
 
   <!-- ============================================================ -->
@@ -536,8 +539,9 @@ BUILDING CONDITION (16x per day)
           |
     condition &lt;= -abandonCost
       LeveldownJob -&gt; Abandoned
-        Evict all renters, remove services
-        Double crime, show abandoned icon
+        Remove utilities, double CrimeProducer.m_Crime
+        Clear HighRentWarning, evict renters (reverse)
+        Add Abandoned{m_AbandonmentTime}, show icon
 </pre>
   </div>
 

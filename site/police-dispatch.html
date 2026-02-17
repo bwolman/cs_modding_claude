@@ -364,10 +364,16 @@ PoliceCarAISystem (every 16 frames, offset 5)
     SelectNextDispatch():
       Reads ServiceDispatch buffer, finds PoliceEmergencyRequest
       +-- Sets PoliceCarFlags.AccidentTarget
-      +-- Sets Car.m_Flags: Emergency | StayOnRoad | UsePublicTransportLanes
-      +-- Clears CarFlags.AnyLaneTarget
-      +-- Sets Target.m_Target = site entity
-      +-- Adds EffectsUpdated tag --&gt; SIREN + LIGHTS ACTIVATE
+      IF TryAppendPath succeeds (request has PathElement buffer):
+        +-- Sets Car.m_Flags: Emergency | StayOnRoad | UsePublicTransportLanes
+        +-- Clears CarFlags.AnyLaneTarget
+        +-- Clears CarLaneFlags.EndOfPath
+        +-- Sets Target.m_Target = site entity
+        +-- Adds EffectsUpdated tag --&gt; SIREN + LIGHTS ACTIVATE
+      ELSE (fallthrough -- NO PathElement on request):
+        +-- ONLY calls VehicleUtils.SetTarget()
+        +-- Emergency flags NOT set (no sirens!)
+        +-- EndOfPath NOT cleared (false arrival next tick!)
     |
     v
 CarNavigationSystem (every frame)

@@ -365,7 +365,7 @@ while (requestCount > 0 && serviceDispatches.Length > 0):
 
         Create HandleRequest for path consumption
 
-        if path can be appended:
+        if path can be appended (TryAppendPath succeeds):
             if AccidentTarget (EMERGENCY):
                 car.m_Flags &= ~AnyLaneTarget
                 car.m_Flags |= Emergency | StayOnRoad | UsePublicTransportLanes
@@ -373,10 +373,47 @@ while (requestCount > 0 && serviceDispatches.Length > 0):
                 car.m_Flags &= ~Emergency
                 car.m_Flags |= StayOnRoad | AnyLaneTarget | UsePublicTransportLanes
 
+            ClearEndOfPath(ref currentLane, navigationLanes)
             target.m_Target = entity
             AddComponent<EffectsUpdated>(vehicleEntity)  // TRIGGERS LIGHTS/SIRENS
             return true
+
+        // *** FALLTHROUGH PATH (no PathElement or TryAppendPath fails) ***
+        // NONE of the above flags are set! No Emergency, no EndOfPath cleared,
+        // no EffectsUpdated added. Only VehicleUtils.SetTarget() is called.
+        VehicleUtils.SetTarget(ref pathOwner, ref target, entity)
+        return true
 ```
+
+> **Known Pitfall**: For mod-created dispatch requests that don't have a `PathElement` buffer
+> (which is common — the game's dispatch system adds PathElement during pathfinding, but mod
+> requests typically skip this), `SelectNextDispatch` falls through to the bottom path. This
+> causes two problems:
+>
+> 1. **`CarFlags.Emergency` is never set** — the car drives to the target in patrol mode (no
+>    sirens, no lights, no traffic yielding). See issue: Emergency flags only set inside
+>    TryAppendPath branch.
+> 2. **`CarLaneFlags.EndOfPath` is never cleared** — on the very next tick,
+>    `VehicleUtils.PathEndReached(currentLane)` returns true, triggering arrival logic which
+>    immediately pops and discards the dispatch. The car appears to briefly activate then
+>    immediately return to station. See issue: EndOfPath not cleared in fallthrough path.
+>
+> **Workaround**: Before injecting a `ServiceDispatch` entry, manually set the flags:
+> ```csharp
+> // Clear EndOfPath from previous patrol
+> CarCurrentLane currentLane = EntityManager.GetComponentData<CarCurrentLane>(carEntity);
+> currentLane.m_LaneFlags &= ~CarLaneFlags.EndOfPath;
+> EntityManager.SetComponentData(carEntity, currentLane);
+>
+> // Set Emergency flags directly
+> Car car = EntityManager.GetComponentData<Car>(carEntity);
+> car.m_Flags |= CarFlags.Emergency | CarFlags.StayOnRoad | CarFlags.UsePublicTransportLanes;
+> car.m_Flags &= ~CarFlags.AnyLaneTarget;
+> EntityManager.SetComponentData(carEntity, car);
+>
+> // Trigger visual update
+> EntityManager.AddComponent<EffectsUpdated>(carEntity);
+> ```
 
 #### `ResetPath()` -- also sets Emergency flag:
 
@@ -969,6 +1006,14 @@ Creates a complete fake crime event that survives `AccidentSiteSystem` validatio
 
 > **Warning**: This approach requires careful lifecycle management. The mod must clean up
 > the event entity, AccidentSite, and Criminal/InvolvedInAccident components when done.
+
+> **Known Issue**: When the dispatched car picks up this request via `SelectNextDispatch()`,
+> the request entity won't have a `PathElement` buffer (the game's dispatch system adds this
+> during pathfinding). This means `SelectNextDispatch` falls through to the path where
+> `CarFlags.Emergency` is NOT set and `CarLaneFlags.EndOfPath` is NOT cleared. Use the
+> hybrid approach from Example 2 (direct flag manipulation + ServiceDispatch injection) for
+> reliable emergency dispatch. This example is best used when you want the game's dispatch
+> system to choose the vehicle rather than targeting a specific car.
 
 ```csharp
 using Game.Citizens;

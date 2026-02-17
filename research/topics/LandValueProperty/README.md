@@ -209,7 +209,15 @@ Global singleton controlling land value computation factors.
     - If condition <= -abandonCost: queues level-down (abandonment)
   - `ResourceNeedingUpkeepJob`: Checks if all level-up materials were delivered; if so, queues actual level-up
   - `LevelupJob`: Selects a higher-level building prefab with matching zone type, lot size, and access flags; initiates UnderConstruction
-  - `LeveldownJob`: Marks building as Abandoned, removes services (electricity, water, garbage, mail), evicts all renters, doubles crime production
+  - `LeveldownJob`: Full abandonment pipeline:
+    1. Removes utility consumers (electricity, water, garbage, mail, telecom)
+    2. Doubles crime production: `CrimeProducer.m_Crime *= 2f` (if building has CrimeProducer)
+    3. Clears `BuildingFlags.HighRentWarning` and removes `m_HighRentNotification` icon
+    4. Removes all problem/fatal-problem icons, adds `m_AbandonedNotification` at `IconPriority.FatalProblem`
+    5. Evicts all renters (iterates `Renter` buffer in reverse, removes `PropertyRenter` from each)
+    6. Enqueues utility road edge updates (`m_UpdatedElectricityRoadEdges`, `m_UpdatedWaterPipeRoadEdges`)
+    7. Emits trigger actions: `TriggerType.LevelDownCommercialBuilding`, `TriggerType.LevelDownIndustrialBuilding` (if not office), or `TriggerType.LevelDownOfficeBuilding` (if `OfficeBuilding` component present). Note: there is no `TriggerType.LevelDownResidentialBuilding`.
+    8. Adds `Abandoned` component with `m_AbandonmentTime = currentSimulationFrame`
   - `UpkeepPaymentJob`: Actually deducts money from renters
 
 ### `PropertyRenterRemoveSystem` (Game.Simulation)
@@ -281,9 +289,12 @@ BUILDING CONDITION (16x per day)
                                     Start UnderConstruction
           |
     condition <= -abandonCost  -->  LeveldownJob
-                                    Mark Abandoned
-                                    Evict all renters
-                                    Remove services
+                                    Remove utility consumers
+                                    Double CrimeProducer.m_Crime
+                                    Clear HighRentWarning flag + icon
+                                    Evict all renters (reverse iterate)
+                                    Add Abandoned{m_AbandonmentTime}
+                                    Add m_AbandonedNotification icon
 ```
 
 ## Prefab & Configuration

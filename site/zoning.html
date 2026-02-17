@@ -379,6 +379,47 @@
     </tbody>
   </table>
 
+  <h3>Building Property Type Tags (Game.Buildings)</h3>
+
+  <p>
+    Three tag components classify which zone type a building belongs to at the entity level.
+    These are empty components (no fields) added at building creation time based on
+    <code>SpawnableBuildingData.m_ZonePrefab</code> &rarr; <code>ZoneData.m_AreaType</code>.
+    They persist for the building's lifetime.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Zone Type</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>ResidentialProperty</code></td><td>Residential zones</td></tr>
+      <tr><td><code>CommercialProperty</code></td><td>Commercial zones</td></tr>
+      <tr><td><code>IndustrialProperty</code></td><td>Industrial zones (includes office)</td></tr>
+    </tbody>
+  </table>
+
+  <p>Standard query pattern for all growable buildings:</p>
+
+  <pre><code class="language-csharp">EntityQuery growableQuery = SystemAPI.QueryBuilder()
+    .WithAll&lt;Building&gt;()
+    .WithAny&lt;ResidentialProperty, IndustrialProperty, CommercialProperty&gt;()
+    .WithNone&lt;Temp, Deleted, Signature&gt;()
+    .Build();</code></pre>
+
+  <p>
+    Note: Signature buildings also have these components but are typically excluded with
+    <code>WithNone&lt;Signature&gt;</code> since they have unique behavior.
+  </p>
+
+  <h3>Condemned (Game.Buildings)</h3>
+
+  <p>
+    Tag component added by <code>ZoneCheckSystem</code> when a building is incompatible with its
+    current zone type. Triggers a separate demolition pipeline &mdash; buildings are NOT demolished
+    directly by ZoneCheckSystem.
+  </p>
+
   <h3>ZoneFlags Semantic Meaning</h3>
 
   <p>
@@ -835,8 +876,11 @@ if (valid)
       width combinations of 2 and 3) was not fully analyzed.
     </li>
     <li>
-      <strong>Zone compatibility demolition:</strong> How <code>ZoneCheckSystem</code> decides
-      when to demolish vs. flag buildings on zone type changes was not fully decompiled.
+      <strong>Zone compatibility (RESOLVED):</strong> <code>ZoneCheckSystem</code> never demolishes directly.
+      It adds the <code>Condemned</code> tag component when all lot cells don't match the zone type or
+      lack a <code>CellFlags.Roadside</code> cell. A separate demolition pipeline handles condemned buildings.
+      The system uses three jobs: FindSpawnableBuildingsJob (spatial search), CollectEntitiesJob (dedup),
+      and CheckBuildingZonesJob (validates zone match using 8m cell grid projection).
     </li>
     <li>
       <strong>Zone type names:</strong> The actual zone prefab names (Low Density Residential,

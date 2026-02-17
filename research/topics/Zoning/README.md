@@ -168,6 +168,42 @@ The bridge between buildings and zones. Every spawnable zoned building has this 
 
 *Source: `Game.dll` -> `Game.Prefabs.SpawnableBuildingData`*
 
+### Building Property Type Tags (Game.Buildings)
+
+Three tag components classify which zone type a building belongs to at the entity level:
+
+- **`ResidentialProperty`** — Added to buildings in residential zones
+- **`CommercialProperty`** — Added to buildings in commercial zones
+- **`IndustrialProperty`** — Added to buildings in industrial zones (includes office)
+
+These are empty tag components (no fields) added at building creation time based on `SpawnableBuildingData.m_ZonePrefab` → `ZoneData.m_AreaType`. They persist for the building's lifetime and are the primary way to query buildings by zone type:
+
+```csharp
+// Standard query for all growable buildings (excluding signatures)
+EntityQuery growableQuery = SystemAPI.QueryBuilder()
+    .WithAll<Building>()
+    .WithAny<ResidentialProperty, IndustrialProperty, CommercialProperty>()
+    .WithNone<Temp, Deleted, Signature>()
+    .Build();
+
+// Query for locked growable buildings (PlopTheGrowables pattern)
+EntityQuery lockedQuery = SystemAPI.QueryBuilder()
+    .WithAll<Building, LevelLocked>()
+    .WithAny<ResidentialProperty, IndustrialProperty, CommercialProperty>()
+    .WithNone<Signature>()
+    .Build();
+```
+
+Note: Signature buildings also have these components but are typically excluded with `WithNone<Signature>` since they have unique behavior.
+
+*Source: `Game.dll` -> `Game.Buildings.ResidentialProperty`, `CommercialProperty`, `IndustrialProperty`*
+
+### `Condemned` (Game.Buildings)
+
+Tag component added by `ZoneCheckSystem` when a building is incompatible with its current zone. Triggers a separate demolition pipeline (buildings are NOT demolished directly by ZoneCheckSystem).
+
+*Source: `Game.dll` -> `Game.Buildings.Condemned`*
+
 ### `ZoneFlags` Semantic Meaning (Game.Prefabs)
 
 The `ZoneFlags` enum on `ZoneData.m_ZoneFlags` controls zone behavior beyond simple area type classification:
@@ -301,7 +337,15 @@ This pattern is essential for any mod that wants to make building capacity propo
 ### `ZoneCheckSystem` (Game.Buildings)
 
 - **Base class**: GameSystemBase
-- **Key behavior**: Checks existing spawnable buildings against their zone blocks. If the zone type under a building changes or the building no longer fits, it can trigger demolition or upgrade. Finds spawnable buildings and checks their zone compatibility.
+- **Key behavior**: Checks existing spawnable buildings against their zone blocks. Uses a three-job pipeline:
+  1. **FindSpawnableBuildingsJob**: Uses `SearchSystem.GetStaticSearchTree` (NativeQuadTree) to find buildings within updated zone bounds. Filters for buildings with `SpawnableBuildingData` but without `SignatureBuildingData`.
+  2. **CollectEntitiesJob**: Deduplicates and sorts the building entity list.
+  3. **CheckBuildingZonesJob**: For each building, validates zone compatibility:
+     - **ValidateAttachedParent**: Checks if the building has an `Attached` parent with `PlaceholderBuildingData` matching the building's zone prefab. Returns true if attached parent's zone matches.
+     - **ValidateZoneBlocks**: Rotates the building's lot grid (8m cell size) to world space, iterates the zone SearchTree, and verifies that every cell has a matching ZoneType with `CellFlags.Visible` set. Also requires at least one `CellFlags.Roadside` cell.
+     - If **valid**: removes `Condemned` component and its notification icon
+     - If **invalid**: adds `Condemned` component and `BuildingConfigurationData.m_CondemnedNotification` at `IconPriority.FatalProblem` (unless already Destroyed or Abandoned)
+- **Key detail**: Buildings are NOT demolished directly by ZoneCheckSystem. They are marked with the `Condemned` component, which triggers a separate demolition pipeline.
 
 ## Data Flow
 
@@ -771,7 +815,7 @@ public static class BuildingSelectionReference
 
 - [ ] How exactly does the zone search tree (`Game.Zones.SearchSystem`) index blocks spatially? It uses a `NativeQuadTree<Entity, Bounds2>` but the rebuild frequency and spatial granularity weren't fully traced.
 - [ ] What determines the exact split points when `BlockSystem` divides a long road edge into multiple blocks? The roundabout-based splitting logic involves curve lengths and `TryOption()` with different width combinations (2, 3 cells).
-- [ ] How does `ZoneCheckSystem` (in `Game.Buildings`) decide when to demolish an existing building due to zone incompatibility vs. just flagging it? The `CheckBuildingZonesJob` was not fully decompiled.
+- [x] How does `ZoneCheckSystem` decide when to demolish vs. flag? **Answer**: It never demolishes directly. It adds the `Condemned` tag component when all lot cells don't match the zone type or lack a `CellFlags.Roadside` cell. A separate demolition pipeline handles condemned buildings. Valid buildings get their `Condemned` component removed. See `ZoneCheckSystem` section above for the full three-job pipeline.
 - [ ] What is the full list of zone type indices and their names? The `ZoneType.m_Index` maps to prefabs via `ZonePrefabs`, but the actual prefab names (Low Density Residential, High Density Commercial, etc.) are defined in game data files, not code.
 - [ ] How does `ZoneEvaluationUtils.GetScore()` calculate the evaluation score? This utility considers pollution, resource availability, land value, and zone preferences but the full formula was not traced.
 - [ ] How does `BuildingSpawnGroupData` (shared component) group building prefabs by zone type? This shared component partitions building prefab chunks so only zone-matching buildings are considered.
