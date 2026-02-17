@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mod Loading &amp; Dependencies</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html" class="active">Mod Loading &amp; Dependencies</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Mod Loading &amp; Dependencies</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 discover, load, and initialize mods? What is the
+      IMod lifecycle, how are dependencies resolved, and how do mods register their systems?
+    </p>
+    <p>
+      <strong>Verdict:</strong> CS2 uses a <strong>ModManager</strong> class that scans the
+      AssetDatabase for <code>ExecutableAsset</code> entries (mod DLLs). Each DLL is checked for
+      <code>IMod</code> implementations. Dependencies are resolved via standard .NET assembly
+      references -- if a reference cannot be found, the mod fails with
+      <code>MissedDependenciesError</code>. On successful load, the mod's <code>OnLoad</code>
+      method receives an <code>UpdateSystem</code> for registering custom ECS systems into
+      specific update phases.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Mod settings UI (see Mod Options UI), Harmony patching
+      mechanics (see Harmony Transpilers).
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <h3>The IMod Interface</h3>
+
+  <p>Every CS2 code mod must implement this interface:</p>
+
+  <pre><code class="language-csharp">public interface IMod
+{
+    void OnLoad(UpdateSystem updateSystem);
+    void OnDispose();
+}</code></pre>
+
+  <ul>
+    <li><strong>OnLoad</strong> -- called once during game initialization. Use it to register
+    systems, apply Harmony patches, and set up settings.</li>
+    <li><strong>OnDispose</strong> -- called on game exit or mod disable. Clean up Harmony
+    patches, unregister settings, release resources.</li>
+  </ul>
+
+  <h3>Loading Pipeline</h3>
+
+  <p>The <code>ModManager</code> runs four phases during <code>Initialize()</code>:</p>
+
+  <ol>
+    <li><strong>RegisterMods</strong> -- scans <code>AssetDatabase.global</code> for
+    <code>ExecutableAsset</code> entries. Each mod DLL gets a <code>ModInfo</code> object.</li>
+    <li><strong>ResolveModAssets</strong> -- resolves assembly dependencies between mods using
+    Cecil. Checks each reference against known assemblies. Mods with unresolvable references
+    are marked <code>canBeLoaded = false</code>.</li>
+    <li><strong>InitializeMods</strong> -- for each valid mod:
+      <ul>
+        <li>Loads the assembly via <code>ExecutableAsset.LoadAssembly()</code></li>
+        <li>Calls <code>TypeManager.InitializeAdditionalTypes(assembly)</code> to register
+        ECS types</li>
+        <li>Finds all <code>IMod</code> implementations via reflection</li>
+        <li>Creates instances and calls <code>OnLoad(updateSystem)</code></li>
+      </ul>
+    </li>
+    <li><strong>InitializeUIModules</strong> -- registers UI module assets (HTML/JS mods
+    that extend the game UI).</li>
+  </ol>
+
+  <h3>Mod States</h3>
+
+  <table>
+    <thead>
+      <tr><th>State</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Unknown</td><td>Initial state, not yet processed</td></tr>
+      <tr><td>Loaded</td><td>Successfully loaded and OnLoad called</td></tr>
+      <tr><td>Disposed</td><td>OnDispose called, cleaned up</td></tr>
+      <tr><td>IsNotModWarning</td><td>DLL has no IMod implementation</td></tr>
+      <tr><td>IsNotUniqueWarning</td><td>Duplicate mod detected</td></tr>
+      <tr><td>MissedDependenciesError</td><td>Required assembly references missing</td></tr>
+      <tr><td>LoadAssemblyError</td><td>Failed to load the mod DLL</td></tr>
+      <tr><td>LoadAssemblyReferenceError</td><td>Failed to load a referenced DLL</td></tr>
+      <tr><td>GeneralError</td><td>Other error during loading</td></tr>
+    </tbody>
+  </table>
+
+  <h3>System Registration via UpdateSystem</h3>
+
+  <p>
+    The <code>UpdateSystem</code> passed to <code>OnLoad</code> provides methods to register
+    custom systems into the game's update loop:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>UpdateAt&lt;T&gt;(phase)</code></td><td>Register system at a specific update phase</td></tr>
+      <tr><td><code>UpdateBefore&lt;T&gt;(phase)</code></td><td>Register to update before others in the phase</td></tr>
+      <tr><td><code>UpdateAfter&lt;T&gt;(phase)</code></td><td>Register to update after others in the phase</td></tr>
+      <tr><td><code>UpdateBefore&lt;T, Other&gt;(phase)</code></td><td>Register before a specific other system</td></tr>
+      <tr><td><code>UpdateAfter&lt;T, Other&gt;(phase)</code></td><td>Register after a specific other system</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Key Update Phases</h3>
+
+  <table>
+    <thead>
+      <tr><th>Phase</th><th>When it Runs</th><th>Use For</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>PreSimulation</td><td>Before simulation tick</td><td>Pre-processing, data preparation</td></tr>
+      <tr><td>GameSimulation</td><td>Main simulation tick</td><td>Core mod logic, ECS systems</td></tr>
+      <tr><td>PostSimulation</td><td>After simulation tick</td><td>Post-processing, cleanup</td></tr>
+      <tr><td>Rendering</td><td>Render frame</td><td>Custom rendering overlays</td></tr>
+      <tr><td>ToolUpdate</td><td>Tool system update</td><td>Custom tools</td></tr>
+      <tr><td>UIUpdate</td><td>UI data refresh</td><td>UI bindings, panel data</td></tr>
+      <tr><td>Modification1-5</td><td>Sequential modification passes</td><td>Entity modification systems</td></tr>
+      <tr><td>PrefabUpdate</td><td>Prefab system update</td><td>Prefab modifications</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+GAME STARTUP
+  GameManager creates ModManager(disabled: false)
+        |
+        v
+  ModManager.Initialize(updateSystem)
+        |
+        v
+  PHASE 1: RegisterMods()
+    AssetDatabase scans for ExecutableAsset entries
+    Each mod DLL -&gt; ModInfo { asset, state: Unknown }
+        |
+        v
+  PHASE 2: ExecutableAsset.ResolveModAssets(typeof(IMod), assets)
+    For each mod:
+      Read assembly references via Cecil
+      Resolve against game assemblies + other mods
+      Set canBeLoaded = false if missing deps
+        |
+        v
+  PHASE 3: InitializeMods(updateSystem)
+    For each ModInfo where state == Unknown &amp;&amp; isRequired:
+      Check: isMod? isUnique? canBeLoaded?
+      LoadAssembly() -&gt; TypeManager.InitializeAdditionalTypes()
+      reflection: assembly.GetTypesDerivedFrom&lt;IMod&gt;()
+      For each IMod type:
+        Create instance (FormatterServices)
+        Call instance.OnLoad(updateSystem)
+      State -&gt; Loaded
+        |
+        v
+  PHASE 4: InitializeUIModules()
+    Scan UIModuleAsset entries
+    Register UI host locations
+        |
+        v
+  MOD IS ACTIVE (systems run in registered phases)
+        |
+        v
+  GAME SHUTDOWN: ModManager.Dispose()
+    For each ModInfo: call OnDispose(), State -&gt; Disposed
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Basic Mod Entry Point</h3>
+
+  <p>Minimal IMod that registers one custom system.</p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Modding;
+using Colossal.Logging;
+
+public class MyMod : IMod
+{
+    internal static ILog Log = LogManager.GetLogger(nameof(MyMod))
+        .SetShowsErrorsInUI(true);
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        Log.Info("MyMod loaded");
+        updateSystem.UpdateAt&lt;MyCustomSystem&gt;(
+            SystemUpdatePhase.GameSimulation);
+    }
+
+    public void OnDispose()
+    {
+        Log.Info("MyMod disposed");
+    }
+}</code></pre>
+
+  <h3>Mod with Harmony Patches</h3>
+
+  <p>Apply and clean up Harmony patches properly.</p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Modding;
+using HarmonyLib;
+
+public class MyHarmonyMod : IMod
+{
+    private Harmony _harmony;
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        _harmony = new Harmony("com.myname.mymod");
+        _harmony.PatchAll(typeof(MyHarmonyMod).Assembly);
+
+        updateSystem.UpdateAt&lt;MySystem&gt;(
+            SystemUpdatePhase.GameSimulation);
+    }
+
+    public void OnDispose()
+    {
+        _harmony?.UnpatchAll("com.myname.mymod");
+    }
+}</code></pre>
+
+  <h3>System Registration with Explicit Ordering</h3>
+
+  <p>Register multiple systems with dependencies on game systems.</p>
+
+  <pre><code class="language-csharp">public class MyMod : IMod
+{
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // Run before simulation
+        updateSystem.UpdateAt&lt;PreProcessSystem&gt;(
+            SystemUpdatePhase.PreSimulation);
+
+        // Run during simulation, after a specific game system
+        updateSystem.UpdateAfter&lt;MySimSystem,
+            Game.Simulation.StorageCompanySystem&gt;(
+            SystemUpdatePhase.GameSimulation);
+
+        // Run during UI update
+        updateSystem.UpdateAt&lt;MyUISystem&gt;(
+            SystemUpdatePhase.UIUpdate);
+    }
+
+    public void OnDispose() { }
+}</code></pre>
+
+  <h3>Mod with Settings</h3>
+
+  <p>Register settings visible in the game's options menu.</p>
+
+  <pre><code class="language-csharp">public class MyMod : IMod
+{
+    private MyModSettings _settings;
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        _settings = new MyModSettings(this);
+        _settings.RegisterInOptionsUI();
+
+        GameManager.instance.localizationManager.AddSource(
+            "en-US", new MyModLocale());
+    }
+
+    public void OnDispose()
+    {
+        _settings?.UnregisterInOptionsUI();
+    }
+}
+
+public class MyModSettings : ModSetting
+{
+    [SettingsUISection("General")]
+    public bool EnableFeature { get; set; } = true;
+
+    [SettingsUISection("General")]
+    [SettingsUISlider(min = 0.1f, max = 5.0f, step = 0.1f)]
+    public float Multiplier { get; set; } = 1.0f;
+
+    public MyModSettings(IMod mod) : base(mod) { }
+}</code></pre>
+
+  <h3>Access Mod Asset Information</h3>
+
+  <p>Find the mod's installation path and metadata at runtime.</p>
+
+  <pre><code class="language-csharp">public class MyMod : IMod
+{
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        var modManager = GameManager.instance.modManager;
+        if (modManager.TryGetExecutableAsset(this, out var asset))
+        {
+            Log.Info($"Mod name: {asset.fullName}");
+            Log.Info($"Mod path: {asset.path}");
+            Log.Info($"Is local: {asset.isLocal}");
+
+            string modDir = Path.GetDirectoryName(asset.path);
+            string configPath = Path.Combine(modDir, "config.json");
+        }
+    }
+
+    public void OnDispose() { }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Dependency Declaration</h3>
+
+  <p>
+    Dependencies are declared through standard .NET assembly references in your
+    <code>.csproj</code> file. At load time, <code>ExecutableAsset.ResolveModAssets()</code>
+    uses Cecil to read your assembly's references and attempts to resolve them against:
+  </p>
+
+  <ol>
+    <li>Game assemblies (Game.dll, Unity assemblies, etc.)</li>
+    <li>Other mod assemblies registered in AssetDatabase</li>
+    <li>Assemblies in the current AppDomain search directories</li>
+  </ol>
+
+  <p>If any reference cannot be resolved, the mod is marked with
+  <code>MissedDependenciesError</code> and will not load.</p>
+
+  <h3>Mod Settings Storage</h3>
+
+  <p>
+    <code>ModSetting</code> instances are stored in
+    <code>{EnvPath.kUserDataPath}/ModsSettings/</code>. The setting ID is generated as
+    <code>{AssemblyName}.{Namespace}.{ClassName}</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Load order guarantees:</strong> Mods are loaded in the order they appear in
+      AssetDatabase scan results. There is no explicit priority or load-order declaration.
+      Assembly references indirectly enforce ordering.
+    </li>
+    <li>
+      <strong>Hot-reloading:</strong> <code>ModManager.RequireRestart()</code> exists but
+      actual hot-reload (unload + reload without restart) is not supported for code mods.
+      UI modules can be added/removed dynamically.
+    </li>
+    <li>
+      <strong>Inter-mod communication:</strong> No official inter-mod API exists. Mods
+      expose public static members and reference each other via assembly references.
+    </li>
+    <li>
+      <strong>PDX Mods dependency metadata:</strong> How dependencies are declared in the
+      PDX Mods platform (separate from assembly references) needs testing with the launcher.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Modding.IMod, Game.Modding.ModManager, Game.Modding.ModSetting, Game.UpdateSystem, Game.SystemUpdatePhase</li>
+    <li>Asset system: Colossal.IO.AssetDatabase.dll -- Colossal.IO.AssetDatabase.ExecutableAsset</li>
+    <li><a href="https://www.paradoxinteractive.com/games/cities-skylines-ii/modding/dev-diary-3-code-modding">CS2 Code Modding Dev Diary (Paradox)</a></li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- IMod, ModManager, ModSetting, UpdateSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
