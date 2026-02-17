@@ -462,6 +462,51 @@ public static class ToolbarApplyPatch
 }
 ```
 
+## ToolSystem.EventToolChanged
+
+Subscribe to `ToolSystem.EventToolChanged` for systems that should only run when a specific tool is active. This is more efficient than checking tool state every frame:
+
+```csharp
+protected override void OnCreate()
+{
+    base.OnCreate();
+    Enabled = false;  // Start disabled
+
+    m_ToolSystem.EventToolChanged += (ToolBaseSystem tool) =>
+        Enabled = tool == m_ObjectToolSystem
+               || (tool.toolID != null && tool.toolID == "Line Tool");
+}
+```
+
+The system's `Enabled` property is toggled by the event, so `OnUpdate` is never called when irrelevant tools are active.
+
+## EntityCommandBuffer Barrier Selection
+
+When a system needs to add/remove components during `OnUpdate`, use the barrier that matches the system's update phase:
+
+| Barrier | When to Use |
+|---------|-------------|
+| `EndFrameBarrier` | Simulation-phase systems (GameSimulation, ModificationEnd) |
+| `ToolOutputBarrier` | Tool-phase systems (ToolUpdate) |
+
+```csharp
+// In a tool system (ToolUpdate phase):
+private ToolOutputBarrier _barrier;
+protected override void OnCreate()
+{
+    _barrier = World.GetOrCreateSystemManaged<ToolOutputBarrier>();
+}
+protected override JobHandle OnUpdate(JobHandle inputDeps)
+{
+    var buffer = _barrier.CreateCommandBuffer();
+    buffer.AddComponent<Highlighted>(entity);
+    buffer.AddComponent<BatchesUpdated>(entity);
+    // ...
+}
+```
+
+For parallel jobs, use `CreateCommandBuffer().AsParallelWriter()` and call `barrier.AddJobHandleForProducer(jobHandle)`.
+
 ## Open Questions
 
 - [x] Is `activeTool` safe to set from TriggerBinding callbacks? — Yes, fully safe

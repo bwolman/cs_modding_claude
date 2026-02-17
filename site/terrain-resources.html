@@ -517,6 +517,34 @@ int availableFertility = fertility.m_Base - fertility.m_Used;</code></pre>
     on tree entities. Setting <code>m_Growth</code> to 255 will force a transition on the next
     tick. The <code>TreeState</code> flags can be directly set to skip stages.
   </p>
+  <p>
+    For selective growth control, replace the system's entity query via reflection to exclude
+    trees with a custom tag component:
+  </p>
+  <pre><code class="language-csharp">// Replace TreeGrowthSystem's query to skip tagged trees
+var modifiedQuery = SystemAPI.QueryBuilder()
+    .WithAll&lt;UpdateFrame&gt;()
+    .WithAllRW&lt;Game.Objects.Tree&gt;()
+    .WithNone&lt;Deleted, Temp, Overridden, NoTreeGrowth&gt;()
+    .Build();
+
+m_TreeGrowthSystem.SetMemberValue("m_TreeQuery", modifiedQuery);
+m_TreeGrowthSystem.RequireForUpdate(modifiedQuery);</code></pre>
+
+  <h3>Vegetation Identification</h3>
+  <p>
+    Use <code>PlantData</code> (Game.Prefabs) to query all vegetation prefabs.
+    <code>TreeData</code> is only on tree prefabs. To distinguish trees from bushes at runtime,
+    check <code>SubMesh</code> buffer length (&gt; 5 = tree). For evergreen vs deciduous detection,
+    check <code>ColorVariation</code> buffer length on SubMesh entities (&lt; 4 = evergreen).
+  </p>
+
+  <h3>Visual Refresh After Changes</h3>
+  <p>
+    Always add <code>BatchesUpdated</code> (Game.Objects) after modifying <code>Tree.m_State</code>,
+    <code>Tree.m_Growth</code>, or <code>ColorVariation</code> buffers. Without it, visual changes
+    are not reflected until the renderer naturally rechecks the entity.
+  </p>
 
   <h3>Terrain Attractiveness</h3>
   <p>

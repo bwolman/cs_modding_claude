@@ -472,6 +472,39 @@ public static class ToolbarApplyPatch
 }</code></pre>
 
   <!-- ============================================================ -->
+  <h2>EventToolChanged Subscription</h2>
+
+  <p>
+    Subscribe to <code>ToolSystem.EventToolChanged</code> for systems that should only run when
+    a specific tool is active. More efficient than checking tool state every frame:
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnCreate()
+{
+    Enabled = false;
+    m_ToolSystem.EventToolChanged += (ToolBaseSystem tool) =&gt;
+        Enabled = tool == m_ObjectToolSystem
+               || (tool.toolID != null &amp;&amp; tool.toolID == "Line Tool");
+}</code></pre>
+
+  <h2>EntityCommandBuffer Barrier Selection</h2>
+
+  <table>
+    <thead>
+      <tr><th>Barrier</th><th>When to Use</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>EndFrameBarrier</code></td><td>Simulation-phase systems (GameSimulation, ModificationEnd)</td></tr>
+      <tr><td><code>ToolOutputBarrier</code></td><td>Tool-phase systems (ToolUpdate)</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Rule: use the barrier that matches your system's update phase. For parallel jobs, use
+    <code>CreateCommandBuffer().AsParallelWriter()</code> and call
+    <code>barrier.AddJobHandleForProducer(jobHandle)</code>.
+  </p>
+
   <h2>Open Questions</h2>
 
   <p>All questions from this research have been resolved:</p>

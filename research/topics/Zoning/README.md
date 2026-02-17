@@ -270,6 +270,49 @@ The `ZoneFlags` enum on `ZoneData.m_ZoneFlags` controls zone behavior beyond sim
 
 The `m_MaxHeight` value in `ZoneData` is written to `Cell.m_Height` when the zone is painted, and `ZoneSpawnSystem` uses it to filter building prefabs by height. Buildings whose mesh height exceeds the cell's `m_Height` are not eligible for spawning on that lot.
 
+### Programmatic Zone Classification
+
+To classify a zone type (low/medium/high density) at runtime using `ZonePropertiesData`:
+
+```csharp
+ZonePropertiesData info = ...; // from zone prefab
+if (info.m_ResidentialProperties <= 0f)
+{
+    // Non-residential zone (commercial, industrial, office)
+}
+else
+{
+    float ratio = info.m_ResidentialProperties / info.m_SpaceMultiplier;
+    if (!info.m_ScaleResidentials)
+        // Low density (detached houses)
+    else if (ratio < 1f)
+        // Check spawnable building lot widths: all <= 2 = row housing, otherwise medium density
+    else
+        // High density
+}
+```
+
+### Road-to-Zone Integration (ZoneBlockPrefab)
+
+Road prefabs enable zoning via their `m_ZoneBlock` field on `RoadPrefab`. Setting this to a `ZoneBlockPrefab` entity causes `BlockSystem` to generate zone blocks when the road is placed. Setting it to null disables zoning for that road type.
+
+```csharp
+// Find the zone block prefab
+var query = SystemAPI.QueryBuilder().WithAll<ZoneBlockData>().Build();
+foreach (var entity in query.ToEntityArray(Allocator.Temp))
+{
+    if (prefabSystem.TryGetSpecificPrefab<ZoneBlockPrefab>(entity, out var prefab)
+        && prefab.name == "Zone Block")
+    {
+        zoneBlockPrefab = prefab;
+        break;
+    }
+}
+
+// Enable/disable zoning on a road prefab
+roadPrefab.m_ZoneBlock = enableZoning ? zoneBlockPrefab : null;
+```
+
 ## Building Mesh Dimensions Pattern
 
 When mods need to calculate a building's physical size (e.g., to derive realistic workplace counts or household capacity from volume), they use the `SubMesh` / `MeshData` / `ObjectUtils.GetSize()` pattern:

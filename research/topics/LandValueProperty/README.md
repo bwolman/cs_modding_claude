@@ -525,6 +525,37 @@ public float GetBuildingLandValue(EntityManager em, Entity building)
 }
 ```
 
+### Example 4: Remove Abandonment and Restore Building
+
+The reverse of `LeveldownJob` — programmatically removes abandonment and restores a building to functional state.
+
+```csharp
+public void RemoveAbandonment(EntityManager em, Entity buildingEntity)
+{
+    // 1. Remove abandoned status
+    em.RemoveComponent<Abandoned>(buildingEntity);
+
+    // 2. Reset market listing (PropertyToBeOnMarket triggers re-listing)
+    em.AddComponent<PropertyToBeOnMarket>(buildingEntity);
+    if (em.HasComponent<PropertyOnMarket>(buildingEntity))
+        em.RemoveComponent<PropertyOnMarket>(buildingEntity);
+
+    // 3. Reset building condition to zero
+    em.SetComponentData(buildingEntity, new BuildingCondition { m_Condition = 0 });
+
+    // 4. Restore utility consumers removed during abandonment
+    em.AddComponentData(buildingEntity, default(GarbageProducer));
+    em.AddComponentData(buildingEntity, default(MailProducer));
+    em.AddComponentData(buildingEntity, default(ElectricityConsumer));
+    em.AddComponentData(buildingEntity, default(WaterConsumer));
+
+    // 5. Remove abandoned notification icon
+    // (requires IconCommandBuffer from BuildingConfigurationData)
+}
+```
+
+Key components to restore: `GarbageProducer`, `MailProducer`, `ElectricityConsumer`, `WaterConsumer`. The `PropertyToBeOnMarket` tag triggers the property market system to re-list the building. `BuildingCondition.m_Condition = 0` gives the building a neutral starting state.
+
 ## Open Questions
 
 - [ ] **Rent formula parameters**: The exact default values of `EconomyParameterData.m_RentPriceBuildingZoneTypeBase` and `m_LandValueModifier` are set by EconomyPrefab, which was not decompiled. These float3 values control the base rate and land value sensitivity per zone type.

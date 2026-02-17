@@ -190,6 +190,35 @@ Tag component that marks entities excluded from normal simulation processing. Tr
 
 *Source: `Game.dll` -> `Game.Prefabs.TreeData`*
 
+### `PlantData` (Game.Prefabs)
+
+Prefab component for ALL vegetation (trees, bushes, plants, flowers). To query all vegetation prefabs, use `WithAll<PlantData>()`. To query only tree prefabs, use `WithAll<TreeData>()` (TreeData implies PlantData). To distinguish trees from bushes at runtime, check `SubMesh` buffer length — trees have 6 SubMesh entries (one per lifecycle stage pair), while bushes have fewer.
+
+*Source: `Game.dll` -> `Game.Prefabs.PlantData`*
+
+### `BatchesUpdated` (Game.Objects)
+
+Tag component that triggers visual mesh refresh. Must be added after modifying `Tree.m_State`, `Tree.m_Growth`, or `ColorVariation` buffers to ensure the rendering system updates the visual model. Without this, visual changes are not reflected until the renderer naturally rechecks the entity.
+
+```csharp
+// Single entity update
+commandBuffer.AddComponent<BatchesUpdated>(unfilteredChunkIndex, entity, default);
+
+// Bulk update for an entire query
+commandBuffer.AddComponent<BatchesUpdated>(query, EntityQueryCaptureMode.AtPlayback);
+```
+
+*Source: `Game.dll` -> `Game.Objects.BatchesUpdated`*
+
+### Evergreen vs Deciduous Detection
+
+To programmatically determine if a tree prefab is evergreen (no seasonal color change) vs deciduous:
+1. Check `ColorVariation` buffer on each `SubMesh` entity — if buffer length < 4, the tree is evergreen
+2. Check if the prefab name contains "palm" — palms are always evergreen
+3. Trees with full `ColorVariation` buffers (length >= 4, one per season) are deciduous
+
+This classification determines whether trees change foliage color with seasons.
+
 ### `Plant` (Game.Objects)
 
 ECS component for non-tree vegetation (bushes, flowers, ground cover).
@@ -271,7 +300,21 @@ Tree_Controller's `TreeObjectDefinitionSystem` uses these to compute age thresho
 
 3. **Modifying natural resources**: Access `NaturalResourceSystem.GetData(readOnly: false, out JobHandle)` and write directly to the `CellMapData<NaturalResourceCell>.m_Buffer`. Remember to call `AddWriter()` with the job handle.
 
-4. **Tree growth manipulation**: Patch `TreeGrowthSystem` or directly modify `Tree` components on tree entities. The tick speed constants control growth rate -- lower values = faster growth.
+4. **Tree growth manipulation**: Patch `TreeGrowthSystem` or directly modify `Tree` components on tree entities. The tick speed constants control growth rate -- lower values = faster growth. A more powerful approach is replacing the system's entity query via reflection to exclude trees with a custom tag component:
+
+```csharp
+// In OnGameLoadingComplete:
+var modifiedQuery = SystemAPI.QueryBuilder()
+    .WithAll<UpdateFrame>()
+    .WithAllRW<Game.Objects.Tree>()
+    .WithNone<Deleted, Temp, Overridden, NoTreeGrowth>()  // Custom exclusion
+    .Build();
+
+m_TreeGrowthSystem.SetMemberValue("m_TreeQuery", modifiedQuery);
+m_TreeGrowthSystem.RequireForUpdate(modifiedQuery);
+```
+
+This replaces the vanilla query so TreeGrowthSystem skips trees with the custom `NoTreeGrowth` tag. Always add `BatchesUpdated` after modifying tree visual state.
 
 5. **Terrain attractiveness**: Read via `TerrainAttractivenessSystem.GetData()` or use the static `EvaluateAttractiveness()` method. This feeds into land value and building desirability.
 

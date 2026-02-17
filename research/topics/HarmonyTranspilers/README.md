@@ -303,6 +303,49 @@ static class RepeatReplacePatch
 }
 ```
 
+### Pattern 6: Surgical Job Removal from System OnUpdate
+
+Remove individual jobs from a system's `OnUpdate` while keeping the rest intact. The mod then runs replacement jobs in a custom system. This keeps the vanilla system's data pipeline (queues, queries) operational.
+
+```csharp
+[HarmonyPatch(typeof(BuildingUpkeepSystem), "OnUpdate")]
+static class RemoveJobsPatch
+{
+    static IEnumerable<CodeInstruction> Transpiler(
+        IEnumerable<CodeInstruction> instructions, MethodBase original)
+    {
+        // 1. Identify job types by their nested class names
+        Type levelUpJobType = Type.GetType(
+            "Game.Simulation.BuildingUpkeepSystem+LevelupJob,Game", true);
+        Type levelDownJobType = Type.GetType(
+            "Game.Simulation.BuildingUpkeepSystem+LeveldownJob,Game", true);
+        MethodInfo dependencySetter = AccessTools.PropertySetter(
+            typeof(SystemBase), "Dependency");
+
+        // 2. Find local variable indices from MethodBody
+        int levelUpIndex = -1, levelDownIndex = -1;
+        foreach (var info in original.GetMethodBody().LocalVariables)
+        {
+            if (info.LocalType == levelUpJobType) levelUpIndex = info.LocalIndex;
+            if (info.LocalType == levelDownJobType) levelDownIndex = info.LocalIndex;
+        }
+
+        // 3. Use CodeMatcher to find and NOP out the job scheduling blocks
+        // Pattern: ldloca.s <jobIndex> ... call Dependency.set (stloc for result)
+        // Replace the entire sequence with NOPs
+        var matcher = new CodeMatcher(instructions);
+        // ... match and remove job scheduling instructions for each target job
+        return matcher.Instructions();
+    }
+}
+```
+
+Key techniques:
+1. Use `Type.GetType("Namespace.Outer+Inner,Assembly")` to resolve nested job types
+2. Use `MethodBase.GetMethodBody().LocalVariables` to find job local variable indices
+3. Use `CodeMatcher` to find and NOP the scheduling block (from `ldloca.s <index>` to `Dependency.set`)
+4. Pair with the NativeQueue reflection pattern (Example 6) to consume the vanilla system's output queues
+
 ## Harmony Patch Points for CS2
 
 ### Suitable Targets (Managed Code)

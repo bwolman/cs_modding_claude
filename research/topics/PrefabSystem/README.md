@@ -464,6 +464,32 @@ public void ListAllBuildings(PrefabSystem prefabSystem)
 }
 ```
 
+### Incremental Prefab Update with Created/Updated Queries
+
+To build efficient systems that react to prefab changes (e.g., maintaining a search index), use `Created` and `Updated` marker components:
+
+```csharp
+// 1. RequireForUpdate: only run when prefabs have changed
+RequireForUpdate(SystemAPI.QueryBuilder()
+    .WithAll<PrefabData>()
+    .WithAny<Created, Updated>()
+    .Build());
+
+// 2. In OnUpdate, check each processor's query for changes
+ComponentType[] anyFilter = new[] {
+    ComponentType.ReadOnly<Created>(),
+    ComponentType.ReadOnly<Updated>()
+};
+// If query with Created/Updated is empty, skip processing
+
+// 3. Handle removals via Deleted component
+EntityQuery deletedQuery = SystemAPI.QueryBuilder()
+    .WithAll<PrefabData, Deleted>()
+    .Build();
+```
+
+The `Created` component is added by `PrefabInitializeSystem` when a prefab entity is first created. `Updated` is added when a prefab is modified. Both are removed the frame after processing. `Deleted` marks entities being destroyed.
+
 ## Open Questions
 
 - [ ] How does the asset database load PrefabAsset objects from disk at startup?
