@@ -379,6 +379,48 @@ ModName/
 
 The game loads mod UI modules from the mod's published directory. The `mod.json` `id` is used to identify the module. The game calls the `ModRegistrar` function, passing the `moduleRegistry` for component injection.
 
+### Custom Icon Hosting via coui:// Protocol
+
+CS2's UI uses the `coui://` protocol to load resources (images, icons, stylesheets) from registered host locations. The game registers its own hosts (e.g., `coui://GameUI/` for vanilla UI resources). Mods can register custom hosts via `UIManager.AddHostLocation()` to serve their own icons and assets to the TypeScript/React frontend.
+
+**Registration in C# (during OnLoad or OnCreate):**
+
+```csharp
+using Game.SceneFlow;
+
+public void OnLoad(UpdateSystem updateSystem)
+{
+    // Register a custom coui:// host that maps to a directory on disk.
+    // After this, coui://mymod/icons/tool.svg resolves to
+    // {modDirectory}/Resources/icons/tool.svg
+    string modDirectory = GetModDirectory(); // via TryGetExecutableAsset or SearchFilter
+    GameManager.instance.userInterface.view.uiSystem.AddHostLocation(
+        "mymod",                                          // host name
+        Path.Combine(modDirectory, "Resources"),          // directory on disk
+        false);                                           // not read-only
+}
+```
+
+**Usage in TypeScript:**
+
+```typescript
+// Reference the icon via coui:// protocol in JSX
+<img src="coui://mymod/icons/tool.svg" />
+
+// Or in CSS mask-image for themed icons
+<img style={{ maskImage: "url(coui://mymod/icons/tool.svg)" }} />
+
+// Or via the Button src prop
+<Button variant="floating" src="coui://mymod/icons/tool.svg" />
+```
+
+**Key details:**
+- The host name in `AddHostLocation()` becomes the hostname in the `coui://` URL. E.g., host `"mymod"` serves resources at `coui://mymod/...`.
+- The directory path maps to the root of that host. Subdirectories are accessible via the URL path.
+- The vanilla game uses hosts like `GameUI` (for `coui://GameUI/...`) and `uil` (for the standard UI library). Avoid using these names.
+- `AddHostLocation` is on `UIManager` (accessible via `GameManager.instance.userInterface.view.uiSystem`). It calls through to the Coherent (cohtml) view's resource handler.
+- Icons served this way work with the CSS mask-image pattern for theme-aware coloring: set the `<img>` background-color to the desired theme variable and use the SVG as a mask.
+
 ## Mod Blueprint — Adding a Toolbar Button
 
 ### C# Side
