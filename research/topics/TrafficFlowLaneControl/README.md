@@ -118,6 +118,7 @@ Per-lane network property flags. These define the traffic rules for each lane.
 | ForbidPassing | 0x2000000 | Passing is forbidden on this lane |
 | RightOfWay | 0x4000000 | Lane has right of way |
 | TrafficLights | 0x8000000 | Lane is controlled by traffic lights |
+| PublicOnly | 0x20000000 | Lane is restricted to public transport vehicles only (bus-only lanes). Vehicles without `CarFlags.UsePublicTransportLanes` are excluded. |
 | Forbidden | 0x40000000 | Lane is forbidden for general traffic |
 | AllowEnter | 0x80000000 | Lane allows entering from adjacent |
 
@@ -214,6 +215,18 @@ Per-lane signal state. Attached to each lane at a signalized intersection.
 | m_Flags | LaneSignalFlags | CanExtend, Physical |
 
 *Source: `Game.dll` -> `Game.Net.LaneSignal`*
+
+#### CustomPriority for Intersection Priority Modding
+
+The `m_Priority` field on `LaneSignal` is the key to modding intersection priority behavior. When the `TrafficLightInitializationSystem` groups lanes into signal groups, it sets `m_Default` to the base priority. Mods can write a different value to `m_Priority` to create a **CustomPriority** override -- the traffic light state machine in `TrafficLightSystem` uses `m_Priority` (not `m_Default`) when evaluating which signal group to green next.
+
+To implement custom intersection priorities:
+1. Query intersection nodes with `TrafficLights` + `SubLane` buffer
+2. For each sub-lane with `LaneSignal`, set `m_Priority` to the desired value
+3. Higher `m_Priority` values give that lane's signal group preference in `GetNextSignalGroup`
+4. The system respects the priority on each tick, so mods can dynamically adjust priority based on time of day, traffic conditions, or emergency vehicle approach
+
+This is the recommended approach for intersection priority mods rather than patching `TrafficLightSystem` directly.
 
 ### `LaneSignalType` (Game.Net)
 
