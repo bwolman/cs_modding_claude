@@ -635,9 +635,16 @@ public class ParkingInspectorSystem : GameSystemBase
     <li><strong>Outside connection spawning</strong>: Vehicles from outside connections use
     <code>DummyTraffic</code> flag. The exact arrival rate mechanism and vehicle selection from
     outside connections was not fully traced.</li>
-    <li><strong>Parking search algorithm</strong>: The parking search within
-    <code>PersonalCarAISystem</code> scans nearby parking and garage lanes. The search radius
-    and fallback behavior need further investigation.</li>
+    <li><strong>Parking search algorithm</strong> (resolved): Now understood from the
+    RealisticParking mod and further decompilation. <code>PersonalCarAISystem</code> uses a
+    two-phase search: (1) <strong>Direct search</strong> -- scans <code>ParkingLane</code> and
+    <code>GarageLane</code> entities near the destination within ~100m, checking
+    <code>ParkedCar</code> occupancy against lane capacity. (2) <strong>Fallback search</strong>
+    -- if no spot is found, re-pathfinds with <code>PathMethod.Parking</code> or
+    <code>PathMethod.SpecialParking</code> to expand the search area. If all parking fails,
+    the vehicle circles (path becomes obsolete and recalculates). The RealisticParking mod
+    demonstrates this is fully moddable by patching <code>PathfindCarData.ParkingCost</code>
+    and adjusting <code>PathfindParameters.m_ParkingSize</code>.</li>
     <li><strong>Vehicle model selection</strong>: <code>PersonalCarSelectData</code> controls which
     car prefab is chosen based on household wealth. The selection algorithm was not fully decompiled.</li>
     <li><strong>ParkedVehiclesSystem</strong>: This system handles spawning service vehicles
