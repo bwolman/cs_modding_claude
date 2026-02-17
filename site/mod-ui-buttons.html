@@ -557,6 +557,56 @@ ModName/
   <tr><td><code>--textColorNormal</code></td><td>Default text color</td></tr>
 </table>
 
+<h3>Custom Icon Hosting via coui:// Protocol</h3>
+
+<p>
+  CS2's UI uses the <code>coui://</code> protocol to load resources (images, icons, stylesheets)
+  from registered host locations. The game registers its own hosts (e.g., <code>coui://GameUI/</code>
+  for vanilla UI resources). Mods can register custom hosts via <code>UIManager.AddHostLocation()</code>
+  to serve their own icons and assets to the TypeScript/React frontend.
+</p>
+
+<p><strong>Registration in C# (during OnLoad or OnCreate):</strong></p>
+
+<pre><code class="language-csharp">using Game.SceneFlow;
+
+public void OnLoad(UpdateSystem updateSystem)
+{
+    // Register a custom coui:// host that maps to a directory on disk.
+    // After this, coui://mymod/icons/tool.svg resolves to
+    // {modDirectory}/Resources/icons/tool.svg
+    string modDirectory = GetModDirectory();
+    GameManager.instance.userInterface.view.uiSystem.AddHostLocation(
+        "mymod",                                          // host name
+        Path.Combine(modDirectory, "Resources"),          // directory on disk
+        false);                                           // not read-only
+}</code></pre>
+
+<p><strong>Usage in TypeScript:</strong></p>
+
+<pre><code class="language-typescript">// Reference the icon via coui:// protocol in JSX
+&lt;img src="coui://mymod/icons/tool.svg" /&gt;
+
+// Or in CSS mask-image for themed icons
+&lt;img style={{ maskImage: "url(coui://mymod/icons/tool.svg)" }} /&gt;
+
+// Or via the Button src prop
+&lt;Button variant="floating" src="coui://mymod/icons/tool.svg" /&gt;</code></pre>
+
+<p><strong>Key details:</strong></p>
+
+<ul>
+  <li>The host name in <code>AddHostLocation()</code> becomes the hostname in the <code>coui://</code> URL.
+  E.g., host <code>"mymod"</code> serves resources at <code>coui://mymod/...</code>.</li>
+  <li>The directory path maps to the root of that host. Subdirectories are accessible via the URL path.</li>
+  <li>The vanilla game uses hosts like <code>GameUI</code> and <code>uil</code>. Avoid using these names.</li>
+  <li><code>AddHostLocation</code> is on <code>UIManager</code> (accessible via
+  <code>GameManager.instance.userInterface.view.uiSystem</code>). It calls through to the
+  Coherent (cohtml) view's resource handler.</li>
+  <li>Icons served this way work with the CSS mask-image pattern for theme-aware coloring: set the
+  <code>&lt;img&gt;</code> background-color to the desired theme variable and use the SVG as a mask.</li>
+</ul>
+
 <!-- ============================================================ -->
 <h2>Community Patterns (from InfoLoom)</h2>
 
