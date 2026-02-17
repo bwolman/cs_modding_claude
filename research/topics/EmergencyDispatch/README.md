@@ -632,12 +632,9 @@ If you want to dispatch without a real event, ensure the validation component ex
 >
 > ```csharp
 > // CORRECT: Create an event entity for AddHealthProblemSystem to process
-> var archetype = EntityManager.CreateArchetype(
->     ComponentType.ReadWrite<Game.Common.Event>(),
->     ComponentType.ReadWrite<AddHealthProblem>()
-> );
-> Entity cmd = EntityManager.CreateEntity(archetype);
-> EntityManager.SetComponentData(cmd, new AddHealthProblem
+> Entity cmd = EntityManager.CreateEntity();
+> EntityManager.AddComponentData(cmd, new Game.Common.Event());
+> EntityManager.AddComponentData(cmd, new AddHealthProblem
 > {
 >     m_Event = Entity.Null,
 >     m_Target = citizenEntity,

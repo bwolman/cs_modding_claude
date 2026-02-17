@@ -769,12 +769,9 @@ private void DispatchAmbulanceTo(Entity citizen)
   </p>
 
   <pre><code class="language-csharp">// CORRECT: Create an event entity for AddHealthProblemSystem to process
-var archetype = EntityManager.CreateArchetype(
-    ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
-    ComponentType.ReadWrite&lt;AddHealthProblem&gt;()
-);
-Entity cmd = EntityManager.CreateEntity(archetype);
-EntityManager.SetComponentData(cmd, new AddHealthProblem
+Entity cmd = EntityManager.CreateEntity();
+EntityManager.AddComponentData(cmd, new Game.Common.Event());
+EntityManager.AddComponentData(cmd, new AddHealthProblem
 {
     m_Event = Entity.Null,
     m_Target = citizenEntity,
