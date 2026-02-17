@@ -4,5 +4,8 @@ research/decompiled/
 # Game DLLs (copied from game install, never committed)
 lib/
 
+# External mod repos (cloned for reference, not committed)
+external/
+
 # Claude Code local config
 .claude/

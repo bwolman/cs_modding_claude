@@ -684,6 +684,10 @@ public void EnableWaterSource(EntityManager em, Entity sourceEntity)
 - [ ] What minimum depth at the intake prevents visual artifacts (pulsing, dry-wet cycling)? Needs in-game testing with various flow rates and radii.
 - [ ] Does the SourceJob filter by any components beyond WaterSourceData / Transform / !Temp / !Deleted? From decompilation, these are the only filters.
 
+## Related Research
+
+- **[Water & Sewage Pipe Network](../WaterSewagePipes/README.md)** -- How water flows through underground pipes from pumping stations to buildings, and sewage flows back. Covers the max-flow graph solver, building consumption, groundwater, and pipe pollution propagation.
+
 ## Sources
 
 - Decompiled from: Game.dll (Game.Simulation namespace, Game.Buildings namespace, Game.Prefabs namespace, Game.Events namespace)

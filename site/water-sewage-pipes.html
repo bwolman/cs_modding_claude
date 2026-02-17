@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Water &amp; Sewage Pipe Network</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html" class="active">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Water &amp; Sewage Pipe Network</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 route fresh water from pumping stations through
+      underground pipes to buildings, and how does sewage flow back to treatment outlets?
+    </p>
+    <p>
+      <strong>Verdict:</strong> The pipe network uses a CPU-based <strong>max-flow graph solver</strong>
+      running on a 128-frame cycle. The graph has WaterPipeNode vertices and WaterPipeEdge edges,
+      with separate flow computations for fresh water and sewage on the same topology. A virtual
+      super-source connects all producers (pumps) and a virtual super-sink connects all consumers
+      (buildings). The solver uses a multi-phase algorithm: max-flow for local production, then
+      max-flow again with trade (import/export) edges, then fluid-flow redistribution for
+      proportional path sharing.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Surface water simulation (GPU compute shaders, rivers,
+      flooding) is covered in <a href="water-system.html">Water System</a>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    Unlike the surface water system which runs on the GPU, the pipe network is a classic
+    <strong>graph theory problem</strong> solved on the CPU. The game builds a directed graph
+    of nodes and edges, then runs a max-flow algorithm to determine how much water can reach
+    each building.
+  </p>
+
+  <h3>Graph Structure</h3>
+
+  <p>Three entity types form the graph:</p>
+
+  <ul>
+    <li><strong>WaterPipeNode</strong> -- vertices. Every road segment, building connection,
+    pump station, and outside connection gets a node.</li>
+    <li><strong>WaterPipeEdge</strong> -- edges. Connect two nodes with independent fresh water
+    and sewage capacities.</li>
+    <li><strong>ConnectedFlowEdge</strong> (buffer) -- adjacency list on each node, pointing
+    to its connected edges.</li>
+  </ul>
+
+  <p>Two special virtual nodes anchor the graph:</p>
+
+  <ul>
+    <li><strong>sourceNode</strong> -- all water producers (pump stations, imports) connect to
+    this virtual super-source</li>
+    <li><strong>sinkNode</strong> -- all water consumers (buildings) connect to this virtual
+    super-sink</li>
+  </ul>
+
+  <h3>Dual Networks on One Graph</h3>
+
+  <p>
+    Fresh water and sewage share the <strong>same graph topology</strong> but are solved
+    <strong>independently</strong>. The <code>WaterPipeFlowJob</code> maintains two parallel
+    datasets (<code>m_FreshData</code> and <code>m_SewageData</code>) with the same
+    node/edge structure but separate flow computations. One key difference: sewage cannot be
+    exported (export capacity = 0 for the sewage network).
+  </p>
+
+  <h3>The 128-Frame Solve Cycle</h3>
+
+  <p>
+    The solver runs on the same 128-frame cycle as the electricity grid, offset by 64 frames:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Frame</th><th>System</th><th>What Happens</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>64</td><td>AdjustWaterConsumptionSystem</td><td>Recalculates building water demand from prefabs, fees, and occupancy</td></tr>
+      <tr><td>65</td><td>WaterPipeFlowSystem (Prepare)</td><td>Builds flow graph arrays from ECS entities</td></tr>
+      <tr><td>66-125</td><td>WaterPipeFlowSystem (Flow)</td><td>Runs max-flow solver iteratively across ~60 frames</td></tr>
+      <tr><td>62</td><td>WaterPipeFlowSystem (Apply)</td><td>Writes solved flows and flags back to WaterPipeEdge</td></tr>
+      <tr><td>63</td><td>DispatchWaterSystem</td><td>Distributes flow results to building WaterConsumer components</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Max-Flow Solver Phases</h3>
+
+  <p>
+    Within the flow frames, the <code>WaterPipeFlowJob</code> runs through sub-phases:
+  </p>
+
+  <ol>
+    <li><strong>Producer</strong> -- initial max-flow from all producers to consumers through the local network</li>
+    <li><strong>PostProducer</strong> -- labels shortage subgraphs (edges that cannot get enough supply)</li>
+    <li><strong>Trade</strong> -- enables import/export edges on outside connections, runs max-flow again to fill remaining demand via trade</li>
+    <li><strong>PostTrade</strong> -- labels connected/disconnected components, limits import capacity to actual usage</li>
+    <li><strong>FluidFlow</strong> -- distributes flow proportionally across redundant paths using a push-relabel algorithm</li>
+  </ol>
+
+  <h3>Building Connection Types</h3>
+
+  <p>Buildings connect to the pipe network in two ways:</p>
+
+  <h4>Direct Connection (WaterPipeBuildingConnection)</h4>
+  <p>
+    Buildings with dedicated pipe access (pump stations, water towers, large facilities) have a
+    <code>WaterPipeBuildingConnection</code> component with edges directly linking the building
+    to the flow graph. The building reads its flow directly from its <code>m_ConsumerEdge</code>.
+  </p>
+
+  <h4>Road-Adjacent (Shared Connection)</h4>
+  <p>
+    Most buildings connect via their adjacent road. The road segment has a
+    <code>WaterPipeNodeConnection</code> linking it to a pipe graph node, and all buildings on that
+    road share the road's edge capacity. Each building gets a proportional share:
+    <code>(edge flow / edge capacity) * wanted consumption</code>.
+  </p>
+
+  <h3>How Consumption is Calculated</h3>
+
+  <p>
+    <code>AdjustWaterConsumptionSystem</code> runs each cycle and computes
+    <code>m_WantedConsumption</code> for every building:
+  </p>
+
+  <ol>
+    <li>Read base consumption from <code>ConsumptionData.m_WaterConsumption</code> (prefab)</li>
+    <li>Apply water fee multiplier (higher fees reduce consumption)</li>
+    <li>Scale by occupancy (renter/employee count relative to building capacity)</li>
+    <li>Inactive buildings consume 10% of normal</li>
+    <li>Result is written to <code>WaterConsumer.m_WantedConsumption</code></li>
+    <li>The consumer edge capacity is set to match:
+    <code>edge.m_FreshCapacity = edge.m_SewageCapacity = wantedConsumption</code></li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>WaterPipeFlowSystem, WaterPipeFlowJob, WaterPipeNode, WaterPipeEdge, WaterPipeBuildingConnection, WaterPipeNodeConnection, WaterPipeValveConnection, WaterPipeGraphUtils, AdjustWaterConsumptionSystem, DispatchWaterSystem, WaterPipePollutionSystem, GroundWaterSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>WaterConsumer, WaterConsumerFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Net</td>
+        <td>WaterPipeConnection (road/pipe capacity)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>WaterPipeParameterData (singleton), WaterPipeParametersPrefab, ConsumptionData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>WaterPipeEdge (Game.Simulation)</h3>
+
+  <p>Graph edge carrying both fresh water and sewage between two nodes.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Index</td><td>int</td><td>Temporary index assigned each solve cycle</td></tr>
+      <tr><td>m_Start</td><td>Entity</td><td>Start node entity</td></tr>
+      <tr><td>m_End</td><td>Entity</td><td>End node entity</td></tr>
+      <tr><td>m_FreshFlow</td><td>int</td><td>Solved fresh water flow (set by Apply phase)</td></tr>
+      <tr><td>m_FreshPollution</td><td>float</td><td>Pollution level of fresh water (0.0-1.0)</td></tr>
+      <tr><td>m_SewageFlow</td><td>int</td><td>Solved sewage flow</td></tr>
+      <tr><td>m_FreshCapacity</td><td>int</td><td>Maximum fresh water capacity</td></tr>
+      <tr><td>m_SewageCapacity</td><td>int</td><td>Maximum sewage capacity</td></tr>
+      <tr><td>m_Flags</td><td>WaterPipeEdgeFlags</td><td>Status: shortage, backup, or disconnected</td></tr>
+    </tbody>
+  </table>
+
+  <h3>WaterPipeEdgeFlags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>None</td><td>0</td><td>No issues</td></tr>
+      <tr><td>WaterShortage</td><td>1</td><td>Demand exceeds supply on this path</td></tr>
+      <tr><td>SewageBackup</td><td>2</td><td>Sewage capacity exceeded</td></tr>
+      <tr><td>WaterDisconnected</td><td>4</td><td>Not connected to any water producer</td></tr>
+      <tr><td>SewageDisconnected</td><td>8</td><td>Not connected to any sewage processor</td></tr>
+    </tbody>
+  </table>
+
+  <h3>WaterConsumer (Game.Buildings)</h3>
+
+  <p>Attached to every building that needs water service.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Pollution</td><td>float</td><td>Pollution level of received fresh water (0.0-1.0)</td></tr>
+      <tr><td>m_WantedConsumption</td><td>int</td><td>Desired water consumption (from prefab + occupancy)</td></tr>
+      <tr><td>m_FulfilledFresh</td><td>int</td><td>Actual fresh water received this cycle</td></tr>
+      <tr><td>m_FulfilledSewage</td><td>int</td><td>Actual sewage capacity available this cycle</td></tr>
+      <tr><td>m_FreshCooldownCounter</td><td>byte</td><td>Notification cooldown for water shortage</td></tr>
+      <tr><td>m_SewageCooldownCounter</td><td>byte</td><td>Notification cooldown for sewage backup</td></tr>
+      <tr><td>m_Flags</td><td>WaterConsumerFlags</td><td>WaterConnected (1), SewageConnected (2)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>GroundWater (Game.Simulation)</h3>
+
+  <p>Per-cell groundwater data on a 256x256 grid covering the entire map.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Amount</td><td>short</td><td>Current groundwater amount (0-10000)</td></tr>
+      <tr><td>m_Polluted</td><td>short</td><td>Polluted portion of groundwater</td></tr>
+      <tr><td>m_Max</td><td>short</td><td>Maximum capacity for this cell</td></tr>
+    </tbody>
+  </table>
+
+  <h3>WaterPipeParameterData (Game.Prefabs)</h3>
+
+  <p>Global singleton controlling all water pipe behavior. Key tuning fields:</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_GroundwaterReplenish</td><td>0.004</td><td>Replenishment rate per tick (fraction of max)</td></tr>
+      <tr><td>m_GroundwaterPurification</td><td>1</td><td>Pollution removed per tick per cell</td></tr>
+      <tr><td>m_GroundwaterUsageMultiplier</td><td>0.1</td><td>Scales groundwater pump extraction</td></tr>
+      <tr><td>m_GroundwaterPumpEffectiveAmount</td><td>4000</td><td>Groundwater amount for full pump efficiency</td></tr>
+      <tr><td>m_SurfaceWaterUsageMultiplier</td><td>0.00005</td><td>Scales surface pump extraction</td></tr>
+      <tr><td>m_SurfaceWaterPumpEffectiveDepth</td><td>4.0</td><td>Water depth for full pump efficiency</td></tr>
+      <tr><td>m_MaxToleratedPollution</td><td>0.1</td><td>Threshold for dirty water notifications (10%)</td></tr>
+      <tr><td>m_WaterPipePollutionSpreadInterval</td><td>5</td><td>Ticks between pollution spread (higher = slower)</td></tr>
+      <tr><td>m_StaleWaterPipePurification</td><td>0.001</td><td>Pollution decay in pipes with no flow</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+WATER PRODUCTION (Every 128 frames)
+  WaterPumpingStationAISystem
+    Reads surface water depth / groundwater at pump location
+    Sets producer edge capacity on WaterPipeBuildingConnection
+          |
+          v
+CONSUMPTION ADJUSTMENT (Frame 64)
+  AdjustWaterConsumptionSystem
+    For each building with WaterConsumer:
+      base = ConsumptionData.m_WaterConsumption (prefab)
+      base *= water fee multiplier
+      base *= occupancy ratio (renters or employees)
+      inactive buildings = 10% of base
+      Sets WaterConsumer.m_WantedConsumption
+      Sets consumer edge capacity = wanted
+          |
+          v
+GRAPH PREPARATION (Frame 65)
+  WaterPipeFlowSystem.PreparePhase
+    Assigns indices to all WaterPipeNode entities
+    Copies edge capacities into solver arrays
+    Builds adjacency list (Connection array)
+    Populates sourceNode / sinkNode indices
+          |
+          v
+FLOW SOLVING (Frames 66-125, ~60 frames)
+  WaterPipeFlowJob (Burst-compiled)
+    Phase 1: MaxFlow (producers -&gt; consumers)
+    Phase 2: Label shortages
+    Phase 3: MaxFlow with trade (import/export)
+    Phase 4: Label connected components
+    Phase 5: FluidFlow redistribution
+          |
+          v
+APPLY (Frame 62)
+  WaterPipeFlowSystem.ApplyPhase
+    Writes m_FreshFlow, m_SewageFlow to WaterPipeEdge
+    Sets WaterPipeEdgeFlags on each edge
+          |
+          v
+DISPATCH TO BUILDINGS (Frame 63)
+  DispatchWaterSystem
+    Direct connection: read flow from consumer edge
+    Road-adjacent: proportional share = (flow/capacity) * wanted
+    Sets WaterConsumer.m_FulfilledFresh, m_FulfilledSewage
+    Sets WaterConsumer.m_Flags, m_Pollution
+    Manages shortage/backup notifications
+          |
+          v
+POLLUTION PROPAGATION (Every 64 frames)
+  WaterPipePollutionSystem
+    NodePollutionJob: averages incoming pollution at nodes
+    EdgePollutionJob: propagates node pollution to edges
+    Stale pipes slowly self-purify
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read a Building's Water Status</h3>
+
+  <p>Check if a building has water and sewage service, and what its fulfillment ratio is.</p>
+
+  <pre><code class="language-csharp">public void CheckBuildingWaterStatus(EntityManager em, Entity building)
+{
+    if (!em.HasComponent&lt;WaterConsumer&gt;(building)) return;
+
+    WaterConsumer consumer = em.GetComponentData&lt;WaterConsumer&gt;(building);
+
+    Log.Info($"Water status for {building}:");
+    Log.Info($"  Wanted: {consumer.m_WantedConsumption}");
+    Log.Info($"  Fresh fulfilled: {consumer.m_FulfilledFresh}");
+    Log.Info($"  Sewage fulfilled: {consumer.m_FulfilledSewage}");
+    Log.Info($"  Pollution: {consumer.m_Pollution:P1}");
+    Log.Info($"  Water connected: {consumer.waterConnected}");
+    Log.Info($"  Sewage connected: {consumer.sewageConnected}");
+
+    float fulfillment = (consumer.m_WantedConsumption &gt; 0)
+        ? (float)consumer.m_FulfilledFresh / consumer.m_WantedConsumption
+        : 1f;
+    Log.Info($"  Fulfillment ratio: {fulfillment:P0}");
+}</code></pre>
+
+  <h3>Modify Global Water Parameters</h3>
+
+  <p>Change the WaterPipeParameterData singleton to boost groundwater replenishment or
+  adjust pollution tolerance.</p>
+
+  <pre><code class="language-csharp">public void BoostWaterParameters(EntityManager em)
+{
+    EntityQuery paramQuery = em.CreateEntityQuery(
+        ComponentType.ReadWrite&lt;WaterPipeParameterData&gt;()
+    );
+
+    if (paramQuery.CalculateEntityCount() == 0) return;
+
+    Entity paramEntity = paramQuery.GetSingletonEntity();
+    WaterPipeParameterData data = em.GetComponentData&lt;WaterPipeParameterData&gt;(paramEntity);
+
+    // Double groundwater replenishment
+    data.m_GroundwaterReplenish *= 2f;
+
+    // Increase pollution tolerance from 10% to 25%
+    data.m_MaxToleratedPollution = 0.25f;
+
+    em.SetComponentData(paramEntity, data);
+    paramQuery.Dispose();
+}</code></pre>
+
+  <h3>Find All Pipe Edges with Water Shortage</h3>
+
+  <p>Query the network for edges experiencing shortages to identify bottlenecks.</p>
+
+  <pre><code class="language-csharp">public partial class WaterShortageMonitorSystem : GameSystemBase
+{
+    private EntityQuery _edgeQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _edgeQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;WaterPipeEdge&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        NativeArray&lt;WaterPipeEdge&gt; edges =
+            _edgeQuery.ToComponentDataArray&lt;WaterPipeEdge&gt;(Allocator.Temp);
+
+        int shortageCount = 0;
+        int backupCount = 0;
+
+        for (int i = 0; i &lt; edges.Length; i++)
+        {
+            WaterPipeEdge edge = edges[i];
+            if ((edge.m_Flags &amp; WaterPipeEdgeFlags.WaterShortage) != 0)
+                shortageCount++;
+            if ((edge.m_Flags &amp; WaterPipeEdgeFlags.SewageBackup) != 0)
+                backupCount++;
+        }
+
+        if (shortageCount &gt; 0 || backupCount &gt; 0)
+            Log.Info($"Network: {shortageCount} water shortages, {backupCount} sewage backups");
+
+        edges.Dispose();
+    }
+}</code></pre>
+
+  <h3>Create a Custom Pipe Edge</h3>
+
+  <p>Programmatically add a pipe edge between two existing pipe nodes.</p>
+
+  <pre><code class="language-csharp">public Entity AddCustomPipeEdge(
+    EntityManager em,
+    WaterPipeFlowSystem flowSystem,
+    Entity startNode,
+    Entity endNode,
+    int freshCapacity,
+    int sewageCapacity)
+{
+    return WaterPipeGraphUtils.CreateFlowEdge(
+        em,
+        flowSystem.edgeArchetype,
+        startNode,
+        endNode,
+        freshCapacity,
+        sewageCapacity
+    );
+}</code></pre>
+
+  <h3>Sample Groundwater at a Position</h3>
+
+  <pre><code class="language-csharp">public void CheckGroundwater(GroundWaterSystem gwSystem, float3 worldPosition)
+{
+    JobHandle deps;
+    NativeArray&lt;GroundWater&gt; gwMap = gwSystem.GetData(readOnly: true, out deps);
+    deps.Complete();
+
+    GroundWater gw = GroundWaterSystem.GetGroundWater(worldPosition, gwMap);
+
+    float pollutionRatio = (gw.m_Amount &gt; 0)
+        ? (float)gw.m_Polluted / gw.m_Amount
+        : 0f;
+
+    Log.Info($"Groundwater at {worldPosition}:");
+    Log.Info($"  Amount: {gw.m_Amount} / {gw.m_Max}");
+    Log.Info($"  Polluted: {gw.m_Polluted} ({pollutionRatio:P1})");
+
+    gwSystem.AddReader(Dependency);
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Building consumption</td>
+        <td>ConsumptionData.m_WaterConsumption</td>
+        <td>Varies by prefab</td>
+        <td>Base water demand for each building type</td>
+      </tr>
+      <tr>
+        <td>Pipe capacity</td>
+        <td>WaterPipeConnection.m_FreshCapacity</td>
+        <td>1073741823 (max)</td>
+        <td>Effectively unlimited for standard roads</td>
+      </tr>
+      <tr>
+        <td>Solve cycle</td>
+        <td>WaterPipeFlowSystem.kUpdateInterval</td>
+        <td>128 frames</td>
+        <td>How often flow is recalculated (hardcoded)</td>
+      </tr>
+      <tr>
+        <td>Groundwater recharge</td>
+        <td>WaterPipeParameterData.m_GroundwaterReplenish</td>
+        <td>0.004</td>
+        <td>Fraction of max capacity replenished per tick (2048 ticks/day)</td>
+      </tr>
+      <tr>
+        <td>Pollution spread</td>
+        <td>WaterPipeParameterData.m_WaterPipePollutionSpreadInterval</td>
+        <td>5</td>
+        <td>Higher = slower pollution propagation through pipes</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Storm water capacity:</strong> The <code>m_StormCapacity</code> field exists on
+      <code>WaterPipeConnection</code> but the current flow solver only processes fresh and
+      sewage networks. Storm water may be handled separately or reserved for future use.
+    </li>
+    <li>
+      <strong>Mid-cycle capacity changes:</strong> If a pipe's capacity changes mid-cycle
+      (e.g., from an upgrade), the change takes effect at the next PreparePhase when the graph
+      is rebuilt.
+    </li>
+    <li>
+      <strong>Solver error recovery:</strong> The flow job has an <code>m_Error</code> flag
+      and logs errors if a phase gets stuck. It resets and retries next cycle, but the
+      conditions that trigger errors are not fully characterized.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.WaterPipeFlowSystem, Game.Simulation.WaterPipeFlowJob, Game.Simulation.WaterPipeNode, Game.Simulation.WaterPipeEdge, Game.Simulation.WaterPipeBuildingConnection, Game.Simulation.AdjustWaterConsumptionSystem, Game.Simulation.DispatchWaterSystem, Game.Simulation.WaterPipePollutionSystem, Game.Simulation.GroundWaterSystem</li>
+    <li>Runtime components: Game.Buildings.WaterConsumer, Game.Net.WaterPipeConnection</li>
+    <li>Prefab types: Game.Prefabs.WaterPipeParameterData, Game.Prefabs.WaterPipeParametersPrefab, Game.Prefabs.ConsumptionData</li>
+    <li>Related: <a href="water-system.html">Water Surface Simulation System</a> (surface water, GPU compute)</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- WaterPipeFlowSystem, WaterPipeFlowJob, WaterPipeGraphUtils, WaterConsumer.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
