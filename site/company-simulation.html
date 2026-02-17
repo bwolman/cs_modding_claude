@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Company Simulation</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html" class="active">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Company Simulation</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How do companies operate in CS2 -- from spawning in zoned
+      buildings through production, profitability tracking, dividend payments to households,
+      and bankruptcy decisions?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Companies are ECS entities created by <code>CompanyPrefab</code>
+      archetypes when buildings spawn in zoned areas. Each company has a type tag
+      (Commercial, Industrial, Extractor, Processing, Storage, Transport, Office) and runs
+      through a multi-system pipeline: <strong>resource acquisition</strong> (BuyingCompanySystem),
+      <strong>production</strong> (type-specific systems), <strong>profitability assessment</strong>
+      (CompanyProfitabilitySystem), <strong>dividend distribution</strong> (CompanyDividendSystem),
+      and <strong>bankruptcy/move-away</strong> (CompanyMoveAwaySystem). Profitability is a 0-255
+      byte where 127 = break-even. Companies that stay below the bankruptcy limit for ~4 in-game
+      days are deleted. Dividends flow from company money to employee households at a rate of
+      <code>money / (8 * employeeCount)</code> per employee per day.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Resource types and the Resource enum are documented in
+      <a href="resource-production.html">Resource Production</a>. Zone spawning mechanics are in
+      <a href="zoning.html">Zoning</a>. Citizen employment seeking is part of Citizens &amp; Households.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    Companies are the economic backbone of CS2. Every commercial shop, factory, warehouse,
+    and office is backed by a company entity that produces goods or services, employs citizens,
+    pays taxes, and distributes dividends. The simulation runs through five distinct phases
+    each game day.
+  </p>
+
+  <h3>Company Types</h3>
+
+  <p>
+    Each company entity carries exactly one <strong>type tag component</strong> that determines
+    which production system processes it. These are zero-size struct tags:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Tag Component</th><th>Zone</th><th>Production System</th><th>What It Does</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>CommercialCompany</td><td>Commercial</td><td>ServiceCompanySystem</td><td>Sells goods/services to citizens</td></tr>
+      <tr><td>IndustrialCompany</td><td>Industrial</td><td>ProcessingCompanySystem</td><td>Transforms input resources into output</td></tr>
+      <tr><td>OfficeCompany</td><td>Office</td><td>ProcessingCompanySystem</td><td>Produces weightless resources (Software, Telecom, etc.)</td></tr>
+      <tr><td>ExtractorCompany</td><td>Industrial</td><td>ExtractorCompanySystem</td><td>Extracts raw resources from terrain</td></tr>
+      <tr><td>ProcessingCompany</td><td>Industrial</td><td>ProcessingCompanySystem</td><td>General factory processing (present on most industrial)</td></tr>
+      <tr><td>StorageCompany</td><td>Industrial</td><td>StorageCompanySystem</td><td>Warehouses that store and redistribute</td></tr>
+      <tr><td>TransportCompany</td><td>Industrial</td><td>--</td><td>Operates transport vehicles</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Company Entity Archetype</h3>
+
+  <p>
+    When a building spawns in a zoned area, <code>CompanyPrefab.GetArchetypeComponents()</code>
+    defines the full component set:
+  </p>
+
+  <ul>
+    <li><strong>CompanyData</strong> -- random seed and brand reference</li>
+    <li><strong>UpdateFrame</strong> -- determines which frame batch this company updates in</li>
+    <li><strong>Resources</strong> -- buffer holding all resource stocks (money, goods, etc.)</li>
+    <li><strong>PropertySeeker</strong> -- used during initial property search</li>
+    <li><strong>TripNeeded</strong> -- buffer for pathfinding trips</li>
+    <li><strong>CompanyNotifications</strong> -- "no inputs" / "no customers" warning state</li>
+    <li><strong>GuestVehicle</strong> -- buffer for visiting delivery vehicles</li>
+    <li><strong>Type tag</strong> -- one of CommercialCompany, IndustrialCompany, etc.</li>
+  </ul>
+
+  <h3>The Production Pipeline</h3>
+
+  <p>
+    All production systems run at <code>EconomyUtils.kCompanyUpdatesPerDay</code> frequency
+    (multiple times per game day). The core formula is:
+  </p>
+
+  <p>
+    <code>productionThisUpdate = GetCompanyProductionPerDay(efficiency, employees, processData) / kCompanyUpdatesPerDay</code>
+  </p>
+
+  <p>
+    Production depends on: building efficiency (affected by city modifiers, specialization bonuses,
+    resource availability), employee count and education, and the <code>IndustrialProcessData</code>
+    recipe that defines input/output resource ratios.
+  </p>
+
+  <h4>Extractor Companies</h4>
+  <p>
+    Extractors have no input resources -- they pull raw materials from terrain. Production
+    is scaled by natural resource concentration via <code>GetBestConcentration()</code>, which
+    reads the <code>Extractor</code> component on sub-areas. The effective concentration is:
+    <code>min(1, rawConcentration / fullThreshold)</code> where fullThreshold comes from
+    <code>ExtractorParameterData</code> (e.g., <code>m_FullOre</code>, <code>m_FullOil</code>).
+    When storage exceeds 75%, a <code>ResourceExporter</code> component is added to trigger
+    delivery truck dispatch.
+  </p>
+
+  <h4>Processing Companies</h4>
+  <p>
+    Processors consume one or two input resources and produce one output. The
+    <code>IndustrialProcessData</code> prefab defines the recipe. Production is limited by
+    the minimum of: employee-based output, Input1 stock / ratio, and Input2 stock / ratio.
+    If a company has no inputs, the building's <code>EfficiencyFactor.LackResources</code>
+    is set to 0. Office companies are identified by producing weightless resources
+    (checked via <code>ResourceData.m_Weight</code>).
+  </p>
+
+  <h4>Service Companies (Commercial)</h4>
+  <p>
+    Service companies produce "service units" that citizens consume during leisure activities.
+    Production is added to <code>ServiceAvailable.m_ServiceAvailable</code>, capped at
+    <code>ServiceCompanyData.m_MaxService</code>. Tax income is calculated from the service
+    price of the output resource. If the service stock exceeds a configurable threshold
+    (<code>CompanyNotificationParameterData.m_NoCustomersServiceLimit</code>), a "no customers"
+    notification icon appears on the building.
+  </p>
+
+  <h3>The Profitability System</h3>
+
+  <p>
+    <code>CompanyProfitabilitySystem</code> runs <strong>once per day</strong> and computes each
+    company's financial health:
+  </p>
+
+  <ol>
+    <li>Calculate <strong>total worth</strong> = value of all resources in the company's
+    Resources buffer + value of cargo in owned delivery trucks</li>
+    <li>Compute delta: <code>currentWorth - lastWorth</code></li>
+    <li>Map to byte: <code>clamp(delta / 100, -127, 128) + 127</code></li>
+    <li>Store in <code>Profitability.m_Profitability</code> (0 = losing badly, 127 = break-even, 255 = very profitable)</li>
+  </ol>
+
+  <p>
+    The system also resets monthly statistics: <code>m_MonthlyCustomerCount</code> is set from the
+    running counter, and the running counter is zeroed for the next month.
+  </p>
+
+  <h3>Dividend Distribution</h3>
+
+  <p>
+    <code>CompanyDividendSystem</code> runs <strong>once per day</strong> on all
+    <code>ProcessingCompany</code> entities (excluding storage companies). The dividend formula
+    is straightforward:
+  </p>
+
+  <ol>
+    <li>Check company has positive money balance and at least one employee</li>
+    <li>Calculate: <code>dividendPerEmployee = max(0, money / (8 * employeeCount))</code></li>
+    <li>For each employee, look up their household via <code>HouseholdMember</code></li>
+    <li>Add <code>dividendPerEmployee</code> as Money to the household's Resources buffer</li>
+    <li>Deduct total from company: <code>-(dividendPerEmployee * employeeCount)</code></li>
+  </ol>
+
+  <p>
+    This is how company profits become household income. The factor of 8 means companies
+    retain 87.5% of their cash each dividend cycle, distributing 12.5% to employees.
+  </p>
+
+  <h3>Bankruptcy and Move-Away</h3>
+
+  <p>
+    <code>CompanyMoveAwaySystem</code> runs <strong>16 times per day</strong> and implements
+    a two-path exit mechanism:
+  </p>
+
+  <h4>Path 1: Tax and Labor Pressure</h4>
+  <p>
+    <code>CompanyUtils.GetCompanyMoveAwayChance()</code> calculates a percentage:
+  </p>
+
+  <ul>
+    <li>Base: <code>(taxRate - 10) * 5 / 2</code> -- a 10% tax rate is neutral (0% chance from tax); 20% tax adds +25%</li>
+    <li>+5% if there's an uneducated worker shortage notification</li>
+    <li>+20% if there's an educated worker shortage notification</li>
+  </ul>
+
+  <p>
+    A random roll <code>NextInt(100) &lt; chance</code> determines if the company gets the
+    <code>MovingAway</code> tag.
+  </p>
+
+  <h4>Path 2: Sustained Losses (Bankruptcy)</h4>
+  <p>
+    If the company's total worth falls below <code>EconomyParameterData.m_CompanyBankruptcyLimit</code>:
+  </p>
+  <ul>
+    <li>The system records the first low-income frame in <code>m_LastFrameLowIncome</code></li>
+    <li>If the company stays below the limit for more than <strong>65536 frames</strong>
+    (~4 in-game days), it gets the <code>MovingAway</code> tag</li>
+    <li>If it recovers above the limit, the timer resets</li>
+  </ul>
+
+  <h4>The MovingAway Process</h4>
+  <p>
+    Once tagged with <code>MovingAway</code>, the <code>MovingAwayJob</code>:
+  </p>
+  <ol>
+    <li>Marks the property as <code>PropertyToBeOnMarket</code> (so a new company can move in)</li>
+    <li>Creates a <code>RentersUpdated</code> event</li>
+    <li>Removes worker notification icons</li>
+    <li>Adds <code>Deleted</code> to the company entity (destroying it)</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Companies</td>
+        <td>CompanyData, Profitability, CompanyStatisticData, CommercialCompany, IndustrialCompany, OfficeCompany, ExtractorCompany, ProcessingCompany, StorageCompany, TransportCompany, ServiceCompanyData, ServiceAvailable, BuyingCompany, CompanyNotifications, ResourceBuyer, ResourceSeller, ResourceExporter, TradeCost, CurrentTrading, WorkProvider, Workplaces, FreeWorkplaces, Employee, LodgingProvider, StorageLimitData, StorageTransfer, StorageTransferRequest, TransportCompanyData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>CompanyProfitabilitySystem, CompanyDividendSystem, CompanyMoveAwaySystem, CompanyUtils, ServiceCompanySystem, ExtractorCompanySystem, ProcessingCompanySystem, StorageCompanySystem, BuyingCompanySystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>CompanyPrefab, IndustrialProcessData, StorageCompanyData, ServiceCompany, CompanyNotificationParameterData, ExtractorParameterData, CommercialCompanyData, IndustrialCompanyData, ExtractorCompanyData, ProcessingCompanyData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>CompanyData (Game.Companies)</h3>
+
+  <p>Core component on every company entity.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_RandomSeed</td><td>Random</td><td>Per-company random seed for stochastic decisions</td></tr>
+      <tr><td>m_Brand</td><td>Entity</td><td>Reference to the company's brand prefab</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Profitability (Game.Companies)</h3>
+
+  <p>Financial health rating computed once per day.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Profitability</td><td>byte</td><td>0-255 rating: 0=losing badly, 127=break-even, 255=very profitable</td></tr>
+      <tr><td>m_LastTotalWorth</td><td>int</td><td>Total worth at last profitability update (used to compute delta)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CompanyStatisticData (Game.Companies)</h3>
+
+  <p>Comprehensive per-company financial ledger with 19 tracked values.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Income</td><td>int</td><td>Total income</td></tr>
+      <tr><td>m_Worth</td><td>int</td><td>Total company worth</td></tr>
+      <tr><td>m_Profit</td><td>int</td><td>Net profit (income minus expenses)</td></tr>
+      <tr><td>m_WagePaid</td><td>int</td><td>Wages paid to employees</td></tr>
+      <tr><td>m_RentPaid</td><td>int</td><td>Rent paid for building</td></tr>
+      <tr><td>m_ElectricityPaid</td><td>int</td><td>Electricity costs</td></tr>
+      <tr><td>m_WaterPaid</td><td>int</td><td>Water costs</td></tr>
+      <tr><td>m_SewagePaid</td><td>int</td><td>Sewage costs</td></tr>
+      <tr><td>m_GarbagePaid</td><td>int</td><td>Garbage disposal costs</td></tr>
+      <tr><td>m_TaxPaid</td><td>int</td><td>Tax paid</td></tr>
+      <tr><td>m_CostBuyResource</td><td>int</td><td>Cost of purchasing input resources</td></tr>
+      <tr><td>m_MonthlyCustomerCount</td><td>int</td><td>Customers served in the completed month</td></tr>
+      <tr><td>m_MaxNumberOfCustomers</td><td>int</td><td>Historical max monthly customer count</td></tr>
+      <tr><td>m_LastFrameLowIncome</td><td>uint</td><td>Frame index when low income was first detected (bankruptcy timer)</td></tr>
+      <tr><td>m_LastUpdateProduce</td><td>int</td><td>Production amount at last update</td></tr>
+    </tbody>
+  </table>
+
+  <h3>WorkProvider (Game.Companies)</h3>
+
+  <p>Employment data tracking worker capacity and shortage notifications.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_MaxWorkers</td><td>int</td><td>Maximum number of workers this company can employ</td></tr>
+      <tr><td>m_UneducatedCooldown</td><td>short</td><td>Notification cooldown for uneducated worker shortage</td></tr>
+      <tr><td>m_EducatedCooldown</td><td>short</td><td>Notification cooldown for educated worker shortage</td></tr>
+      <tr><td>m_UneducatedNotificationEntity</td><td>Entity</td><td>Active icon entity for uneducated worker shortage</td></tr>
+      <tr><td>m_EducatedNotificationEntity</td><td>Entity</td><td>Active icon entity for educated worker shortage</td></tr>
+      <tr><td>m_EfficiencyCooldown</td><td>short</td><td>Cooldown for efficiency notifications</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Employee (Game.Companies, buffer)</h3>
+
+  <p>Buffer element listing each employee.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Worker</td><td>Entity</td><td>The citizen entity working at this company</td></tr>
+      <tr><td>m_Level</td><td>byte</td><td>Education level (0=Uneducated, 1=PoorlyEducated, 2=Educated, 3=WellEducated, 4=HighlyEducated)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ServiceCompanyData (Game.Companies)</h3>
+
+  <p>Configuration for commercial service companies.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_MaxService</td><td>int</td><td>Maximum service units the company can stock</td></tr>
+      <tr><td>m_WorkPerUnit</td><td>int</td><td>Work required per service unit (initialized to 0)</td></tr>
+      <tr><td>m_MaxWorkersPerCell</td><td>float</td><td>Worker density per lot cell</td></tr>
+      <tr><td>m_ServiceConsuming</td><td>int</td><td>Service consumed per leisure tick by visitors</td></tr>
+    </tbody>
+  </table>
+
+  <h3>IndustrialProcessData (Game.Prefabs)</h3>
+
+  <p>Defines the input-to-output recipe for a company. See <a href="resource-production.html">Resource Production</a> for full documentation.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Input1</td><td>ResourceStack</td><td>First input resource and amount</td></tr>
+      <tr><td>m_Input2</td><td>ResourceStack</td><td>Second input resource and amount (NoResource if single-input)</td></tr>
+      <tr><td>m_Output</td><td>ResourceStack</td><td>Output resource and amount</td></tr>
+      <tr><td>m_WorkPerUnit</td><td>int</td><td>Work units needed per output unit</td></tr>
+      <tr><td>m_MaxWorkersPerCell</td><td>float</td><td>Worker density scaling for building size</td></tr>
+      <tr><td>m_IsImport</td><td>byte</td><td>Whether this is an import-only process</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+COMPANY CREATION
+  ZoneSpawnSystem spawns building
+    CompanyPrefab.GetArchetypeComponents() creates entity with:
+      CompanyData, UpdateFrame, Resources, PropertySeeker,
+      TripNeeded, CompanyNotifications, GuestVehicle
+      + type tag (CommercialCompany / IndustrialCompany / etc.)
+          |
+          v
+RESOURCE ACQUISITION (kCompanyUpdatesPerDay times/day)
+  BuyingCompanySystem
+    Checks input resource levels vs storage limit
+    Splits storage evenly among input/output resources
+    Adds ResourceBuyer -&gt; triggers delivery pathfinding
+    Delivery trucks bring resources to company
+          |
+          v
+PRODUCTION (kCompanyUpdatesPerDay times/day)
+  ExtractorCompanySystem (ExtractorCompany)
+    Reads natural resource concentration from terrain
+    Produces output, consumes natural resources
+    Triggers export when storage &gt; 75%
+          |
+  ProcessingCompanySystem (ProcessingCompany)
+    Consumes Input1 + Input2 -&gt; produces Output
+    Production = min(employeeOutput, input1/ratio, input2/ratio)
+    Tracks profit via TaxPayer
+          |
+  ServiceCompanySystem (ServiceAvailable)
+    Produces service units from employee labor
+    Citizens visit and consume ServiceAvailable
+    Calculates untaxed income from service price
+          |
+          v
+PROFITABILITY ASSESSMENT (once/day)
+  CompanyProfitabilitySystem
+    totalWorth = SUM(resource values) + vehicle cargo value
+    profitability = clamp((worth - lastWorth) / 100, -127, 128) + 127
+    Resets monthly customer/cost statistics
+          |
+          v
+DIVIDEND DISTRIBUTION (once/day)
+  CompanyDividendSystem
+    For each ProcessingCompany with money &gt; 0 and employees &gt; 0:
+      dividendPerEmployee = money / (8 * employeeCount)
+      Employee -&gt; HouseholdMember -&gt; Household.Resources += Money
+      Company.Resources -= dividendPerEmployee * employeeCount
+          |
+          v
+BANKRUPTCY / MOVE-AWAY CHECK (16 times/day)
+  CompanyMoveAwaySystem.CheckMoveAwayJob
+    moveAwayChance = (taxRate - 10) * 5/2
+                   + 5  (if uneducated worker shortage)
+                   + 20 (if educated worker shortage)
+    Roll: NextInt(100) &lt; chance -&gt; MovingAway tag
+    OR: totalWorth &lt; bankruptcyLimit for &gt; 65536 frames -&gt; MovingAway
+          |
+  CompanyMoveAwaySystem.MovingAwayJob
+    Property -&gt; PropertyToBeOnMarket
+    Clean up notification icons
+    Company -&gt; Deleted
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read Company Financial Statistics</h3>
+
+  <p>Query all companies and log their financial health. The <code>Profitability.m_Profitability</code>
+  byte uses 127 as the break-even point -- subtract 127 to get a signed rating.</p>
+
+  <pre><code class="language-csharp">public partial class CompanyMonitorSystem : GameSystemBase
+{
+    private EntityQuery _companyQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _companyQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;CompanyData&gt;(),
+            ComponentType.ReadOnly&lt;Profitability&gt;(),
+            ComponentType.ReadOnly&lt;CompanyStatisticData&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        NativeArray&lt;Entity&gt; entities = _companyQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            Entity entity = entities[i];
+            Profitability prof = EntityManager.GetComponentData&lt;Profitability&gt;(entity);
+            CompanyStatisticData stats = EntityManager.GetComponentData&lt;CompanyStatisticData&gt;(entity);
+
+            int profitRating = prof.m_Profitability - 127; // -127 to +128
+            Log.Info($"Company {entity}: profit={stats.m_Profit}, " +
+                     $"profitability={profitRating}, worth={stats.m_Worth}, " +
+                     $"income={stats.m_Income}, wages={stats.m_WagePaid}, " +
+                     $"tax={stats.m_TaxPaid}");
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Patch Company Move-Away Chance</h3>
+
+  <p>Use a Harmony postfix to halve the tax-and-labor-driven move-away probability.
+  This makes companies more resilient to high tax rates and worker shortages.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.CompanyUtils), "GetCompanyMoveAwayChance")]
+public static class PatchCompanyMoveAway
+{
+    public static void Postfix(ref int __result)
+    {
+        // Halve the move-away chance
+        __result = __result / 2;
+    }
+}</code></pre>
+
+  <h3>Modify Service Company Initialization</h3>
+
+  <p>Patch the service company prefab initialization to increase maximum service capacity
+  by 50% for all commercial businesses.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Prefabs.ServiceCompany), "Initialize")]
+public static class PatchServiceCompanyInit
+{
+    public static void Postfix(EntityManager entityManager, Entity entity)
+    {
+        if (entityManager.HasComponent&lt;ServiceCompanyData&gt;(entity))
+        {
+            ServiceCompanyData data = entityManager.GetComponentData&lt;ServiceCompanyData&gt;(entity);
+            data.m_MaxService = (int)(data.m_MaxService * 1.5f);
+            entityManager.SetComponentData(entity, data);
+        }
+    }
+}</code></pre>
+
+  <h3>Find All Struggling Companies</h3>
+
+  <p>Query for companies with low profitability scores to identify which businesses need help.
+  A profitability value below 64 means severely unprofitable.</p>
+
+  <pre><code class="language-csharp">public void FindStrugglingCompanies(EntityManager em)
+{
+    EntityQuery query = em.CreateEntityQuery(
+        ComponentType.ReadOnly&lt;CompanyData&gt;(),
+        ComponentType.ReadOnly&lt;Profitability&gt;(),
+        ComponentType.ReadOnly&lt;PropertyRenter&gt;(),
+        ComponentType.Exclude&lt;Deleted&gt;()
+    );
+
+    NativeArray&lt;Entity&gt; entities = query.ToEntityArray(Allocator.Temp);
+    NativeArray&lt;Profitability&gt; profitabilities =
+        query.ToComponentDataArray&lt;Profitability&gt;(Allocator.Temp);
+
+    int struggling = 0;
+    for (int i = 0; i &lt; entities.Length; i++)
+    {
+        if (profitabilities[i].m_Profitability &lt; 64)
+        {
+            struggling++;
+            Log.Info($"Struggling: {entities[i]}, " +
+                     $"profitability={profitabilities[i].m_Profitability}");
+        }
+    }
+    Log.Info($"Total struggling: {struggling} / {entities.Length}");
+
+    entities.Dispose();
+    profitabilities.Dispose();
+    query.Dispose();
+}</code></pre>
+
+  <h3>Boost Extractor Efficiency via Parameter Override</h3>
+
+  <p>Modify the <code>ExtractorParameterData</code> singleton to make resource extraction more
+  efficient. Lowering the "full" thresholds means extractors reach 100% efficiency at lower
+  natural resource concentrations.</p>
+
+  <pre><code class="language-csharp">public void BoostExtractorEfficiency(EntityManager em, float multiplier)
+{
+    EntityQuery paramQuery = em.CreateEntityQuery(
+        ComponentType.ReadWrite&lt;ExtractorParameterData&gt;()
+    );
+
+    if (paramQuery.CalculateEntityCount() == 0) return;
+
+    Entity paramEntity = paramQuery.GetSingletonEntity();
+    ExtractorParameterData data = em.GetComponentData&lt;ExtractorParameterData&gt;(paramEntity);
+
+    // Lower thresholds = reach full efficiency at lower concentrations
+    data.m_FullFertility /= multiplier;
+    data.m_FullOre /= multiplier;
+    data.m_FullOil /= multiplier;
+    data.m_FullFish /= multiplier;
+
+    em.SetComponentData(paramEntity, data);
+    paramQuery.Dispose();
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Production recipe</td>
+        <td>IndustrialProcessData (m_Input1, m_Input2, m_Output)</td>
+        <td>Varies by company prefab</td>
+        <td>Defines input/output resource ratios for processing</td>
+      </tr>
+      <tr>
+        <td>Max service</td>
+        <td>ServiceCompanyData.m_MaxService</td>
+        <td>Varies by prefab</td>
+        <td>Maximum service units a commercial business can stock</td>
+      </tr>
+      <tr>
+        <td>Storage limit</td>
+        <td>StorageLimitData.m_Limit</td>
+        <td>Varies by prefab</td>
+        <td>Base storage capacity (scaled by level and lot size for warehouses)</td>
+      </tr>
+      <tr>
+        <td>Worker density</td>
+        <td>IndustrialProcessData.m_MaxWorkersPerCell / ServiceCompanyData.m_MaxWorkersPerCell</td>
+        <td>Varies by prefab</td>
+        <td>Workers per lot cell, scaled by (1 + 0.5 * level) * spaceMultiplier</td>
+      </tr>
+      <tr>
+        <td>Profitability update</td>
+        <td>CompanyProfitabilitySystem.kUpdatesPerDay</td>
+        <td>1 (once/day)</td>
+        <td>How often profitability byte is recalculated</td>
+      </tr>
+      <tr>
+        <td>Move-away checks</td>
+        <td>CompanyMoveAwaySystem.kUpdatesPerDay</td>
+        <td>16 (per day)</td>
+        <td>How often bankruptcy and tax-pressure checks run</td>
+      </tr>
+      <tr>
+        <td>Dividend fraction</td>
+        <td>Hardcoded in DividendJob</td>
+        <td>money / (8 * employees)</td>
+        <td>Companies distribute 12.5% of cash to employees per day</td>
+      </tr>
+      <tr>
+        <td>Bankruptcy delay</td>
+        <td>Hardcoded in CheckMoveAwayJob</td>
+        <td>65536 frames</td>
+        <td>~4 in-game days below bankruptcy limit before company is deleted</td>
+      </tr>
+      <tr>
+        <td>No customers threshold</td>
+        <td>CompanyNotificationParameterData.m_NoCustomersServiceLimit</td>
+        <td>Configurable</td>
+        <td>Service stock ratio above which "no customers" notification appears</td>
+      </tr>
+      <tr>
+        <td>Extractor full thresholds</td>
+        <td>ExtractorParameterData (m_FullOre, m_FullOil, etc.)</td>
+        <td>Configurable</td>
+        <td>Natural resource concentration for 100% extraction efficiency</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>EconomyUtils.kCompanyUpdatesPerDay:</strong> The exact numeric value of this constant
+      is referenced by all production systems but is defined in EconomyUtils. It determines the
+      shared update frequency for all company production systems.
+    </li>
+    <li>
+      <strong>Bankruptcy limit:</strong> The <code>EconomyParameterData.m_CompanyBankruptcyLimit</code>
+      default value needs to be traced from the EconomyParameterData singleton. This threshold
+      determines when the 65536-frame bankruptcy timer starts.
+    </li>
+    <li>
+      <strong>Company creation trigger:</strong> While <code>CompanyPrefab.GetArchetypeComponents()</code>
+      defines the entity archetype, the exact system that instantiates company entities when a
+      building spawns in a zone is not fully traced. It likely lives in ZoneSpawnSystem or a
+      building AI system.
+    </li>
+    <li>
+      <strong>Office company identification:</strong> Office companies are not identified by a
+      dedicated tag component. Instead, the <code>ProcessingCompanySystem</code> checks for
+      <code>OfficeProperty</code> on the building entity to determine tax type and efficiency
+      modifiers. The <code>OfficeCompany</code> tag exists but its role relative to
+      <code>OfficeProperty</code> needs clarification.
+    </li>
+    <li>
+      <strong>Commercial company resource selling:</strong> The <code>ResourceSeller</code> tag is
+      a zero-size component. The exact system that processes selling from commercial companies to
+      visiting citizens (consuming ServiceAvailable) was not fully traced in this research.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Companies.CompanyData, Profitability, CompanyStatisticData, CommercialCompany, IndustrialCompany, OfficeCompany, ExtractorCompany, ProcessingCompany, StorageCompany, TransportCompany, ServiceCompanyData, ServiceAvailable, BuyingCompany, CompanyNotifications, ResourceBuyer, ResourceSeller, ResourceExporter, TradeCost, CurrentTrading, WorkProvider, Workplaces, FreeWorkplaces, Employee, LodgingProvider, StorageLimitData, StorageTransfer, StorageTransferRequest, TransportCompanyData</li>
+    <li>Systems: Game.Simulation.CompanyProfitabilitySystem, CompanyDividendSystem, CompanyMoveAwaySystem, CompanyUtils, ServiceCompanySystem, ExtractorCompanySystem, ProcessingCompanySystem, StorageCompanySystem, BuyingCompanySystem</li>
+    <li>Prefab types: Game.Prefabs.CompanyPrefab, IndustrialProcessData, StorageCompanyData, ServiceCompany, CompanyNotificationParameterData, ExtractorParameterData, CommercialCompanyData, IndustrialCompanyData, ExtractorCompanyData, ProcessingCompanyData</li>
+    <li>Related: <a href="resource-production.html">Resource Production</a> (Resource enum, EconomyUtils), <a href="zoning.html">Zoning</a> (building spawning), <a href="demand-systems.html">Demand Systems</a></li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- CompanyProfitabilitySystem, CompanyDividendSystem, CompanyMoveAwaySystem, CompanyUtils, ServiceCompanySystem, ExtractorCompanySystem, ProcessingCompanySystem, StorageCompanySystem, BuyingCompanySystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

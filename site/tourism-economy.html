@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tourism Economy</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html" class="active">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Tourism Economy</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How do tourists arrive in the city, find hotels and attractions,
+      spend money, and eventually leave? What controls tourist spawn rates and city attractiveness?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Tourism in CS2 is a <strong>probability-driven spawn pipeline</strong>
+      controlled by city attractiveness. Buildings with <code>AttractionData</code> contribute to a
+      city-wide attractiveness score via a sigmoid function. This score determines a target tourist
+      count and spawn probability. Tourists arrive at outside connections as special
+      <code>TouristHousehold</code> entities, pathfind to hotels or attractions, and check into
+      <code>LodgingProvider</code> hotels that charge them per-tick. Tourists leave when they run
+      out of money or cannot find lodging. Weather (temperature, rain, snow, storms) applies a
+      0.5x-1.5x multiplier to the spawn rate.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> General citizen leisure behavior (non-tourist), company
+      economics (see <a href="company-simulation.html">Company Simulation</a>), and workplace
+      labor for hotel employees (see <a href="workplace-labor.html">Workplace &amp; Labor</a>).
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The tourism system is a multi-stage pipeline: buildings generate attractiveness, the city
+    aggregates it into a score, tourists spawn based on that score, then they navigate to hotels
+    and attractions while spending money until they leave.
+  </p>
+
+  <h3>Attractiveness Scoring</h3>
+
+  <p>
+    Every building with an <code>Attraction</code> prefab component gets an
+    <code>AttractivenessProvider</code> runtime component. The <strong>AttractionSystem</strong>
+    recalculates each building's effective attractiveness every 16 frames (processing 1/16 of
+    buildings per frame):
+  </p>
+
+  <ol>
+    <li>Start from <code>AttractionData.m_Attractiveness</code> (base value from prefab)</li>
+    <li>Add upgrade bonuses from <code>InstalledUpgrade</code> buffer</li>
+    <li>Multiply by building efficiency (skipped for signature buildings)</li>
+    <li>For parks: multiply by <code>0.8 + 0.2 * (maintenance / maintenancePool)</code></li>
+    <li>Multiply by terrain factor: <code>1 + 0.01 * terrainAttractiveness</code> (forest, shore, height bonuses)</li>
+  </ol>
+
+  <p>
+    The <strong>TourismSystem</strong> then aggregates all providers into a city-wide score using a
+    <strong>squared-sum sigmoid</strong>:
+  </p>
+
+  <pre><code>sum = SUM(provider.m_Attractiveness^2 / 10000)  // for all providers
+attractiveness = 200 / (1 + exp(-0.3 * sum)) - 100</code></pre>
+
+  <p>
+    This sigmoid produces values roughly in the range -100 to +100. City modifiers
+    (<code>CityModifierType.Attractiveness</code>) are applied after the sigmoid.
+  </p>
+
+  <h3>Tourist Spawn Probability</h3>
+
+  <p>
+    <code>TouristSpawnSystem</code> runs every <strong>16 frames</strong> and rolls a random
+    number against the spawn probability. The probability has two components:
+  </p>
+
+  <h4>Base Spawn Probability</h4>
+
+  <p>The game calculates a <strong>target tourist count</strong> from attractiveness:</p>
+
+  <ul>
+    <li>Attractiveness &lt;= 100: <code>target = attractiveness * 15</code></li>
+    <li>Attractiveness &gt; 100: <code>target = 1500 + 100 * log10(1 + (attractiveness - 100))</code></li>
+  </ul>
+
+  <p>The spawn probability then ramps based on how close the city is to its target:</p>
+
+  <ul>
+    <li>Below 50% of target: probability = <strong>1.0</strong> (spawn every tick)</li>
+    <li>50% to 110% of target: quadratic decay from 1.0 to 0.0 using <code>1.5 * (1 - ratio)^2</code></li>
+    <li>At or above target: base rate = <code>attractiveness / 1000</code></li>
+  </ul>
+
+  <h4>Weather Multiplier</h4>
+
+  <p>
+    Weather applies a multiplier clamped to <strong>0.5x - 1.5x</strong>:
+  </p>
+
+  <ul>
+    <li><strong>Pleasant temperature</strong> (within <code>m_AttractiveTemperature</code> range): bonus up to <code>m_TemperatureAffect.x</code></li>
+    <li><strong>Extreme temperature</strong> (outside <code>m_ExtremeTemperature</code> range): penalty up to <code>m_TemperatureAffect.y</code></li>
+    <li><strong>Snow</strong>: penalty scaled by precipitation within <code>m_SnowEffectRange</code></li>
+    <li><strong>Rain</strong>: penalty scaled by precipitation within <code>m_RainEffectRange</code></li>
+    <li><strong>Storms</strong>: flat penalty of <code>m_SnowRainExtremeAffect.z</code></li>
+  </ul>
+
+  <h3>Tourist Lifecycle</h3>
+
+  <p>When a tourist spawns, the system creates a <code>Household</code> entity with these characteristics:</p>
+
+  <ol>
+    <li>Household flag: <code>HouseholdFlags.Tourist</code></li>
+    <li><code>TouristHousehold</code> component: hotel = null, leavingTime = 0</li>
+    <li><code>CurrentBuilding</code>: set to a random outside connection (weighted by <code>m_TouristOCSpawnParameters</code>)</li>
+  </ol>
+
+  <p>The tourist then follows this behavior loop:</p>
+
+  <ol>
+    <li><strong>TouristHouseholdBehaviorSystem</strong> (every 64 frames): validates hotel and target, adds <code>LodgingSeeker</code> if tourist needs a destination</li>
+    <li><strong>TouristFindTargetSystem</strong> (every 16 frames): pathfinds from current location using public transit, taxi, or walking. The pathfinder's destination type (<code>TouristFindTarget</code>) can resolve to either a hotel or an attraction.</li>
+    <li>If destination is a hotel: <strong>HotelReserveJob</strong> books a room (decrements <code>m_FreeRooms</code>, adds tourist to <code>Renter</code> buffer, sets <code>m_Hotel</code>)</li>
+    <li>If destination is an attraction: adds a meeting of type <code>LeisureType.Attractions</code></li>
+    <li>If no destination found: tourist moves away with reason <code>TouristNoTarget</code></li>
+  </ol>
+
+  <h3>Hotel Economics</h3>
+
+  <p>
+    <strong>LodgingProviderSystem</strong> runs 32 times per in-game day (every 512 frames). Each
+    tick it processes every hotel company:
+  </p>
+
+  <ol>
+    <li><strong>Room count</strong>: <code>lotSize.x * lotSize.y * level * spaceMultiplier</code></li>
+    <li><strong>Renter cleanup</strong>: removes any non-tourist entities from the renter buffer</li>
+    <li><strong>Overcapacity handling</strong>: if more renters than rooms, evicts excess (resets their <code>m_Hotel</code>)</li>
+    <li><strong>Charging</strong>: each tourist pays <code>(lodgingConsumePerDay / 32) * marketPrice(Lodging)</code> per tick</li>
+    <li>Hotel receives the money and consumes lodging resource</li>
+    <li>Updates <code>m_FreeRooms</code> and <code>m_Price</code> (daily price = per-tick charge * 32)</li>
+  </ol>
+
+  <h3>Tourist Departure</h3>
+
+  <p>
+    <strong>TouristLeaveSystem</strong> runs every 512 frames and checks two departure conditions
+    based on <code>TimeSystem.normalizedTime</code> (0.0 = midnight, 1.0 = next midnight):
+  </p>
+
+  <ul>
+    <li><strong>No hotel + time &gt; 0.8</strong>: leaves with reason <code>TouristNoHotel</code> (late evening, nowhere to stay)</li>
+    <li><strong>Money &lt; hotel daily price + time &gt; 0.7</strong>: leaves with reason <code>TouristNoMoney</code> (cannot afford another night)</li>
+  </ul>
+
+  <p>
+    Departure fires a <code>TriggerType.TouristLeftCity</code> trigger and adds the
+    <code>MovingAway</code> component, which causes the household to route back to an outside
+    connection and be removed.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Citizens</td>
+        <td>TouristHousehold, LodgingSeeker</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.City</td>
+        <td>Tourism (city singleton)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Companies</td>
+        <td>LodgingProvider</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>AttractivenessProvider</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>AttractionData, Attraction, AttractivenessParameterData, LeisureParametersData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>TouristSpawnSystem, TourismSystem, AttractionSystem, LodgingProviderSystem, TouristFindTargetSystem, TouristHouseholdBehaviorSystem, TouristLeaveSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>TouristHousehold (Game.Citizens)</h3>
+
+  <p>Marks a household entity as a tourist. Added when the tourist spawns at an outside connection.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Hotel</td><td>Entity</td><td>The LodgingProvider entity the tourist is checked into, or Entity.Null if homeless</td></tr>
+      <tr><td>m_LeavingTime</td><td>uint</td><td>Simulation frame for scheduled departure (initialized to 0)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LodgingSeeker (Game.Citizens)</h3>
+
+  <p>Zero-size tag component. When present on a tourist household, triggers <code>TouristFindTargetSystem</code> to pathfind for a hotel or attraction.</p>
+
+  <h3>Tourism (Game.City)</h3>
+
+  <p>City-level singleton with aggregate tourism statistics. Updated by TourismSystem approximately once per in-game day.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_CurrentTourists</td><td>int</td><td>Number of tourist citizens currently in the city</td></tr>
+      <tr><td>m_AverageTourists</td><td>int</td><td>Estimated average tourists based on spawn probability</td></tr>
+      <tr><td>m_Attractiveness</td><td>int</td><td>City attractiveness score (sigmoid-transformed, roughly -100 to +100)</td></tr>
+      <tr><td>m_Lodging</td><td>int2</td><td>x = occupied rooms, y = total rooms (occupied + free)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LodgingProvider (Game.Companies)</h3>
+
+  <p>Attached to hotel company entities. Managed by LodgingProviderSystem.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_FreeRooms</td><td>int</td><td>Number of unoccupied rooms</td></tr>
+      <tr><td>m_Price</td><td>int</td><td>Daily lodging price per room (market price * consumption per day)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>AttractivenessProvider (Game.Buildings)</h3>
+
+  <p>Runtime component on buildings that contribute to city attractiveness. Recalculated by AttractionSystem.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Attractiveness</td><td>int</td><td>Effective attractiveness after all modifiers (efficiency, maintenance, terrain, upgrades)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>AttractionData (Game.Prefabs)</h3>
+
+  <p>Prefab component defining base attractiveness. Implements <code>ICombineData</code> for stacking with upgrades.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Attractiveness</td><td>int</td><td>Base attractiveness value from the building prefab</td></tr>
+    </tbody>
+  </table>
+
+  <h3>AttractivenessParameterData (Game.Prefabs)</h3>
+
+  <p>Global singleton controlling terrain and weather effects on attractiveness.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ForestEffect</td><td>float</td><td>Attractiveness bonus from nearby forest</td></tr>
+      <tr><td>m_ForestDistance</td><td>float</td><td>Max distance for forest effect</td></tr>
+      <tr><td>m_ShoreEffect</td><td>float</td><td>Attractiveness bonus from nearby shore</td></tr>
+      <tr><td>m_ShoreDistance</td><td>float</td><td>Max distance for shore effect</td></tr>
+      <tr><td>m_HeightBonus</td><td>float3</td><td>Height-based bonus parameters (min, max, bonus)</td></tr>
+      <tr><td>m_AttractiveTemperature</td><td>float2</td><td>Temperature range (min, max) that boosts tourism</td></tr>
+      <tr><td>m_ExtremeTemperature</td><td>float2</td><td>Temperature range beyond which tourism is penalized</td></tr>
+      <tr><td>m_TemperatureAffect</td><td>float2</td><td>x = max bonus for ideal temp, y = max penalty for extreme</td></tr>
+      <tr><td>m_RainEffectRange</td><td>float2</td><td>Precipitation range affecting tourism during rain</td></tr>
+      <tr><td>m_SnowEffectRange</td><td>float2</td><td>Precipitation range affecting tourism during snow</td></tr>
+      <tr><td>m_SnowRainExtremeAffect</td><td>float3</td><td>x = snow penalty, y = rain penalty, z = storm penalty</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LeisureParametersData (Game.Prefabs)</h3>
+
+  <p>Global singleton with tourist consumption parameters.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TouristLodgingConsumePerDay</td><td>int</td><td>Units of lodging resource consumed per tourist per day</td></tr>
+      <tr><td>m_TouristServiceConsumePerDay</td><td>int</td><td>Units of service consumed by tourists per day</td></tr>
+      <tr><td>m_ChanceTouristDecreaseLeisureCounter</td><td>int</td><td>Probability tourists reduce their leisure counter</td></tr>
+      <tr><td>m_AmountLeisureCounterDecrease</td><td>int</td><td>Amount to decrease leisure counter per tick</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+ATTRACTIVENESS CALCULATION (Every 16 frames, 1/16 of buildings)
+  AttractionSystem
+    For each building with AttractivenessProvider:
+      base = AttractionData.m_Attractiveness (from prefab)
+      base += upgrade bonuses (InstalledUpgrade -&gt; AttractionData)
+      base *= building efficiency (unless signature)
+      base *= park maintenance (0.8 + 0.2 * maintenance ratio)
+      base *= terrain factor (1 + 0.01 * terrain attractiveness)
+      Writes AttractivenessProvider.m_Attractiveness
+          |
+          v
+TOURISM STATISTICS (Every ~32768 frames, approx once/day)
+  TourismSystem
+    Sum all providers: sum(a^2 / 10000)
+    Sigmoid: attractiveness = 200 / (1 + exp(-0.3 * sum)) - 100
+    Apply CityModifier(Attractiveness)
+    Count lodging: occupied rooms, total rooms
+    Calculate average tourists from spawn probability
+    Writes Tourism singleton
+          |
+          v
+TOURIST SPAWNING (Every 16 frames)
+  TouristSpawnSystem
+    Reads Tourism.m_Attractiveness, current tourist count
+    prob = GetSpawnProbability(attractiveness, currentTourists)
+         * GetWeatherEffect(weather)
+    If random &lt; prob:
+      Create Household with HouseholdFlags.Tourist
+      Add TouristHousehold (hotel=null)
+      Place at random outside connection
+          |
+          v
+TOURIST BEHAVIOR (Every 64 frames, 1/16 of tourists)
+  TouristHouseholdBehaviorSystem
+    Validate Target (remove if invalid)
+    Validate hotel (reset if gone)
+    If no hotel and not seeking: add LodgingSeeker
+          |
+          v
+TARGET FINDING (Every 16 frames)
+  TouristFindTargetSystem
+    Phase 1: Pathfind from current location
+             (public transit / taxi / walk)
+    Phase 2: Process result
+      Hotel found -&gt; HotelReserveJob (book room)
+      Attraction found -&gt; AddMeeting (Attractions)
+      Nothing found -&gt; MoveAway (TouristNoTarget)
+    HotelReserveJob:
+      FreeRooms &gt; 0: book, set m_Hotel
+      No rooms: re-add LodgingSeeker
+          |
+          v
+HOTEL OPERATIONS (32 times/day, every 512 frames)
+  LodgingProviderSystem
+    rooms = lotSize.x * lotSize.y * level * spaceMultiplier
+    Clean invalid renters
+    Charge tourists: money -= price / 32 per tick
+    Hotel += money, hotel -= lodging resource
+    Update m_FreeRooms and m_Price
+          |
+          v
+TOURIST DEPARTURE (Every 512 frames)
+  TouristLeaveSystem
+    No hotel + time &gt; 0.8 -&gt; leave (TouristNoHotel)
+    Money &lt; price + time &gt; 0.7 -&gt; leave (TouristNoMoney)
+    Fires TriggerType.TouristLeftCity
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read City Tourism Statistics</h3>
+
+  <p>Access the city-level Tourism singleton to display current tourism state.</p>
+
+  <pre><code class="language-csharp">public partial class TourismMonitorSystem : GameSystemBase
+{
+    private CitySystem _citySystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _citySystem = World.GetOrCreateSystemManaged&lt;CitySystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        EntityManager em = EntityManager;
+        Entity city = _citySystem.City;
+
+        if (!em.HasComponent&lt;Tourism&gt;(city)) return;
+
+        Tourism tourism = em.GetComponentData&lt;Tourism&gt;(city);
+
+        Log.Info($"Tourism Stats:");
+        Log.Info($"  Current tourists: {tourism.m_CurrentTourists}");
+        Log.Info($"  Average tourists: {tourism.m_AverageTourists}");
+        Log.Info($"  Attractiveness: {tourism.m_Attractiveness}");
+        Log.Info($"  Lodging: {tourism.m_Lodging.x} / {tourism.m_Lodging.y} rooms");
+
+        float occupancy = (tourism.m_Lodging.y &gt; 0)
+            ? (float)tourism.m_Lodging.x / tourism.m_Lodging.y
+            : 0f;
+        Log.Info($"  Occupancy rate: {occupancy:P0}");
+    }
+}</code></pre>
+
+  <h3>Boost Tourist Spawn Rate via Harmony</h3>
+
+  <p>Patch the static <code>GetTouristProbability</code> method to multiply spawn probability by a configurable factor.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.TourismSystem), "GetTouristProbability")]
+public static class TouristSpawnBoostPatch
+{
+    public static float SpawnMultiplier { get; set; } = 2.0f;
+
+    static void Postfix(ref float __result)
+    {
+        __result *= SpawnMultiplier;
+    }
+}</code></pre>
+
+  <h3>Query All Hotels and Their Occupancy</h3>
+
+  <p>Enumerate all lodging providers to check room utilization across the city.</p>
+
+  <pre><code class="language-csharp">public partial class HotelMonitorSystem : GameSystemBase
+{
+    private EntityQuery _hotelQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _hotelQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;LodgingProvider&gt;(),
+            ComponentType.ReadOnly&lt;PropertyRenter&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _hotelQuery.ToEntityArray(Allocator.Temp);
+        int totalRooms = 0;
+        int totalFree = 0;
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            LodgingProvider provider =
+                EntityManager.GetComponentData&lt;LodgingProvider&gt;(entities[i]);
+            int occupied = 0;
+            if (EntityManager.HasBuffer&lt;Renter&gt;(entities[i]))
+            {
+                occupied = EntityManager.GetBuffer&lt;Renter&gt;(entities[i]).Length;
+            }
+            totalRooms += occupied + provider.m_FreeRooms;
+            totalFree += provider.m_FreeRooms;
+        }
+
+        Log.Info($"Hotels: {entities.Length}, Total rooms: {totalRooms}, " +
+                 $"Free: {totalFree}, Occupied: {totalRooms - totalFree}");
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Override Hotel Room Capacity</h3>
+
+  <p>Change the static room count formula to increase or decrease hotel capacity.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.LodgingProviderSystem), "GetRoomCount")]
+public static class HotelCapacityPatch
+{
+    public static float CapacityMultiplier { get; set; } = 1.5f;
+
+    static void Postfix(ref int __result)
+    {
+        __result = Mathf.RoundToInt(__result * CapacityMultiplier);
+    }
+}</code></pre>
+
+  <h3>Reduce Weather Impact on Tourism</h3>
+
+  <p>Modify the global <code>AttractivenessParameterData</code> singleton to make weather less punishing for tourist arrivals.</p>
+
+  <pre><code class="language-csharp">public partial class WeatherProofTourismSystem : GameSystemBase
+{
+    private EntityQuery _paramQuery;
+    private bool _applied;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _paramQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;AttractivenessParameterData&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_applied) return;
+        if (_paramQuery.CalculateEntityCount() == 0) return;
+
+        Entity paramEntity = _paramQuery.GetSingletonEntity();
+        AttractivenessParameterData data =
+            EntityManager.GetComponentData&lt;AttractivenessParameterData&gt;(
+                paramEntity);
+
+        // Halve weather penalties
+        data.m_SnowRainExtremeAffect *= 0.5f;
+        data.m_TemperatureAffect *= 0.5f;
+
+        EntityManager.SetComponentData(paramEntity, data);
+        _applied = true;
+
+        Log.Info("Weather impact on tourism reduced by 50%");
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Base attractiveness</td>
+        <td>AttractionData.m_Attractiveness</td>
+        <td>Varies by prefab</td>
+        <td>Each building's contribution to city attractiveness</td>
+      </tr>
+      <tr>
+        <td>Target tourists (att &lt;= 100)</td>
+        <td>TourismSystem.GetTargetTourists()</td>
+        <td>attractiveness * 15</td>
+        <td>Linear scaling: 100 attractiveness = 1500 target tourists</td>
+      </tr>
+      <tr>
+        <td>Target tourists (att &gt; 100)</td>
+        <td>TourismSystem.GetTargetTourists()</td>
+        <td>1500 + 100*log10(1+a-100)</td>
+        <td>Logarithmic scaling above 100 attractiveness</td>
+      </tr>
+      <tr>
+        <td>Spawn update interval</td>
+        <td>TouristSpawnSystem.GetUpdateInterval()</td>
+        <td>16 frames</td>
+        <td>How often a spawn roll occurs</td>
+      </tr>
+      <tr>
+        <td>Tourism stats interval</td>
+        <td>TourismSystem.GetUpdateInterval()</td>
+        <td>32768 frames</td>
+        <td>How often city attractiveness is recalculated</td>
+      </tr>
+      <tr>
+        <td>Hotel updates per day</td>
+        <td>LodgingProviderSystem.kUpdatesPerDay</td>
+        <td>32 (hardcoded)</td>
+        <td>Number of charge ticks per in-game day</td>
+      </tr>
+      <tr>
+        <td>Lodging consume per day</td>
+        <td>LeisureParametersData.m_TouristLodgingConsumePerDay</td>
+        <td>Set in prefab</td>
+        <td>Units of lodging resource consumed per tourist per day</td>
+      </tr>
+      <tr>
+        <td>Weather multiplier range</td>
+        <td>TourismSystem.GetWeatherEffect()</td>
+        <td>0.5 - 1.5 (clamped)</td>
+        <td>Weather can halve or boost tourist arrivals by 50%</td>
+      </tr>
+      <tr>
+        <td>Room count formula</td>
+        <td>LodgingProviderSystem.GetRoomCount()</td>
+        <td>lotX * lotY * level * spaceMultiplier</td>
+        <td>Hotel capacity from building properties</td>
+      </tr>
+      <tr>
+        <td>Leave time (no hotel)</td>
+        <td>TouristLeaveSystem.TouristLeaveJob</td>
+        <td>normalizedTime &gt; 0.8</td>
+        <td>Tourist without hotel leaves at 80% of day (~19:12)</td>
+      </tr>
+      <tr>
+        <td>Leave time (no money)</td>
+        <td>TouristLeaveSystem.TouristLeaveJob</td>
+        <td>normalizedTime &gt; 0.7</td>
+        <td>Broke tourist leaves at 70% of day (~16:48)</td>
+      </tr>
+      <tr>
+        <td>Tourist OC spawn weights</td>
+        <td>DemandParameterData.m_TouristOCSpawnParameters</td>
+        <td>float4 (set in prefab)</td>
+        <td>Controls which outside connections tourists prefer for entry</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Tourist spending at attractions:</strong> The <code>AddMeetingSystem</code> enqueues
+      meetings of <code>LeisureType.Attractions</code>, but the spending logic for attraction visits
+      (vs. lodging charges) was not traced. The <code>m_TouristServiceConsumePerDay</code> parameter
+      may be consumed in the general leisure system.
+    </li>
+    <li>
+      <strong>m_LeavingTime usage:</strong> <code>TouristHousehold.m_LeavingTime</code> is
+      serialized but initialized to 0 and never set in the systems decompiled. It may be written
+      by another system or be vestigial.
+    </li>
+    <li>
+      <strong>Tourist pathfind scoring:</strong> The <code>SetupTargetType.TouristFindTarget</code>
+      destination type is passed to the pathfinder, but the internal scoring that chooses between
+      hotels and attractions is embedded in the pathfind system and was not decompiled.
+    </li>
+    <li>
+      <strong>Tourist OC spawn parameters:</strong> The <code>float4 m_TouristOCSpawnParameters</code>
+      controls which outside connections tourists prefer, but the exact meaning of each float
+      component (road weight, air weight, sea weight, rail weight) was not traced.
+    </li>
+    <li>
+      <strong>Tourist count semantics:</strong> <code>TourismSystem</code> uses
+      <code>CountHouseholdDataSystem.TouristCitizenCount</code> (citizen count, not household
+      count). Each tourist household can contain multiple citizens, so these numbers differ.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Simulation.TouristSpawnSystem, Game.Simulation.TourismSystem, Game.Simulation.AttractionSystem, Game.Simulation.LodgingProviderSystem, Game.Simulation.TouristFindTargetSystem, Game.Simulation.TouristHouseholdBehaviorSystem, Game.Simulation.TouristLeaveSystem</li>
+    <li>Components: Game.Citizens.TouristHousehold, Game.Citizens.LodgingSeeker, Game.City.Tourism, Game.Companies.LodgingProvider, Game.Buildings.AttractivenessProvider</li>
+    <li>Prefab types: Game.Prefabs.AttractionData, Game.Prefabs.Attraction, Game.Prefabs.AttractivenessParameterData, Game.Prefabs.LeisureParametersData</li>
+    <li>Related: <a href="company-simulation.html">Company Simulation</a> (hotel company context), <a href="workplace-labor.html">Workplace &amp; Labor</a> (hotel employees)</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- TouristSpawnSystem, TourismSystem, AttractionSystem, LodgingProviderSystem, TouristFindTargetSystem, TouristHouseholdBehaviorSystem, TouristLeaveSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

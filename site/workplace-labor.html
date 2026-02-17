@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workplace &amp; Labor Market</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html" class="active">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Workplace &amp; Labor Market</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 create workplaces on companies and service buildings,
+      distribute worker slots by education level, match job-seeking citizens to open positions,
+      handle layoffs, and spawn commuters from outside connections?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Every company, service building, school, and outside connection has a
+      <strong>WorkProvider</strong> component with a <code>m_MaxWorkers</code> cap. A weighted
+      distribution algorithm (<code>EconomyUtils.CalculateNumberOfWorkplaces</code>) splits those
+      slots across five education levels (0=Uneducated through 4=HighlyEducated) based on the prefab's
+      <strong>WorkplaceComplexity</strong> and the building's level. The <strong>WorkProviderSystem</strong>
+      runs every 32 frames to refresh vacancies, fire invalid workers, and update building efficiency.
+      The <strong>FindJobSystem</strong> matches citizens to jobs via pathfinding. When educated positions
+      go unfilled, <strong>CommuterSpawnSystem</strong> creates commuter households from outside connections.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Company profitability and production are covered in
+      <a href="company-simulation.html">Company Simulation</a>. Citizen lifecycle details (aging,
+      happiness) are in <a href="citizens-households.html">Citizens &amp; Households</a>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The workplace system connects three entity types: <strong>companies/buildings</strong> that offer jobs,
+    <strong>citizens</strong> who seek and hold jobs, and <strong>commuter households</strong> spawned
+    from outside the city to fill skilled labor gaps. Five coordinated systems manage this pipeline.
+  </p>
+
+  <h3>Education Levels &amp; Complexity</h3>
+
+  <p>
+    Every workplace has a <code>WorkplaceComplexity</code> that determines what education mix its
+    workers need. The four complexity tiers are:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Complexity</th><th>Value</th><th>Typical Use</th><th>Primary Education Levels</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Manual</td><td>0</td><td>Farms, mines, forestry</td><td>Uneducated, PoorlyEducated</td></tr>
+      <tr><td>Simple</td><td>1</td><td>Basic industry, warehouses</td><td>PoorlyEducated, Educated</td></tr>
+      <tr><td>Complex</td><td>2</td><td>Offices, commercial services</td><td>Educated, WellEducated</td></tr>
+      <tr><td>Hitech</td><td>3</td><td>Software, research labs</td><td>WellEducated, HighlyEducated</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The distribution center is calculated as <code>4 * (int)complexity + buildingLevel - 1</code>.
+    Each of the 5 education levels gets a weight of <code>max(0, 8 - |center - 4*level|)</code>,
+    and workers are distributed proportionally. This means a Manual/Level 1 building is ~75%
+    uneducated, while a Hitech/Level 5 building is ~75% highly educated.
+  </p>
+
+  <h3>The WorkProvider Tick</h3>
+
+  <p>
+    <code>WorkProviderSystem</code> runs every 32 simulation frames (512 updates per in-game day).
+    For every entity with a <code>WorkProvider</code>, it:
+  </p>
+
+  <ol>
+    <li>Resolves the building entity and its level from <code>SpawnableBuildingData</code></li>
+    <li>Calculates expected workplace slots using <code>EconomyUtils.CalculateNumberOfWorkplaces()</code></li>
+    <li>Iterates the <code>Employee</code> buffer and removes invalid workers:
+      <ul>
+        <li>Dead citizens (have <code>HealthProblem</code>)</li>
+        <li>Citizens whose <code>Worker.m_Workplace</code> no longer matches</li>
+        <li>Citizens in households that are <code>MovingAway</code></li>
+        <li>Workers exceeding reduced slot counts (layoff reason: TooMany)</li>
+      </ul>
+    </li>
+    <li>Updates the <code>FreeWorkplaces</code> component (added if vacancies exist, removed if full)</li>
+    <li>Sets three building efficiency factors:
+      <ul>
+        <li><strong>NotEnoughEmployees</strong> -- penalty ramps up via <code>m_EfficiencyCooldown</code></li>
+        <li><strong>SickEmployees</strong> -- penalty for workers with health problems</li>
+        <li><strong>EmployeeHappiness</strong> -- based on worker happiness plus <code>m_WorkConditions * 0.01</code></li>
+      </ul>
+    </li>
+    <li>Shows notification icons when vacancy ratios exceed thresholds</li>
+  </ol>
+
+  <h3>Finding a Job</h3>
+
+  <p>
+    <code>FindJobSystem</code> operates in three phases every 16 frames:
+  </p>
+
+  <ol>
+    <li><strong>Count available jobs</strong> -- <code>CalculateFreeWorkplaceJob</code> sums all
+    <code>FreeWorkplaces</code> components into a 5-element cache (one per education level)</li>
+    <li><strong>Match seekers to jobs</strong> -- <code>FindJobJob</code> processes each
+    <code>JobSeeker</code> entity:
+      <ul>
+        <li>Starts at the citizen's education level and walks downward to find a level with openings</li>
+        <li>If the citizen already has a job at a satisfactory level, the search is canceled</li>
+        <li>Otherwise, a simplified pathfinding request is sent to find the nearest reachable workplace</li>
+        <li>The pathfind destination encodes both the citizen's level and the target workplace level</li>
+      </ul>
+    </li>
+    <li><strong>Start working</strong> -- <code>StartWorkingJob</code> processes completed pathfind results:
+      <ul>
+        <li>Verifies the destination workplace still has a free slot</li>
+        <li>Assigns a work shift (Day, Evening, or Night) based on random roll against prefab probabilities</li>
+        <li>Adds an <code>Employee</code> entry to the company's buffer</li>
+        <li>Sets the <code>Worker</code> component on the citizen with workplace reference, level, shift, and commute time</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>Commuter Spawning</h3>
+
+  <p>
+    When more educated jobs are available than local citizens can fill, <code>CommuterSpawnSystem</code>
+    creates commuter households from outside connections. The system:
+  </p>
+
+  <ol>
+    <li>Calculates the educated job surplus: <code>freeWorkplaces[2..4] - employables[2..4]</code></li>
+    <li>Divides by <code>DemandParameterData.m_CommuterSlowSpawnFactor</code> to get spawn count</li>
+    <li>Guards against excessive commuting: only spawns if
+    <code>commuters * CommuterWorkerRatioLimit &lt; totalWorkers</code></li>
+    <li>Each new household gets <code>HouseholdFlags.Commuter</code> and a random outside connection origin</li>
+  </ol>
+
+  <p>
+    Commuters only fill educated positions (levels 2-4). Uneducated and poorly educated jobs
+    must be filled by local residents.
+  </p>
+
+  <h3>Workforce Value &amp; Building Efficiency</h3>
+
+  <p>
+    Not all workers contribute equally. The workforce value formula is:
+  </p>
+
+  <pre><code class="language-csharp">workforce = ((level == 0 ? 2.0 : 1.0) + 2.5 * level) * (0.75 + happiness / 200.0)</code></pre>
+
+  <p>At happiness = 50:</p>
+
+  <table>
+    <thead>
+      <tr><th>Level</th><th>Name</th><th>Workforce Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>Uneducated</td><td>1.75</td></tr>
+      <tr><td>1</td><td>PoorlyEducated</td><td>3.0625</td></tr>
+      <tr><td>2</td><td>Educated</td><td>5.25</td></tr>
+      <tr><td>3</td><td>WellEducated</td><td>7.4375</td></tr>
+      <tr><td>4</td><td>HighlyEducated</td><td>9.625</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Building efficiency is penalized when the actual workforce falls below the expected workforce.
+    The penalty ramps up gradually via a cooldown counter (<code>m_EfficiencyCooldown</code>),
+    so a brief vacancy does not immediately cripple production.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Companies</td>
+        <td>WorkProvider, Employee, FreeWorkplaces, Workplaces, Workshift</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Citizens</td>
+        <td>Worker (citizen-side employment link)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Agents</td>
+        <td>JobSeeker (job search agent entity)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>WorkplaceData, WorkProviderParameterData, WorkplaceComplexity</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>WorkProviderSystem, CountWorkplacesSystem, FindJobSystem, CommuterSpawnSystem, WorkProviderStatisticsSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Economy</td>
+        <td>EconomyUtils (CalculateNumberOfWorkplaces, GetWorkerWorkforce, CalculateTotalWage)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>WorkProvider (Game.Companies)</h3>
+
+  <p>Attached to every entity that offers jobs: companies, service buildings, schools, and outside connections.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_MaxWorkers</td><td>int</td><td>Maximum number of worker slots</td></tr>
+      <tr><td>m_UneducatedCooldown</td><td>short</td><td>Cooldown counter for uneducated shortage notification</td></tr>
+      <tr><td>m_EducatedCooldown</td><td>short</td><td>Cooldown counter for educated shortage notification</td></tr>
+      <tr><td>m_UneducatedNotificationEntity</td><td>Entity</td><td>Target entity for uneducated shortage icon</td></tr>
+      <tr><td>m_EducatedNotificationEntity</td><td>Entity</td><td>Target entity for educated shortage icon</td></tr>
+      <tr><td>m_EfficiencyCooldown</td><td>short</td><td>Cooldown counter for missing-employees efficiency penalty ramp</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Employee (Game.Companies) -- Buffer</h3>
+
+  <p>Dynamic buffer on each WorkProvider entity. Each element tracks one employed citizen.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Worker</td><td>Entity</td><td>The citizen entity employed here</td></tr>
+      <tr><td>m_Level</td><td>byte</td><td>Education level slot this worker fills (0-4)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>FreeWorkplaces (Game.Companies)</h3>
+
+  <p>Tracks available job openings by education level. Added when vacancies exist, removed when full.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Uneducated</td><td>byte</td><td>Free slots for education level 0 (max 255)</td></tr>
+      <tr><td>m_PoorlyEducated</td><td>byte</td><td>Free slots for education level 1 (max 255)</td></tr>
+      <tr><td>m_Educated</td><td>byte</td><td>Free slots for education level 2 (max 255)</td></tr>
+      <tr><td>m_WellEducated</td><td>byte</td><td>Free slots for education level 3 (max 255)</td></tr>
+      <tr><td>m_HighlyEducated</td><td>byte</td><td>Free slots for education level 4 (max 255)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Worker (Game.Citizens)</h3>
+
+  <p>Citizen-side component linking a citizen to their workplace.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Workplace</td><td>Entity</td><td>The company/building where this citizen works</td></tr>
+      <tr><td>m_LastCommuteTime</td><td>float</td><td>Duration of last commute (from pathfinding)</td></tr>
+      <tr><td>m_Level</td><td>byte</td><td>Education level slot the citizen fills (0-4)</td></tr>
+      <tr><td>m_Shift</td><td>Workshift</td><td>Assigned shift: Day (0), Evening (1), Night (2)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>JobSeeker (Game.Agents)</h3>
+
+  <p>Agent component on job search entities, created when a citizen needs employment.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Level</td><td>byte</td><td>Education level the citizen seeks work at (0-4)</td></tr>
+      <tr><td>m_Outside</td><td>byte</td><td>If &gt; 0, citizen is from an outside connection (commuter)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>WorkplaceData (Game.Prefabs)</h3>
+
+  <p>Per-prefab workplace configuration attached to company and building prefabs.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Complexity</td><td>WorkplaceComplexity</td><td>Determines education level distribution (Manual/Simple/Complex/Hitech)</td></tr>
+      <tr><td>m_MaxWorkers</td><td>int</td><td>Base maximum worker count</td></tr>
+      <tr><td>m_EveningShiftProbability</td><td>float</td><td>Probability a new hire gets the evening shift</td></tr>
+      <tr><td>m_NightShiftProbability</td><td>float</td><td>Probability a new hire gets the night shift</td></tr>
+      <tr><td>m_MinimumWorkersLimit</td><td>int</td><td>Minimum workers before efficiency penalty</td></tr>
+      <tr><td>m_WorkConditions</td><td>int</td><td>Work conditions bonus/penalty (applied as workConditions * 0.01 to happiness factor)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>WorkProviderParameterData (Game.Prefabs) -- Singleton</h3>
+
+  <p>Global parameters controlling notification thresholds and senior employee definitions.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_UneducatedNotificationPrefab</td><td>Entity</td><td>Icon prefab for uneducated worker shortage</td></tr>
+      <tr><td>m_EducatedNotificationPrefab</td><td>Entity</td><td>Icon prefab for educated worker shortage</td></tr>
+      <tr><td>m_UneducatedNotificationDelay</td><td>short</td><td>Ticks before showing uneducated shortage notification</td></tr>
+      <tr><td>m_EducatedNotificationDelay</td><td>short</td><td>Ticks before showing educated shortage notification</td></tr>
+      <tr><td>m_UneducatedNotificationLimit</td><td>float</td><td>Free/total ratio threshold triggering uneducated shortage warning</td></tr>
+      <tr><td>m_EducatedNotificationLimit</td><td>float</td><td>Free/total ratio threshold triggering educated shortage warning</td></tr>
+      <tr><td>m_SeniorEmployeeLevel</td><td>int</td><td>Education level threshold defining "senior" workers for statistics</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+PREFAB INITIALIZATION
+  WorkplaceData on prefab defines:
+    m_Complexity (Manual/Simple/Complex/Hitech)
+    m_MaxWorkers (base worker count)
+    m_EveningShiftProbability, m_NightShiftProbability
+          |
+          v
+WORKPLACE SLOT CALCULATION
+  EconomyUtils.CalculateNumberOfWorkplaces(maxWorkers, complexity, level)
+    center = 4 * complexity + buildingLevel - 1
+    weight[i] = max(0, 8 - |center - 4*i|)
+    workers[i] = totalWorkers * weight[i] / 16
+    Output: Workplaces struct with per-level slot counts
+          |
+          v
+WORK PROVIDER TICK (WorkProviderSystem, every 32 frames)
+  For each entity with WorkProvider + Employee buffer:
+    1. Get building level from SpawnableBuildingData
+    2. Calculate expected slots via CalculateNumberOfWorkplaces
+    3. RefreshFreeWorkplace:
+       - Remove dead/invalid/moving-away workers (layoff)
+       - Remove excess workers if slots reduced (layoff)
+       - Add/remove FreeWorkplaces component based on vacancies
+    4. UpdateNotificationAndEfficiency:
+       - Set EfficiencyFactor.NotEnoughEmployees (ramped penalty)
+       - Set EfficiencyFactor.SickEmployees
+       - Set EfficiencyFactor.EmployeeHappiness
+       - Show/hide shortage notification icons
+          |
+          v
+WORKPLACE COUNTING (CountWorkplacesSystem, every 16 frames)
+  Accumulates all FreeWorkplaces and total Workplaces city-wide
+  Stores: m_LastFreeWorkplaces, m_LastTotalWorkplaces
+  Used by: FindJobSystem, CommuterSpawnSystem, demand systems
+          |
+          v
+JOB SEEKING (FindJobSystem, every 16 frames)
+  Phase 1: CalculateFreeWorkplaceJob
+    Sum FreeWorkplaces into 5-element cache [level 0..4]
+  Phase 2: FindJobJob (parallel, per JobSeeker)
+    Walk down from citizen level to find level with openings
+    Send pathfind request to nearest reachable workplace
+  Phase 3: StartWorkingJob (single-threaded)
+    Verify free slot exists at destination
+    Assign shift (Day/Evening/Night by probability)
+    Add Employee to company buffer
+    Set Worker on citizen (workplace, level, shift, commute time)
+    Fire TriggerType.CitizenStartedWorking
+          |
+          v
+COMMUTER SPAWNING (CommuterSpawnSystem, every 16 frames)
+  surplus = freeWorkplaces[2..4] - employables[2..4]
+  spawnCount = surplus / CommuterSlowSpawnFactor
+  Guard: commuters * CommuterWorkerRatioLimit &lt; totalWorkers
+  Creates household with HouseholdFlags.Commuter at outside connection
+          |
+          v
+STATISTICS (WorkProviderStatisticsSystem, every 8192 frames)
+  Counts free vs total senior workplaces (level &gt;= m_SeniorEmployeeLevel)
+  Reports SeniorWorkerInDemandPercentage to city statistics
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read Workplace Status for a Company</h3>
+
+  <p>Check how many employees a company has and how many open positions remain at each education level.</p>
+
+  <pre><code class="language-csharp">public void CheckWorkplaceStatus(EntityManager em, Entity company)
+{
+    if (!em.HasComponent&lt;WorkProvider&gt;(company)) return;
+
+    WorkProvider wp = em.GetComponentData&lt;WorkProvider&gt;(company);
+    DynamicBuffer&lt;Employee&gt; employees = em.GetBuffer&lt;Employee&gt;(company);
+
+    Log.Info($"Workplace status for {company}:");
+    Log.Info($"  Max workers: {wp.m_MaxWorkers}");
+    Log.Info($"  Current employees: {employees.Length}");
+
+    if (em.HasComponent&lt;FreeWorkplaces&gt;(company))
+    {
+        FreeWorkplaces free = em.GetComponentData&lt;FreeWorkplaces&gt;(company);
+        Log.Info($"  Free slots: {free.Count}");
+        Log.Info($"    Uneducated: {free.m_Uneducated}");
+        Log.Info($"    PoorlyEducated: {free.m_PoorlyEducated}");
+        Log.Info($"    Educated: {free.m_Educated}");
+        Log.Info($"    WellEducated: {free.m_WellEducated}");
+        Log.Info($"    HighlyEducated: {free.m_HighlyEducated}");
+    }
+    else
+    {
+        Log.Info("  No vacancies (FreeWorkplaces component absent)");
+    }
+}</code></pre>
+
+  <h3>Monitor City-Wide Workplace Statistics</h3>
+
+  <p>Use CountWorkplacesSystem to get aggregate workplace data across the entire city, including fill rates per education level.</p>
+
+  <pre><code class="language-csharp">public partial class WorkplaceMonitorSystem : GameSystemBase
+{
+    private CountWorkplacesSystem _countSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _countSystem = World.GetOrCreateSystemManaged&lt;CountWorkplacesSystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        Workplaces total = _countSystem.GetTotalWorkplaces();
+        Workplaces free = _countSystem.GetFreeWorkplaces();
+
+        Log.Info($"City Workplace Report:");
+        Log.Info($"  Total: {total.TotalCount} " +
+                 $"(Simple: {total.SimpleWorkplacesCount}, " +
+                 $"Complex: {total.ComplexWorkplacesCount})");
+        Log.Info($"  Free:  {free.TotalCount}");
+
+        for (int level = 0; level &lt; 5; level++)
+        {
+            float fillRate = total[level] &gt; 0
+                ? 1f - (float)free[level] / total[level]
+                : 0f;
+            Log.Info($"  Level {level}: " +
+                     $"{total[level] - free[level]}/{total[level]} " +
+                     $"filled ({fillRate:P0})");
+        }
+    }
+}</code></pre>
+
+  <h3>Preview Workplace Education Distribution</h3>
+
+  <p>Calculate how workers will be distributed across education levels for any given workplace configuration.</p>
+
+  <pre><code class="language-csharp">public void PreviewWorkplaceDistribution(
+    int maxWorkers,
+    WorkplaceComplexity complexity,
+    int buildingLevel)
+{
+    Workplaces slots = EconomyUtils.CalculateNumberOfWorkplaces(
+        maxWorkers, complexity, buildingLevel);
+
+    string[] levelNames = {
+        "Uneducated", "PoorlyEducated", "Educated",
+        "WellEducated", "HighlyEducated"
+    };
+
+    Log.Info($"Distribution: {maxWorkers} workers, " +
+             $"{complexity}, level {buildingLevel}:");
+    for (int i = 0; i &lt; 5; i++)
+    {
+        float workforce = slots[i]
+            * EconomyUtils.GetWorkerWorkforce(50, i);
+        Log.Info($"  {levelNames[i]}: {slots[i]} slots, " +
+                 $"{workforce:F1} workforce units");
+    }
+
+    float totalWorkforce = EconomyUtils.GetAverageWorkforce(slots);
+    Log.Info($"  Total workforce value: {totalWorkforce:F1}");
+}</code></pre>
+
+  <h3>Find All Understaffed Buildings</h3>
+
+  <p>Query all work providers with significant vacancies and report which buildings need workers most urgently.</p>
+
+  <pre><code class="language-csharp">public partial class UnderstaffedBuildingSystem : GameSystemBase
+{
+    private EntityQuery _workProviderQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _workProviderQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;WorkProvider&gt;(),
+            ComponentType.ReadOnly&lt;FreeWorkplaces&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        NativeArray&lt;Entity&gt; entities =
+            _workProviderQuery.ToEntityArray(Allocator.Temp);
+        NativeArray&lt;WorkProvider&gt; providers =
+            _workProviderQuery.ToComponentDataArray&lt;WorkProvider&gt;(
+                Allocator.Temp);
+        NativeArray&lt;FreeWorkplaces&gt; freeSlots =
+            _workProviderQuery.ToComponentDataArray&lt;FreeWorkplaces&gt;(
+                Allocator.Temp);
+
+        int understaffedCount = 0;
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            int maxWorkers = providers[i].m_MaxWorkers;
+            int freeCount = freeSlots[i].Count;
+            float vacancyRate = maxWorkers &gt; 0
+                ? (float)freeCount / maxWorkers : 0f;
+
+            if (vacancyRate &gt; 0.5f)
+            {
+                understaffedCount++;
+                Log.Info($"Understaffed: {entities[i]} " +
+                         $"- {freeCount}/{maxWorkers} vacant " +
+                         $"({vacancyRate:P0})");
+            }
+        }
+
+        if (understaffedCount &gt; 0)
+            Log.Info($"Total understaffed: {understaffedCount}");
+
+        entities.Dispose();
+        providers.Dispose();
+        freeSlots.Dispose();
+    }
+}</code></pre>
+
+  <h3>Harmony Patch: Modify Workforce Value Formula</h3>
+
+  <p>Rebalance how much each education level contributes to building efficiency by patching the workforce calculation.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(EconomyUtils), nameof(EconomyUtils.GetWorkerWorkforce))]
+public static class WorkforceRebalancePatch
+{
+    /// &lt;summary&gt;
+    /// Postfix patch that adjusts worker workforce value.
+    /// Makes higher education levels slightly less dominant.
+    /// &lt;/summary&gt;
+    public static void Postfix(int happiness, int level, ref float __result)
+    {
+        // Original: ((level==0 ? 2 : 1) + 2.5*level) * (0.75 + happiness/200)
+        // Modified: flatten the curve by reducing the level multiplier
+        float baseValue = (level == 0 ? 2f : 1f) + 1.5f * level;
+        float happinessFactor = 0.75f + happiness / 200f;
+        __result = baseValue * happinessFactor;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Worker slot distribution</td>
+        <td>WorkplaceData.m_Complexity + building level</td>
+        <td>Determines education level mix via weighted distribution algorithm</td>
+      </tr>
+      <tr>
+        <td>Max workers</td>
+        <td>WorkplaceData.m_MaxWorkers / WorkProvider.m_MaxWorkers</td>
+        <td>Total employee capacity; prefab provides base, runtime overrides</td>
+      </tr>
+      <tr>
+        <td>Shift probabilities</td>
+        <td>WorkplaceData.m_EveningShiftProbability, m_NightShiftProbability</td>
+        <td>Fraction of workers assigned evening/night shifts on hire</td>
+      </tr>
+      <tr>
+        <td>Work conditions</td>
+        <td>WorkplaceData.m_WorkConditions</td>
+        <td>Added as workConditions * 0.01 to employee happiness efficiency factor</td>
+      </tr>
+      <tr>
+        <td>Shortage notification delay</td>
+        <td>WorkProviderParameterData.m_UneducatedNotificationDelay / m_EducatedNotificationDelay</td>
+        <td>Ticks before shortage notification icon appears on buildings</td>
+      </tr>
+      <tr>
+        <td>Shortage notification threshold</td>
+        <td>WorkProviderParameterData.m_UneducatedNotificationLimit / m_EducatedNotificationLimit</td>
+        <td>Free/total ratio that triggers the shortage warning</td>
+      </tr>
+      <tr>
+        <td>Commuter spawn rate</td>
+        <td>DemandParameterData.m_CommuterSlowSpawnFactor</td>
+        <td>Divisor for educated job surplus; higher = slower commuter spawning</td>
+      </tr>
+      <tr>
+        <td>Commuter cap</td>
+        <td>DemandParameterData.m_CommuterWorkerRatioLimit</td>
+        <td>Maximum ratio of commuters to total workers</td>
+      </tr>
+      <tr>
+        <td>WorkProvider update rate</td>
+        <td>WorkProviderSystem.GetUpdateInterval</td>
+        <td>32 frames (hardcoded)</td>
+      </tr>
+      <tr>
+        <td>Job seeking update rate</td>
+        <td>FindJobSystem.GetUpdateInterval</td>
+        <td>16 frames (hardcoded)</td>
+      </tr>
+      <tr>
+        <td>Statistics update rate</td>
+        <td>WorkProviderStatisticsSystem.GetUpdateInterval</td>
+        <td>8192 frames (very infrequent)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Outside Connection Hardcoded Values</h3>
+
+  <p>
+    Outside connections have fixed workplace slots that are not derived from prefabs:
+    200 Educated + 200 WellEducated + 200 HighlyEducated = 600 total workers.
+    These always require educated workers and never include uneducated slots.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Efficiency delay parameter:</strong> The <code>BuildingEfficiencyParameterData.m_MissingEmployeesEfficiencyDelay</code>
+      field controls how fast the efficiency penalty ramps up. The actual default value comes from
+      prefab data and was not determined during this decompilation.
+    </li>
+    <li>
+      <strong>Commuter slow spawn factor:</strong> The <code>DemandParameterData.m_CommuterSlowSpawnFactor</code>
+      divisor controls how aggressively commuters fill educated job gaps. The default value is
+      loaded from prefab data.
+    </li>
+    <li>
+      <strong>Work conditions usage:</strong> The <code>m_WorkConditions</code> field on
+      <code>WorkplaceData</code> contributes <code>workConditions * 0.01</code> to the employee
+      happiness efficiency factor. Which prefabs set non-zero values is unknown without
+      inspecting asset data.
+    </li>
+    <li>
+      <strong>JobSeeker target encoding:</strong> The pathfind destination value is encoded as
+      <code>level + 5 * (num + 1)</code>, packing both the citizen's education level and the
+      target workplace level into a single integer. How the pathfind system decodes this
+      on the receiving end needs further investigation.
+    </li>
+    <li>
+      <strong>School worker calculation:</strong> Schools have a special path in
+      <code>WorkProviderSystem</code> that calls <code>CityUtils.GetCityServiceWorkplaceMaxWorkers()</code>
+      to derive max workers from school data and student counts. The exact formula was not fully traced.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Companies.WorkProvider, Game.Companies.Employee, Game.Companies.FreeWorkplaces, Game.Companies.Workplaces, Game.Companies.Workshift</li>
+    <li>Citizen components: Game.Citizens.Worker, Game.Agents.JobSeeker</li>
+    <li>Prefab types: Game.Prefabs.WorkplaceData, Game.Prefabs.WorkProviderParameterData, Game.Prefabs.WorkplaceComplexity</li>
+    <li>Systems: Game.Simulation.WorkProviderSystem, Game.Simulation.CountWorkplacesSystem, Game.Simulation.FindJobSystem, Game.Simulation.CommuterSpawnSystem, Game.Simulation.WorkProviderStatisticsSystem</li>
+    <li>Utility methods: Game.Economy.EconomyUtils (CalculateNumberOfWorkplaces, GetWorkerWorkforce, CalculateTotalWage, GetAverageWorkforce)</li>
+    <li>Related: <a href="company-simulation.html">Company Simulation</a> (profitability, production), <a href="citizens-households.html">Citizens &amp; Households</a> (citizen lifecycle)</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- WorkProviderSystem, FindJobSystem, CountWorkplacesSystem, CommuterSpawnSystem, EconomyUtils.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>

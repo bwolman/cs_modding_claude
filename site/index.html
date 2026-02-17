@@ -35,6 +35,12 @@
     <a href="citizens-households.html">Citizens &amp; Households</a>
     <a href="economy-budget.html">Economy &amp; Budget</a>
     <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
 
     <h3>City Services</h3>
     <a href="garbage-collection.html">Garbage Collection</a>
@@ -229,6 +235,66 @@
           <span class="tag">Game.Simulation</span>
           <span class="tag">ResidentialDemandSystem</span>
           <span class="tag">DemandFactor</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="resource-production.html">Resource Production Chains</a></h3>
+        <p>How resources are defined, produced, bought, sold, and consumed. The 41-type Resource enum, IndustrialProcessData recipes, ResourceBuyerSystem market matching, and the full supply chain from extraction to retail.</p>
+        <div class="tags">
+          <span class="tag">Game.Economy</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">ResourceBuyerSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="company-simulation.html">Company Simulation</a></h3>
+        <p>How companies operate from spawning through production, profitability tracking, dividend payments to households, and bankruptcy/move-away decisions. The five-phase daily pipeline driving the city economy.</p>
+        <div class="tags">
+          <span class="tag">Game.Companies</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">CompanyProfitabilitySystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="workplace-labor.html">Workplace &amp; Labor Market</a></h3>
+        <p>How workplaces are created on companies and buildings, workers distributed by education level, job seekers matched via pathfinding, layoffs triggered, and commuters spawned from outside connections.</p>
+        <div class="tags">
+          <span class="tag">Game.Companies</span>
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">WorkProviderSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="land-value-property.html">Land Value &amp; Property Market</a></h3>
+        <p>How land value is calculated from service coverage, attractiveness, and pollution. The rent formula, rent payment pipeline, and the building level-up/level-down lifecycle driven by building condition.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">LandValueSystem</span>
+          <span class="tag">PropertyRenterSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="trade-connections.html">Trade &amp; Outside Connections</a></h3>
+        <p>How resources, electricity, and water flow between the city and the outside world. Trade cost calculation from weight/distance multipliers, the ResourceExporterSystem delivery pipeline, utility trade via flow graph solvers, and connection delay feedback.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">TradeSystem</span>
+          <span class="tag">OutsideConnection</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="tourism-economy.html">Tourism Economy</a></h3>
+        <p>Tourist spawning from attractiveness scoring, hotel reservation via pathfinding, nightly pricing, weather-dependent arrival rates, and departure triggers. The full tourist lifecycle from outside connection to checkout.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">TourismSystem</span>
+          <span class="tag">TouristSpawnSystem</span>
         </div>
       </div>
 

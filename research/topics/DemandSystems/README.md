@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-15
+> **Last updated**: 2026-02-16
 
 ## Scope
 
@@ -18,7 +18,7 @@
 |----------|-----------|-------------|
 | Game.dll | Game.Simulation | ResidentialDemandSystem, CommercialDemandSystem, IndustrialDemandSystem, DemandUtils, DemandFactor (enum) |
 | Game.dll | Game.Prefabs | DemandParameterData (struct), DemandPrefab (class) |
-| Game.dll | Game.Prefabs.Modes | DemandParameterMode |
+| Game.dll | Game.Prefabs.Modes | DemandParameterMode, ModeSettingData (struct) |
 
 ## Architecture Overview
 
@@ -73,21 +73,39 @@ The residential demand system tracks demand separately for low, medium, and high
 
 - **Base class**: GameSystemBase (also IDefaultSerializable, ISerializable)
 - **Update interval**: 16 frames (offset 10)
+- **Key constant**: `kMaxFactorEffect = 15` -- caps individual demand factor contributions (e.g., homelessness effect)
 - **Key outputs**:
   - `householdDemand` (int): Abstract demand score, capped at 200
   - `buildingDemand` (int3): Per-density building demand (x=low, y=medium, z=high), each capped at 100
   - Three `NativeArray<int>` factor arrays (low/medium/high density), 19 elements each
 
+**Game Mode Weight Modifier (`m_ResidentialDemandWeightsSelector`)**:
+
+The system reads a `float2` weight selector from `ModeSettingData` (via the `m_GameModeSettingQuery`). This is applied to every demand factor via `GetFactorValue()`:
+
+```csharp
+private int GetFactorValue(float factorValue, float2 weightSelector)
+{
+    if (factorValue < 0f)
+        return (int)(factorValue * weightSelector.x);  // Scale negative factors
+    return (int)(factorValue * weightSelector.y);       // Scale positive factors
+}
+```
+
+The default is `float2(1, 1)` (no scaling). Game modes can set different values to amplify or dampen positive vs. negative demand contributions independently. This is loaded in `OnGameLoaded()` from `ModeSettingData.m_ResidentialDemandWeightsSelector` when `ModeSettingData.m_Enable` is true.
+
 **Demand Calculation Factors:**
 
 1. **Population bonus**: 20 - smoothstep(0, 20, population/20000). New cities get a significant boost that tapers off.
 2. **Happiness**: `m_HappinessEffect * (avgHappiness - m_NeutralHappiness)`. Higher happiness above the neutral point (default 45) increases demand.
-3. **Homelessness**: Negative effect when homeless households exceed `m_NeutralHomelessness` (default 50). Only affects high-density demand factors.
+3. **Homelessness**: Negative effect when homeless households exceed `m_NeutralHomelessness` (default 50). Capped at `kMaxFactorEffect` (15). Only affects high-density demand factors.
 4. **Tax rates**: Average deviation from 10% across 5 education levels, weighted by `m_TaxEffect.x`. Lower taxes increase demand.
-5. **Available workplaces**: `m_AvailableWorkplaceEffect * (freeWorkplaces - totalWorkplaces * neutralPercentage/100)`. More available jobs attract residents.
+5. **Available workplaces**: `m_AvailableWorkplaceEffect * (freeWorkplaces - totalWorkplaces * neutralPercentage/100)`. Simple workplaces clamped to [0, 40], complex to [0, 20]. More available jobs attract residents.
 6. **Students**: `m_StudentEffect * clamp(studyPositions/200, 0, 5)`. Available education slots increase demand for medium/high density.
 7. **Unemployment**: `m_NeutralUnemployment - actualRate`. Lower unemployment increases demand.
 8. **Free properties**: When free residential properties fall below `m_FreeResidentialRequirement`, building demand increases.
+
+All factors are passed through `GetFactorValue()` with `m_ResidentialDemandWeightsSelector` before being summed.
 
 **Final calculation**: `buildingDemand = clamp(householdDemand/2 + freePropertyFactor + sumOfDensityFactors, 0, 100)`. Density types that have no unlocked zone prefabs get zeroed out.
 
@@ -115,22 +133,84 @@ The most complex demand system, tracking six separate demand values for three su
 
 - **Base class**: GameSystemBase (also IDefaultSerializable, ISerializable)
 - **Update interval**: 16 frames (offset 7)
+- **Key constants**:
+  - `kStorageProductionDemand = 2000` -- minimum resource demand before storage demand triggers
+  - `kStorageCompanyEstimateLimit = 864000` -- estimated storage capacity for unhoused storage companies
 - **Key outputs**:
   - `industrialCompanyDemand` / `industrialBuildingDemand`: Manufacturing zones
   - `officeCompanyDemand` / `officeBuildingDemand`: Office zones
   - `storageCompanyDemand` / `storageBuildingDemand`: Warehouse zones
-  - Separate `m_IndustrialDemandFactors` and `m_OfficeDemandFactors` arrays
+  - Separate `m_IndustrialDemandFactors` and `m_OfficeDemandFactors` arrays (19 elements each)
+  - Per-resource arrays: `m_IndustrialCompanyDemands`, `m_IndustrialBuildingDemands`, `m_StorageCompanyDemands`, `m_StorageBuildingDemands`, `m_FreeProperties`, `m_FreeStorages`, `m_Storages`, `m_StorageCapacities`, `m_ResourceDemands`
 
-**Demand Calculation:**
+**UpdateIndustrialDemandJob.Execute() -- Detailed Flow:**
 
-1. **Resource demands**: Office resources use `(householdDemand + companyDemand) * 2`. Industrial resources use company-to-company demands or default to 100.
-2. **City service upkeep**: Resources needed by city services (fire, police, etc.) add to industrial resource demand.
-3. **Storage demand**: When `storageCapacity < resourceDemand` and demand exceeds `kStorageProductionDemand` (2000), storage company demand triggers. Building demand triggers when `freeStorages < 0`.
-4. **Workforce effect**: Educated workers affect office demand; uneducated workers affect industrial demand. Uses `MapAndClaimWorkforceEffect()` to map worker surplus/deficit to a bounded range.
-5. **Tax effect**: `m_TaxEffect.z * -0.05f * (taxRate - 10)` plus game mode offset.
-6. **Per-resource company demand**: `50 * max(0, baseDemand * supplyDeficit) + taxEffect + workforceEffect`, clamped to [0, 100].
-7. **Building demand**: Only when `freeProperties - propertyless <= 0` for non-material resources.
-8. **City modifiers**: Electronics demand can be boosted by `CityModifierType.IndustrialElectronicsDemand`; software by `CityModifierType.OfficeSoftwareDemand`.
+The Execute() method proceeds in several phases:
+
+**Phase 1 -- Initialize resource demands:**
+- Office resources: `resourceDemand = (householdDemand + companyDemand) * 2`
+- Industrial resources: uses company-to-company demands, defaults to 100 if no current demand exists
+- Reset per-resource free properties, storages, free storages, and storage capacities to 0
+
+**Phase 2 -- City service upkeep:**
+- Iterates over all city service entities (fire, police, etc.) and their installed upgrades
+- Adds non-Money upkeep resource amounts to `m_ResourceDemands`
+
+**Phase 3 -- Count storage companies:**
+- Iterates storage companies to tally storages per resource, free storage slots, and storage capacities
+- Unhoused storage companies contribute `kStorageCompanyEstimateLimit` (864000) to capacity estimate and decrement free storages
+
+**Phase 4 -- Count free industrial properties:**
+- Iterates industrial property chunks that are on market
+- For each property, counts `m_AllowedManufactured` as free manufacturing slots and `m_AllowedStored` as free storage slots
+- Respects attached parent building property restrictions
+
+**Phase 5 -- Storage demand (per tradable, non-weightless resource):**
+- Company demand: +1 when `resourceDemand > kStorageProductionDemand && storageCapacity < resourceDemand`
+- Building demand: +1 when `freeStorages < 0`
+- Warehouse factor (`m_IndustrialDemandFactors[17]`) accumulates storage building demand
+
+**Phase 6 -- Per-produceable-resource company demand:**
+```
+baseDemand = isMaterial ? m_ExtractorBaseDemand : m_IndustrialBaseDemand
+supplyDeficit = (1 + resourceDemand - production) / (resourceDemand + 1)
+rawDemand = 50 * max(0, baseDemand * supplyDeficit)
+```
+
+- Electronics: `CityModifierType.IndustrialElectronicsDemand` boosts base demand
+- Software: `CityModifierType.OfficeSoftwareDemand` boosts base demand
+- Tax effect: `m_TaxEffect.z * -0.05 * (taxRate - 10) + gameModeTaxOffset`
+- Workforce effect via `MapAndClaimWorkforceEffect()`:
+  - Educated surplus (education >= 2) affects office demand: clamped to [-max(10+taxEffect, 10), 10]
+  - Uneducated surplus (education < 2) affects industrial demand: clamped to [-max(10+taxEffect, 10), 15]
+  - When tax effect is negative, both clamp to [-10, 10] / [-10, 15] respectively
+- Office (weightless) resources: `companyDemand = max(0, min(100, rawDemand + taxEffect*100 + educatedEffect))` (only when rawDemand > 0)
+- Industrial resources: `companyDemand = max(0, min(100, rawDemand + taxEffect*100 + educatedEffect + uneducatedEffect))`
+
+**Phase 7 -- Per-resource building demand:**
+- Non-material resources with demand > 0: building demand = 50 when `freeProperties - propertyless <= 0`, else 0
+- Material resources with demand > 0: building demand = 1 (extractors always get minimal demand)
+- Building demand contribution = company demand value when building demand > 0
+
+**Phase 8 -- Demand factor accumulation:**
+- Industrial factors: `[1]` uneducated workforce, `[2]` educated workforce, `[4]` local demand (rawDemand), `[11]` taxes, `[13]` empty buildings
+- Office factors: `[2]` educated workforce, `[4]` local demand, `[11]` taxes, `[13]` empty buildings
+- Local demand forced to -1 when zero (distinguishes "zero" from "no data")
+- Empty buildings forced to -1 when zero
+- When population is 0, local demand zeroed out
+
+**Phase 9 -- Final aggregation:**
+- `storageBuildingDemand = ceil(pow(20 * storageBuildingDemand, 0.75))`
+- `industrialBuildingDemand = 2 * industrialBuildingDemand / numNonMaterialResources` (if industrial zones unlocked, else 0)
+- `officeCompanyDemand *= 2 * officeCompanyDemand / numOfficeResources`
+- Both building demands clamped to [0, 100]
+- When `m_UnlimitedDemand` is true, both set to 100
+
+**MapAndClaimWorkforceEffect():**
+```
+if (value < 0):  lerp from min to 0 as value goes from -2000 to 0
+if (value >= 0): lerp from 0 to max as value goes from 0 to 20
+```
 
 ### DemandUtils (Game.Simulation)
 
@@ -151,6 +231,8 @@ The central configuration struct, stored as an ECS singleton component. All thre
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
+| m_ForestryPrefab | Entity | -- | Entity reference to the forestry industry prefab |
+| m_OfficePrefab | Entity | -- | Entity reference to the office industry prefab |
 | m_MinimumHappiness | int | 30 | Floor for happiness in demand calc |
 | m_HappinessEffect | float | 2.0 | Weight multiplied by happiness delta |
 | m_TaxEffect | float3 | (1, 1, 1) | Tax weight per sector (x=residential, y=commercial, z=industrial/office) |
@@ -161,21 +243,52 @@ The central configuration struct, stored as an ECS singleton component. All thre
 | m_NeutralUnemployment | float | 20.0 | Unemployment rate (%) that produces zero effect |
 | m_NeutralAvailableWorkplacePercentage | float | 10.0 | Free workplace % that produces zero effect |
 | m_NeutralHomelessness | int | 50 | Homeless household count that produces zero effect |
-| m_FreeResidentialRequirement | int3 | (5, 10, 10) | Free property threshold per density |
+| m_FreeResidentialRequirement | int3 | (5, 10, 10) | Free property threshold per density (x=low, y=medium, z=high) |
 | m_FreeCommercialProportion | float | 10.0 | Free commercial property percentage target |
 | m_FreeIndustrialProportion | float | 10.0 | Free industrial property percentage target |
+| m_CommercialStorageMinimum | float | 0.2 | Minimum commercial storage ratio threshold |
+| m_CommercialStorageEffect | float | 1.6 | Multiplier for commercial storage demand effect |
 | m_CommercialBaseDemand | float | 4.0 | Base demand multiplier for commercial |
+| m_IndustrialStorageMinimum | float | 0.2 | Minimum industrial storage ratio threshold |
+| m_IndustrialStorageEffect | float | 1.6 | Multiplier for industrial storage demand effect |
 | m_IndustrialBaseDemand | float | 7.0 | Base demand multiplier for industrial |
 | m_ExtractorBaseDemand | float | 1.5 | Base demand multiplier for extractors |
 | m_StorageDemandMultiplier | float | 5e-5 | Scaling factor for storage demand |
+| m_CommuterWorkerRatioLimit | int | 8 | Max ratio of commuter workers to local workers before throttling |
+| m_CommuterSlowSpawnFactor | int | 8 | Slowdown factor applied to commuter spawning when ratio exceeded |
+| m_CommuterOCSpawnParameters | float4 | (0.8, 0.2, 0, 0) | Commuter spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship) |
+| m_TouristOCSpawnParameters | float4 | (0.1, 0.1, 0.5, 0.3) | Tourist spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship) |
+| m_CitizenOCSpawnParameters | float4 | (0.6, 0.2, 0.15, 0.05) | Citizen spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship) |
+| m_TeenSpawnPercentage | float | 0.5 | Percentage of new households with children that include a teen |
+| m_FrameIntervalForSpawning | int3 | (0, 2000, 2000) | Frame cooldown per sector (x=residential, y=commercial, z=industrial) |
 | m_HouseholdSpawnSpeedFactor | float | 0.5 | Speed factor for new household spawning |
 | m_HotelRoomPercentRequirement | float | 0.5 | Fraction of tourists needing hotel rooms |
-| m_FrameIntervalForSpawning | int3 | (0, 2000, 2000) | Frame cooldown per sector |
-| m_NewCitizenEducationParameters | float4 | (0.005, 0.5, 0.35, 0.13) | Education distribution of new citizens |
+| m_NewCitizenEducationParameters | float4 | (0.005, 0.5, 0.35, 0.13) | Education distribution of new citizens (x=uneducated, y=poorly educated, z=educated, w=well educated; remainder = highly educated) |
 
 ### DemandPrefab (Game.Prefabs)
 
 The MonoBehaviour-based prefab that initializes the `DemandParameterData` singleton at game start. Contains the same fields as `DemandParameterData` with Unity `[Tooltip]` annotations documenting each parameter. Located under `ComponentMenu("Settings/")`.
+
+### ModeSettingData (Game.Prefabs.Modes)
+
+A singleton ECS component that holds game mode overrides. The demand systems read this on game load to apply mode-specific adjustments.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| m_Enable | bool | false | Whether mode settings are active |
+| m_ResidentialDemandWeightsSelector | float2 | (1, 1) | Scales residential demand factors (x=negative factor weight, y=positive factor weight) |
+| m_CommercialTaxEffectDemandOffset | float | 0 | Added to commercial tax effect calculation |
+| m_IndustrialOfficeTaxEffectDemandOffset | float | 0 | Added to industrial/office tax effect calculation |
+
+When `m_Enable` is true, `ResidentialDemandSystem` applies the weights selector to all demand factors via `GetFactorValue()`, and `CommercialDemandSystem` / `IndustrialDemandSystem` add their respective tax offsets.
+
+### DemandParameterMode (Game.Prefabs.Modes)
+
+An `EntityQueryModePrefab` subclass under `ComponentMenu("Modes/Mode Parameters/")` that can override most `DemandParameterData` fields for specific game modes. It implements `ApplyModeData()` to write overridden values to the `DemandParameterData` singleton, and `RestoreDefaultData()` to reset fields from the original `DemandPrefab` values. Note: `DemandParameterMode` does **not** override the storage-related fields (`m_CommercialStorageMinimum`, `m_CommercialStorageEffect`, `m_IndustrialStorageMinimum`, `m_IndustrialStorageEffect`, `m_StorageDemandMultiplier`, `m_FreeCommercialProportion`, `m_FreeIndustrialProportion`).
+
+### Cross-References
+
+See also: [Citizens & Households](../CitizensHouseholds/README.md) for `CountHouseholdDataSystem`, which provides household counts, unemployment rate, homeless household count, and resource needs consumed by all three demand systems.
 
 ## Data Flow
 
@@ -250,17 +363,202 @@ The actual demand calculation jobs (`UpdateResidentialDemandJob`, `UpdateCommerc
 2. Modify `DemandParameterData` before the job runs
 3. Create a custom system that runs after the demand system and adjusts the stored values
 
+## Examples
+
+### Example 1: Read Current Demand Values from Each System
+
+```csharp
+/// <summary>
+/// Reads and logs current demand values from all three demand systems.
+/// </summary>
+public void LogDemandValues()
+{
+    var resSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<ResidentialDemandSystem>();
+    var comSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<CommercialDemandSystem>();
+    var indSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<IndustrialDemandSystem>();
+
+    // Residential: householdDemand (0-200), buildingDemand int3 (0-100 per density)
+    int householdDemand = resSys.householdDemand;
+    int3 resBuildingDemand = resSys.buildingDemand;
+    Log.Info($"Residential: household={householdDemand}, building=({resBuildingDemand.x},{resBuildingDemand.y},{resBuildingDemand.z})");
+
+    // Commercial: companyDemand (0-100), buildingDemand (0-100)
+    int comCompanyDemand = comSys.companyDemand;
+    int comBuildingDemand = comSys.buildingDemand;
+    Log.Info($"Commercial: company={comCompanyDemand}, building={comBuildingDemand}");
+
+    // Industrial: 6 values (company + building for industrial, office, storage)
+    Log.Info($"Industrial: company={indSys.industrialCompanyDemand}, building={indSys.industrialBuildingDemand}");
+    Log.Info($"Office: company={indSys.officeCompanyDemand}, building={indSys.officeBuildingDemand}");
+    Log.Info($"Storage: company={indSys.storageCompanyDemand}, building={indSys.storageBuildingDemand}");
+}
+```
+
+### Example 2: Modify DemandParameterData at Runtime
+
+```csharp
+/// <summary>
+/// A system that adjusts demand parameters every update cycle.
+/// Changes persist until the next game load.
+/// </summary>
+public partial class DemandParameterTweakSystem : GameSystemBase
+{
+    private EntityQuery m_DemandParamQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_DemandParamQuery = GetEntityQuery(
+            ComponentType.ReadWrite<DemandParameterData>()
+        );
+        RequireForUpdate(m_DemandParamQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        var data = m_DemandParamQuery.GetSingleton<DemandParameterData>();
+
+        // Double happiness sensitivity
+        data.m_HappinessEffect = 4.0f;
+        // Make unemployment less impactful (higher neutral = more tolerance)
+        data.m_NeutralUnemployment = 30f;
+        // Increase free residential requirement so building demand triggers sooner
+        data.m_FreeResidentialRequirement = new int3(10, 20, 20);
+        // Adjust commuter spawn distribution: more by train
+        data.m_CommuterOCSpawnParameters = new float4(0.5f, 0.4f, 0.05f, 0.05f);
+
+        m_DemandParamQuery.SetSingleton(data);
+    }
+}
+```
+
+### Example 3: Read Demand Factor Breakdown
+
+```csharp
+/// <summary>
+/// Reads the per-factor demand breakdown for residential low density.
+/// Factors are indexed by the DemandFactor enum (19 values).
+/// </summary>
+public void LogResidentialFactors()
+{
+    var resSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<ResidentialDemandSystem>();
+
+    JobHandle deps;
+    NativeArray<int> lowFactors = resSys.GetLowDensityDemandFactors(out deps);
+    deps.Complete();  // Ensure the job is done before reading
+
+    // Key factor indices (from DemandFactor enum):
+    // 5=Unemployment, 6=FreeWorkplaces, 7=Happiness, 11=Taxes, 13=EmptyBuildings
+    Log.Info($"Low density factors: " +
+        $"Happiness={lowFactors[7]}, " +
+        $"Unemployment={lowFactors[5]}, " +
+        $"FreeWorkplaces={lowFactors[6]}, " +
+        $"Taxes={lowFactors[11]}, " +
+        $"EmptyBuildings={lowFactors[13]}");
+
+    // For industrial/office:
+    var indSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<IndustrialDemandSystem>();
+    NativeArray<int> indFactors = indSys.GetIndustrialDemandFactors(out deps);
+    NativeArray<int> offFactors = indSys.GetOfficeDemandFactors(out deps);
+    deps.Complete();
+
+    Log.Info($"Industrial factors: " +
+        $"UneducatedWorkforce={indFactors[1]}, " +
+        $"EducatedWorkforce={indFactors[2]}, " +
+        $"LocalDemand={indFactors[4]}, " +
+        $"Taxes={indFactors[11]}, " +
+        $"Warehouses={indFactors[17]}");
+}
+```
+
+### Example 4: Custom System That Adjusts Demand Post-Calculation
+
+```csharp
+/// <summary>
+/// Runs after ResidentialDemandSystem and caps building demand at 50.
+/// Uses UpdateAfter attribute to ensure correct ordering.
+/// </summary>
+[UpdateAfter(typeof(ResidentialDemandSystem))]
+public partial class DemandCapSystem : GameSystemBase
+{
+    private ResidentialDemandSystem m_ResidentialDemandSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_ResidentialDemandSystem = World.GetOrCreateSystemManaged<ResidentialDemandSystem>();
+    }
+
+    public override int GetUpdateInterval(SystemUpdatePhase phase) => 16;
+    public override int GetUpdateOffset(SystemUpdatePhase phase) => 11; // After residential (10)
+
+    protected override void OnUpdate()
+    {
+        // Use Harmony Traverse to access private NativeValue fields
+        var traverse = HarmonyLib.Traverse.Create(m_ResidentialDemandSystem);
+        var buildingDemand = traverse.Field<NativeValue<int3>>("m_BuildingDemand").Value;
+
+        int3 current = buildingDemand.value;
+        // Cap all densities at 50
+        buildingDemand.value = math.min(current, new int3(50, 50, 50));
+    }
+}
+```
+
+### Example 5: Query Free Properties per Zone Type
+
+```csharp
+/// <summary>
+/// Reads free property counts from the industrial demand system
+/// to see how many available slots exist per resource type.
+/// </summary>
+public void LogFreeIndustrialProperties()
+{
+    var indSys = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<IndustrialDemandSystem>();
+
+    JobHandle deps;
+    // Per-resource building demands and free storage counts
+    NativeArray<int> buildingDemands = indSys.GetBuildingDemands(out deps);
+    NativeArray<int> storageDemands = indSys.GetStorageBuildingDemands(out deps);
+    NativeArray<int> resourceDemands = indSys.GetIndustrialResourceDemands(out deps);
+    deps.Complete();
+
+    // Iterate resources -- indices correspond to EconomyUtils.GetResourceIndex()
+    ResourceIterator iterator = ResourceIterator.GetIterator();
+    while (iterator.Next())
+    {
+        int idx = EconomyUtils.GetResourceIndex(iterator.resource);
+        if (buildingDemands[idx] > 0 || storageDemands[idx] > 0)
+        {
+            Log.Info($"{iterator.resource}: buildingDemand={buildingDemands[idx]}, " +
+                $"storageDemand={storageDemands[idx]}, " +
+                $"resourceDemand={resourceDemands[idx]}");
+        }
+    }
+}
+```
+
 ## Open Questions
 
 - [x] What factors drive each demand type? -- Documented above per system
 - [x] How are demand factors indexed? -- Via the DemandFactor enum (19 values)
 - [x] How does demand connect to building spawning? -- ZoneSpawnSystem reads buildingDemand at offset 13
 - [x] Can demand parameters be modified at runtime? -- Yes, DemandParameterData is a standard ECS singleton
+- [x] How does m_ResidentialDemandWeightsSelector work? -- A float2 from ModeSettingData that independently scales positive (y) and negative (x) demand factors via GetFactorValue()
+- [x] What is kMaxFactorEffect? -- Static constant = 15, caps homelessness effect in ResidentialDemandSystem
+- [x] What are the missing DemandParameterData fields? -- Fully documented: storage params, commuter/tourist/citizen OC spawn params, teen spawn %, forestry/office prefab refs
 - [ ] How exactly does ZoneSpawnSystem translate demand values into spawn probability? -- Out of scope, needs separate research
 - [ ] How does the demand UI panel read and display factor arrays? -- UI binding not decompiled
+- [ ] How are m_CommercialStorageMinimum/Effect and m_IndustrialStorageMinimum/Effect used at runtime? -- Fields exist on the struct but direct usage in demand systems not located; may be consumed by other systems (e.g., company spawning or resource distribution)
 
 ## Sources
 
-- Decompiled from: Game.dll (Game.Simulation namespace, Game.Prefabs namespace)
-- Key types: ResidentialDemandSystem, CommercialDemandSystem, IndustrialDemandSystem, DemandParameterData, DemandPrefab, DemandFactor, DemandUtils
+- Decompiled from: Game.dll (Game.Simulation namespace, Game.Prefabs namespace, Game.Prefabs.Modes namespace)
+- Key types: ResidentialDemandSystem, CommercialDemandSystem, IndustrialDemandSystem, DemandParameterData, DemandPrefab, DemandFactor, DemandUtils, DemandParameterMode, ModeSettingData
 - All decompiled snippets saved in `snippets/` directory
