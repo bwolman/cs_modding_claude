@@ -583,6 +583,33 @@ public static class ReplaceAllTranspiler
     </tbody>
   </table>
 
+  <h3>NativeQueue Field Reflection for Job Replacement</h3>
+
+  <p>
+    When a transpiler removes jobs from a vanilla system, the custom replacement needs the
+    private <code>NativeQueue</code> fields that feed those jobs. Use <code>AccessTools.Field</code>
+    to reflect them:
+  </p>
+
+  <pre><code class="language-csharp">FieldInfo levelupField = AccessTools.Field(
+    typeof(BuildingUpkeepSystem), "m_LevelupQueue");
+
+if (levelupField is null)
+{
+    Log.Error("Unable to get LevelupQueue FieldInfo");
+    Enabled = false;  // Graceful degradation
+    return;
+}
+
+_levelupQueue = (NativeQueue&lt;Entity&gt;)levelupField.GetValue(
+    World.GetOrCreateSystemManaged&lt;BuildingUpkeepSystem&gt;());</code></pre>
+
+  <p>
+    This pattern pairs with a transpiler that removes the original jobs, creating a
+    &ldquo;job replacement&rdquo; architecture where the vanilla system still populates
+    the queues but a custom system processes them.
+  </p>
+
   <!-- ============================================================ -->
   <h2>Open Questions</h2>
 

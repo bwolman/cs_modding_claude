@@ -539,6 +539,45 @@ public static class ManualTranspiler
 }
 ```
 
+### Example 6: NativeQueue Field Reflection for System-to-System Data Sharing
+
+When a transpiler removes jobs from a vanilla system (e.g., removing `LevelupJob` from `BuildingUpkeepSystem`), the custom replacement system needs access to the private `NativeQueue` fields that feed those jobs. Use `AccessTools.Field` to reflect private fields from one system into another:
+
+```csharp
+protected override void OnCreate()
+{
+    base.OnCreate();
+
+    // Reflect the level-up queue from BuildingUpkeepSystem
+    FieldInfo levelupField = AccessTools.Field(
+        typeof(BuildingUpkeepSystem), "m_LevelupQueue");
+
+    if (levelupField is null)
+    {
+        Mod.Instance.Log.Error("Unable to get LevelupQueue FieldInfo");
+        Enabled = false;  // Graceful degradation
+        return;
+    }
+
+    _levelupQueue = (NativeQueue<Entity>)levelupField.GetValue(
+        World.GetOrCreateSystemManaged<BuildingUpkeepSystem>());
+
+    // Same for level-down queue
+    FieldInfo leveldownField = AccessTools.Field(
+        typeof(BuildingUpkeepSystem), "m_LeveldownQueue");
+    _leveldownQueue = (NativeQueue<Entity>)leveldownField.GetValue(
+        World.GetOrCreateSystemManaged<BuildingUpkeepSystem>());
+}
+```
+
+Key techniques:
+1. `AccessTools.Field` (from HarmonyLib) gets `FieldInfo` for private fields
+2. `GetValue` with system instance from `World.GetOrCreateSystemManaged`
+3. `NativeQueue` cast — the reflected value is cast directly to the native container type
+4. **Graceful degradation**: If reflection fails (e.g., game update renames field), disable the system instead of crashing
+
+This pattern is commonly paired with a transpiler that removes the original jobs, creating a "job replacement" architecture where the vanilla system still populates the queues but a custom system processes them.
+
 ## Open Questions
 
 - [ ] **HarmonyX vs Harmony 2.x in CS2**: CS2 may use HarmonyX (BepInEx fork) rather than vanilla Harmony 2.x. The API is nearly identical but there may be minor differences in transpiler behavior.

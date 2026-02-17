@@ -1186,18 +1186,92 @@ export const ILCitizenInfoSection = (componentList: any): any => {
 };
 ```
 
-### Accessing Vanilla Internal Components
+### Removing/Replacing Vanilla UI Components via extend()
 
-The `VanillaComponentResolver` pattern (from Klyte45) accesses game-internal React components not exposed through `cs2/ui`:
+`moduleRegistry.extend()` can also be used to conditionally remove or replace vanilla components entirely:
 
 ```typescript
+moduleRegistry.extend(
+    "game-ui/game/components/some-vanilla-component.tsx",
+    "SomeExport",
+    (OriginalComponent) => {
+        // Return null to remove, or conditionally render
+        return (props) => {
+            if (shouldHide) return null;
+            return <OriginalComponent {...props} />;
+        };
+    }
+);
+```
+
+FindIt uses this pattern with `RemoveVanillaAssetMenu.tsx` and `RemoveVanillaRightToolbar.tsx` to conditionally hide vanilla UI elements when its own UI is active.
+
+### Accessing Vanilla Internal Components (VanillaComponentResolver)
+
+The `VanillaComponentResolver` pattern (originally by Klyte45 and yenyang) is a singleton class that wraps `ModuleRegistry` to lazily resolve and cache vanilla game UI components by their registry paths. Mod TSX code cannot directly import vanilla components — they must be resolved from the registry at runtime.
+
+```typescript
+class VanillaComponentResolver {
+    private registryData: ModuleRegistryData;
+    private cachedComponents: Map<string, any> = new Map();
+
+    static setRegistry(moduleRegistry: ModuleRegistryData) {
+        VanillaComponentResolver.instance.registryData = moduleRegistry;
+    }
+}
+
 const registryIndex = {
     Section: ['game-ui/game/components/tool-options/mouse-tool-options/mouse-tool-options.tsx', 'Section'],
     ToolButton: ['game-ui/game/components/tool-options/tool-button/tool-button.tsx', 'ToolButton'],
+    InfoSection: ['game-ui/game/components/selected-info-panel/shared-components/info-section/info-section.tsx', 'InfoSection'],
+    InfoRow: ['game-ui/game/components/selected-info-panel/shared-components/info-row/info-row.tsx', 'InfoRow'],
+    descriptionTooltipTheme: ['game-ui/common/tooltip/description-tooltip/description-tooltip.module.scss', 'default'],
+    FOCUS_DISABLED: ['game-ui/common/focus/focus-key.ts', 'FOCUS_DISABLED'],
+};
+
+// Initialization in mod's register function:
+const register: ModRegistrar = (moduleRegistry) => {
+    VanillaComponentResolver.setRegistry(moduleRegistry);
 };
 
 // Usage: VanillaComponentResolver.instance.Section
 ```
+
+**Discovering registry paths**: In the UI developer tools at `http://localhost:9444/`, go to Sources → Index.js, pretty print, and search for the TSX or SCSS file paths.
+
+### Async Search Pattern with CancellationToken
+
+For expensive UI operations like search/filter that shouldn't block the game's UI thread, use debounced async execution with `CancellationToken`:
+
+```csharp
+private CancellationTokenSource searchTokenSource = new();
+
+private async Task DelayedSearch()
+{
+    // Cancel any previous pending search
+    searchTokenSource.Cancel();
+    searchTokenSource = new();
+    var token = searchTokenSource.Token;
+
+    // Debounce: wait 250ms before executing
+    await Task.Delay(250);
+
+    if (token.IsCancellationRequested)
+        return;
+
+    // Execute search on background thread
+    ProcessSearch(token);
+
+    // Signal OnUpdate to apply results on main thread
+    if (!token.IsCancellationRequested)
+        filterCompleted = true;
+}
+```
+
+Key techniques:
+1. **Debouncing**: 250ms delay cancels rapid repeated searches (e.g., typing in search box)
+2. **CancellationToken**: Threads through entire filter pipeline; each step checks for cancellation
+3. **Main thread signaling**: Results are applied in `OnUpdate()` via a boolean flag, not directly from the async task
 
 ### Additional CSS Variables
 

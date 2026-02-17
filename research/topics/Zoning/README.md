@@ -204,6 +204,53 @@ Tag component added by `ZoneCheckSystem` when a building is incompatible with it
 
 *Source: `Game.dll` -> `Game.Buildings.Condemned`*
 
+### `ExtractorProperty` (Game.Buildings)
+
+Tag component (no fields) marking resource extractor buildings (mines, farms, forestry, oil extractors). These buildings extract natural resources and have special behavior — they are typically excluded from growable building queries alongside `Signature`:
+
+```csharp
+// PlopTheGrowables excludes extractors from plopped building tagging
+.WithNone<Temp, Deleted, Signature, UnderConstruction, SpawnedBuilding, PloppedBuilding, ExtractorProperty>()
+```
+
+Any mod querying for growable/spawnable buildings should be aware of all four property type tags: `ResidentialProperty`, `CommercialProperty`, `IndustrialProperty`, and `ExtractorProperty`.
+
+*Source: `Game.dll` -> `Game.Buildings.ExtractorProperty`*
+
+### `UnderConstruction` (Game.Buildings)
+
+Tracks a building that is being constructed or upgraded to a new prefab.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_NewPrefab | Entity | The new prefab entity to replace the building with |
+| m_Progress | byte | Construction progress (0-255; 255 = instant completion) |
+
+Added by `LevelupJob` when a building levels up. `BuildingConstructionSystem` processes this component and replaces the building. Setting `m_Progress = byte.MaxValue` causes instant completion (used by level-up). Setting `m_Progress = 0` shows the construction animation.
+
+*Source: `Game.dll` -> `Game.Buildings.UnderConstruction`*
+
+### `BuildingSpawnGroupData` (Game.Prefabs, ISharedComponentData)
+
+Shared component that partitions building prefab entity chunks by zone type. This enables efficient building selection during spawn and level-up — `ZoneSpawnSystem` and `LevelupJob` iterate chunks and skip those whose zone type doesn't match:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_ZoneType | ZoneType | Zone type this building group belongs to |
+
+```csharp
+// Chunk-level filtering during building selection
+for (int i = 0; i < spawnableBuildingChunks.Length; i++)
+{
+    ArchetypeChunk chunk = spawnableBuildingChunks[i];
+    if (!chunk.GetSharedComponent(m_BuildingSpawnGroupType).m_ZoneType.Equals(zoneType))
+        continue;  // Skip entire chunk — all entities have wrong zone type
+    // ... iterate and score buildings in matching chunk
+}
+```
+
+*Source: `Game.dll` -> `Game.Prefabs.BuildingSpawnGroupData`*
+
 ### `ZoneFlags` Semantic Meaning (Game.Prefabs)
 
 The `ZoneFlags` enum on `ZoneData.m_ZoneFlags` controls zone behavior beyond simple area type classification:
@@ -818,7 +865,7 @@ public static class BuildingSelectionReference
 - [x] How does `ZoneCheckSystem` decide when to demolish vs. flag? **Answer**: It never demolishes directly. It adds the `Condemned` tag component when all lot cells don't match the zone type or lack a `CellFlags.Roadside` cell. A separate demolition pipeline handles condemned buildings. Valid buildings get their `Condemned` component removed. See `ZoneCheckSystem` section above for the full three-job pipeline.
 - [ ] What is the full list of zone type indices and their names? The `ZoneType.m_Index` maps to prefabs via `ZonePrefabs`, but the actual prefab names (Low Density Residential, High Density Commercial, etc.) are defined in game data files, not code.
 - [ ] How does `ZoneEvaluationUtils.GetScore()` calculate the evaluation score? This utility considers pollution, resource availability, land value, and zone preferences but the full formula was not traced.
-- [ ] How does `BuildingSpawnGroupData` (shared component) group building prefabs by zone type? This shared component partitions building prefab chunks so only zone-matching buildings are considered.
+- [x] How does `BuildingSpawnGroupData` group building prefabs by zone type? **Answer**: It's an `ISharedComponentData` with a single `m_ZoneType` field. As a shared component, all entities with the same zone type are stored in the same archetype chunks. Building selection iterates chunks and skips non-matching zone types at the chunk level, making it very efficient.
 
 ## Sources
 

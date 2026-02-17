@@ -751,18 +751,73 @@ export const ILCitizenInfoSection = (componentList: any): any =&gt; {
     return componentList;
 };</code></pre>
 
-<h3>Accessing Vanilla Internal Components</h3>
+<h3>Removing/Replacing Vanilla Components via extend()</h3>
 
 <p>
-  The <code>VanillaComponentResolver</code> pattern (from Klyte45) accesses game-internal React
-  components not exposed through <code>cs2/ui</code>:
+  <code>moduleRegistry.extend()</code> can conditionally remove or replace vanilla components:
+</p>
+
+<pre><code class="language-typescript">moduleRegistry.extend(
+    "game-ui/game/components/some-vanilla-component.tsx",
+    "SomeExport",
+    (OriginalComponent) =&gt; {
+        return (props) =&gt; {
+            if (shouldHide) return null; // Remove component
+            return &lt;OriginalComponent {...props} /&gt;; // Keep original
+        };
+    }
+);</code></pre>
+
+<h3>Accessing Vanilla Internal Components (VanillaComponentResolver)</h3>
+
+<p>
+  The <code>VanillaComponentResolver</code> pattern (by Klyte45 and yenyang) is a singleton that
+  lazily resolves and caches vanilla game UI components from the registry. Mod TSX cannot directly
+  import vanilla components &mdash; they must be resolved at runtime.
 </p>
 
 <pre><code class="language-typescript">const registryIndex = {
     Section: ['game-ui/game/components/tool-options/mouse-tool-options/mouse-tool-options.tsx', 'Section'],
     ToolButton: ['game-ui/game/components/tool-options/tool-button/tool-button.tsx', 'ToolButton'],
+    InfoSection: ['game-ui/game/components/selected-info-panel/shared-components/info-section/info-section.tsx', 'InfoSection'],
+    InfoRow: ['game-ui/game/components/selected-info-panel/shared-components/info-row/info-row.tsx', 'InfoRow'],
+};
+
+// Initialize in register function:
+const register: ModRegistrar = (moduleRegistry) =&gt; {
+    VanillaComponentResolver.setRegistry(moduleRegistry);
 };
 // Usage: VanillaComponentResolver.instance.Section</code></pre>
+
+<p>
+  <strong>Discovering registry paths:</strong> In the UI developer tools at
+  <code>http://localhost:9444/</code>, go to Sources &rarr; Index.js, pretty print, and search
+  for TSX/SCSS file paths.
+</p>
+
+<h3>Async Search with CancellationToken</h3>
+
+<p>
+  For expensive operations like search/filter, use debounced async execution:
+</p>
+
+<pre><code class="language-csharp">private CancellationTokenSource searchTokenSource = new();
+
+private async Task DelayedSearch()
+{
+    searchTokenSource.Cancel();
+    searchTokenSource = new();
+    var token = searchTokenSource.Token;
+
+    await Task.Delay(250); // Debounce
+
+    if (token.IsCancellationRequested) return;
+
+    ProcessSearch(token);
+
+    if (!token.IsCancellationRequested)
+        filterCompleted = true; // Signal OnUpdate to apply results
+}</code></pre>
 
 <h3>Additional CSS Variables</h3>
 

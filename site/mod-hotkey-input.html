@@ -511,15 +511,39 @@ public void OnTextFieldBlurred()
 </ul>
 
 <!-- ============================================================ -->
+<h2>Mouse Action with Binding Mimic</h2>
+
+<p>
+  Register a mouse action and copy a vanilla binding at runtime. This ensures the mod's tool
+  responds to whatever mouse button the user has configured for the vanilla action.
+</p>
+
+<pre><code class="language-csharp">// Settings: declare a custom mouse action
+[SettingsUIMouseAction(nameof(FindIt) + "Apply", "CustomUsage")]
+public class FindItSettings : ModSetting
+{
+    [SettingsUIMouseBinding(nameof(FindIt) + "Apply"), SettingsUIHidden]
+    public ProxyBinding ApplyMimic { get; set; }
+}
+
+// System: copy vanilla Apply binding to our action
+var builtInApply = InputManager.instance.FindAction(InputManager.kToolMap, "Apply");
+var mimicBinding = _applyAction.bindings
+    .FirstOrDefault(b =&gt; b.device == InputManager.DeviceType.Mouse);
+var builtInBinding = builtInApply.bindings
+    .FirstOrDefault(b =&gt; b.device == InputManager.DeviceType.Mouse);
+
+mimicBinding.path = builtInBinding.path;
+mimicBinding.modifiers = builtInBinding.modifiers;
+InputManager.instance.SetBinding(mimicBinding, out _);</code></pre>
+
 <h2>Open Questions</h2>
 
 <ul>
   <li>How does <code>shouldBeEnabled</code> interact with the automatic enabling done by <code>RegisterKeyBindings()</code>? Is it necessary to set it explicitly for mod actions?</li>
   <li>What happens if two mods register the same action name in different maps? Cross-mod conflict resolution is unclear.</li>
   <li>How does the <code>Usages</code> system filter when actions are active (gameplay vs. menus)?</li>
-  <li>Can mod actions use <code>SettingsUIMouseBindingAttribute</code> for mouse buttons? How do the <code>BindingMouse</code> enum values map?</li>
   <li>What is the full <code>InputBarrier</code> lifecycle? When should mods create and dispose barriers?</li>
-  <li>How does <code>SettingsUIBindingMimicAttribute</code> interact with mod-registered bindings -- can a mod mirror a built-in shortcut and extend it?</li>
 </ul>
 
 <footer>

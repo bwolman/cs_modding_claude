@@ -264,6 +264,37 @@ LocalizedString safe = LocalizedString.IdWithFallback(
     <li><strong>Duplicate keys overwrite silently</strong> -- the last source to add a key wins.</li>
   </ul>
 
+  <h3>Example 5: Embedded JSON Localization</h3>
+
+  <p>
+    Load localization from JSON files embedded as assembly resources. Supports multiple languages
+    with graceful fallback.
+  </p>
+
+  <pre><code class="language-csharp">var assembly = Assembly.GetExecutingAssembly();
+var supportedLocales = GameManager.instance.localizationManager.GetSupportedLocales();
+
+foreach (var locale in supportedLocales)
+{
+    // Convention: AssemblyName.l10n.localeID.json
+    string resourceName = $"{assembly.GetName().Name}.l10n.{locale}.json";
+
+    using var stream = assembly.GetManifestResourceStream(resourceName);
+    if (stream == null) continue; // Locale not supported
+
+    using var reader = new StreamReader(stream);
+    var dict = JsonSerializer.Deserialize&lt;Dictionary&lt;string, string&gt;&gt;(reader.ReadToEnd());
+
+    GameManager.instance.localizationManager.AddSource(locale, new MemorySource(dict));
+}</code></pre>
+
+  <p>
+    <strong>Resource naming convention:</strong>
+    <code>{AssemblyName}.l10n.{localeID}.json</code> (e.g.,
+    <code>TreeController.l10n.en-US.json</code>). The JSON file is a flat object
+    mapping string IDs to translated text.
+  </p>
+
   <h2>Open Questions</h2>
 
   <ul>

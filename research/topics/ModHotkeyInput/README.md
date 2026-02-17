@@ -861,14 +861,55 @@ public partial class MyPanelSystem : GameSystemBase
 }
 ```
 
+### Example 8: Mouse Action with Vanilla Binding Mimic
+
+Register a mouse action and copy the vanilla "Apply" binding at runtime. This ensures the mod's tool responds to whatever mouse button the user has configured for the Apply action.
+
+```csharp
+// In Settings class: register a custom mouse action
+[SettingsUIMouseAction(nameof(FindIt) + "Apply", "CustomUsage")]
+public class FindItSettings : ModSetting
+{
+    // Hidden binding property — users don't see this in settings
+    [SettingsUIMouseBinding(nameof(FindIt) + "Apply"), SettingsUIHidden]
+    public ProxyBinding ApplyMimic { get; set; }
+}
+
+// In system: copy vanilla Apply binding to our custom action
+protected override void OnCreate()
+{
+    base.OnCreate();
+    _applyAction = Mod.Settings.GetAction(nameof(FindIt) + "Apply");
+
+    // Find the vanilla Apply action
+    var builtInApply = InputManager.instance.FindAction(InputManager.kToolMap, "Apply");
+
+    // Copy its mouse binding to our action
+    var mimicBinding = _applyAction.bindings
+        .FirstOrDefault(b => b.device == InputManager.DeviceType.Mouse);
+    var builtInBinding = builtInApply.bindings
+        .FirstOrDefault(b => b.device == InputManager.DeviceType.Mouse);
+
+    mimicBinding.path = builtInBinding.path;
+    mimicBinding.modifiers = builtInBinding.modifiers;
+    InputManager.instance.SetBinding(mimicBinding, out _);
+}
+```
+
+Key techniques:
+1. `SettingsUIMouseAction` class attribute declares a mouse action (not keyboard)
+2. `SettingsUIMouseBinding` + `SettingsUIHidden` creates a hidden proxy binding
+3. At runtime, copy `path` and `modifiers` from the vanilla action using `InputManager.instance.FindAction`
+4. Call `InputManager.instance.SetBinding()` to apply the copied binding
+
 ## Open Questions
 
 - [ ] How does `shouldBeEnabled` interact with the automatic enabling done by `RegisterKeyBindings()`? Is it necessary to explicitly set it for mod actions?
 - [ ] What happens if two mods register the same action name in different maps? Conflict resolution behavior for cross-mod conflicts.
 - [ ] How does the `Usages` system work for filtering when actions are active? (e.g., only during gameplay vs. in menus)
-- [ ] Can mod actions be registered for mouse buttons using `SettingsUIMouseBindingAttribute`? How do the `BindingMouse` enum values map to buttons?
+- [x] Can mod actions be registered for mouse buttons? **Answer**: Yes, use `SettingsUIMouseAction` class attribute + `SettingsUIMouseBinding` property attribute. The binding can be configured at runtime by copying from vanilla actions via `InputManager.instance.FindAction` and `SetBinding`.
 - [ ] What is the `InputBarrier` lifecycle? When should mods create and dispose barriers?
-- [ ] How does `SettingsUIBindingMimicAttribute` interact with mod-registered bindings -- can a mod mirror a built-in shortcut and extend it?
+- [x] How does binding mimic work? **Answer**: `FindAction` on the vanilla action, copy `path` and `modifiers` from its mouse binding to your custom action's binding, then call `InputManager.instance.SetBinding()`.
 
 ## Sources
 

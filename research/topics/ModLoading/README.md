@@ -510,6 +510,74 @@ public class MyMod : IMod
 - **`TryGetExecutableAsset`** (Example 5): Simplest way to find your own mod's asset. Requires access to `GameManager.instance.modManager` and passes `this` (the IMod instance).
 - **`SearchFilter<ExecutableAsset>`** (Example 6): More flexible -- can search for any mod's assets by arbitrary conditions. Useful for inter-mod discovery or when you need to enumerate all loaded mods.
 
+### Example 7: Detect Installed Mods via ModManager Iteration
+
+Simple mod presence detection using `GameManager.instance.modManager` iteration. Best for basic boolean compatibility flags.
+
+```csharp
+public void OnLoad(UpdateSystem updateSystem)
+{
+    foreach (ModManager.ModInfo modInfo in GameManager.instance.modManager)
+    {
+        if (modInfo.asset.name.Equals("RWH"))
+        {
+            Log.Info("Found Realistic Workplaces and Households mod");
+            // Adjust behavior accordingly
+        }
+    }
+}
+```
+
+### Example 8: Detect Installed Mods via ListModsEnabled
+
+Lightweight mod presence detection using `ModManager.ListModsEnabled()`. Returns assembly-qualified names, so use `StartsWith` for matching.
+
+```csharp
+// Cache with lazy evaluation
+private static bool? isRoadBuilderEnabled;
+public static bool IsRoadBuilderEnabled => isRoadBuilderEnabled ??=
+    GameManager.instance.modManager.ListModsEnabled()
+        .Any(x => x.StartsWith("RoadBuilder, "));
+
+// ListModsEnabled returns strings like:
+// "RoadBuilder, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"
+```
+
+**When to use which mod detection pattern:**
+- **ModManager iteration** (Example 7): Simple loop, good for checking `modInfo.asset.name` (short name)
+- **ListModsEnabled** (Example 8): Returns assembly-qualified names, good for `StartsWith` checks with caching
+- **SearchFilter + AssetDatabase** (Example 6): Most flexible, access to mod assembly for reflection
+
+### Example 9: Enabled=false Safety Pattern for One-Shot Systems
+
+Systems that perform destructive operations should start disabled and re-disable after each execution. This prevents accidental runs.
+
+```csharp
+public partial class DestroyAllVegetationSystem : GameSystemBase
+{
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        // Safety: system must be explicitly enabled by UI or other trigger
+        Enabled = false;
+    }
+
+    protected override void OnUpdate()
+    {
+        // Perform destructive operation...
+        DestroyAllTrees();
+
+        // Re-disable immediately after execution
+        Enabled = false;
+    }
+
+    // Called from settings UI or button handler
+    public void TriggerDestruction() => Enabled = true;
+}
+```
+
+**`Enabled = false` vs `RequireForUpdate`**: `RequireForUpdate(query)` disables based on entity query emptiness — the system auto-enables when matching entities exist. `Enabled = false` is explicit control — the system only runs when code explicitly sets `Enabled = true`. Use `Enabled = false` for dangerous one-shot operations; use `RequireForUpdate` for data-driven activation.
+
 ## GetUpdateInterval: Controlling System Tick Frequency
 
 Custom systems do not need to run every frame. `GameSystemBase` provides a virtual method `GetUpdateInterval(SystemUpdatePhase)` that controls how many frames elapse between each `OnUpdate` call:
@@ -594,7 +662,7 @@ Custom systems that read data produced by vanilla systems should match or be a m
 
 - [ ] **Load order guarantees**: The order mods are loaded depends on the order they appear in the AssetDatabase scan. There is no explicit load-order declaration. Mods that depend on other mods should use assembly references to ensure correct ordering.
 - [ ] **Hot-reloading**: ModManager.RequireRestart() exists but actual hot-reloading (unload + reload without game restart) is not supported for code mods. UI modules can be added/removed dynamically.
-- [ ] **Inter-mod API pattern**: There is no official inter-mod communication API. Mods typically expose public static classes/methods and reference each other via assembly references.
+- [x] **Inter-mod API pattern**: No official API. Mods use: (1) `GameManager.instance.modManager` iteration for presence detection, (2) `ModManager.ListModsEnabled()` for assembly-qualified name checks, (3) `Assembly.Load()` + `GetType()` for runtime type resolution, (4) public static classes for direct reference when assembly dependency exists.
 - [ ] **PDX Mods dependency declaration**: How dependencies are declared in the PDX Mods platform metadata (separate from assembly references) needs testing with the Paradox launcher.
 
 ## Sources

@@ -420,6 +420,48 @@
     directly by ZoneCheckSystem.
   </p>
 
+  <h3>ExtractorProperty (Game.Buildings)</h3>
+
+  <p>
+    Tag component (no fields) marking resource extractor buildings (mines, farms, forestry, oil extractors).
+    Mods querying growable buildings should be aware of all four property type tags:
+    <code>ResidentialProperty</code>, <code>CommercialProperty</code>, <code>IndustrialProperty</code>,
+    and <code>ExtractorProperty</code>.
+  </p>
+
+  <h3>UnderConstruction (Game.Buildings)</h3>
+
+  <p>
+    Tracks a building being constructed or upgraded. Added by <code>LevelupJob</code> during level-up.
+    Processed by <code>BuildingConstructionSystem</code>.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_NewPrefab</td><td>Entity</td><td>New prefab entity to replace the building with</td></tr>
+      <tr><td>m_Progress</td><td>byte</td><td>Construction progress (0-255; 255 = instant completion)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>BuildingSpawnGroupData (Game.Prefabs, ISharedComponentData)</h3>
+
+  <p>
+    Shared component that partitions building prefab chunks by zone type. Building selection
+    iterates chunks and skips non-matching zone types at the chunk level for efficient selection.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ZoneType</td><td>ZoneType</td><td>Zone type this building group belongs to</td></tr>
+    </tbody>
+  </table>
+
   <h3>ZoneFlags Semantic Meaning</h3>
 
   <p>

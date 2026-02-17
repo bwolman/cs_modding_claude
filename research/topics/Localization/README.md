@@ -235,6 +235,41 @@ LocalizedString safe = LocalizedString.IdWithFallback(
     "MyMod.MaybeExists", "Default Text");
 ```
 
+### Example 5: Embedded JSON Localization with Assembly Resources
+
+Load localization from JSON files embedded as assembly resources. This pattern supports multiple languages with graceful fallback.
+
+```csharp
+public void LoadEmbeddedLocalization()
+{
+    var assembly = Assembly.GetExecutingAssembly();
+    var supportedLocales = GameManager.instance.localizationManager.GetSupportedLocales();
+
+    foreach (var locale in supportedLocales)
+    {
+        // Convention: AssemblyName.l10n.localeID.json
+        string resourceName = $"{assembly.GetName().Name}.l10n.{locale}.json";
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream == null) continue; // Locale not supported by this mod
+
+        using var reader = new StreamReader(stream);
+        string json = reader.ReadToEnd();
+
+        // Parse JSON into Dictionary<string, string>
+        // Using Colossal.Json: var dict = JSON.Load(json) as Dictionary<string, string>;
+        // Or System.Text.Json: var dict = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+
+        var source = new MemorySource(dict);
+        GameManager.instance.localizationManager.AddSource(locale, source);
+    }
+}
+```
+
+**Resource naming convention**: `{AssemblyName}.l10n.{localeID}.json` (e.g., `TreeController.l10n.en-US.json`, `TreeController.l10n.de-DE.json`). The JSON file is a flat object mapping string IDs to translated text.
+
+**Graceful fallback**: If a locale's JSON file doesn't exist as an embedded resource, the `GetManifestResourceStream` call returns null and the locale is skipped. The game falls back to the default locale (en-US) for missing translations.
+
 ## Open Questions
 
 - [ ] How does the UI template engine resolve `ILocElement` arguments in format strings?

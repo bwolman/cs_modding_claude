@@ -544,6 +544,53 @@ bool otherModLoaded = AppDomain.CurrentDomain.GetAssemblies()
   </p>
 
   <!-- ============================================================ -->
+  <h2>Cross-Mod Detection Patterns</h2>
+
+  <h3>ModManager Iteration</h3>
+
+  <p>Simple mod presence detection by iterating <code>GameManager.instance.modManager</code>:</p>
+
+  <pre><code class="language-csharp">foreach (ModManager.ModInfo modInfo in GameManager.instance.modManager)
+{
+    if (modInfo.asset.name.Equals("RWH"))
+    {
+        Log.Info("Found Realistic Workplaces and Households mod");
+    }
+}</code></pre>
+
+  <h3>ListModsEnabled</h3>
+
+  <p>
+    Returns assembly-qualified names of enabled mods. Use <code>StartsWith</code> for matching
+    and cache results with nullable backing fields:
+  </p>
+
+  <pre><code class="language-csharp">private static bool? isRoadBuilderEnabled;
+public static bool IsRoadBuilderEnabled =&gt; isRoadBuilderEnabled ??=
+    GameManager.instance.modManager.ListModsEnabled()
+        .Any(x =&gt; x.StartsWith("RoadBuilder, "));</code></pre>
+
+  <h3>Enabled=false Safety Pattern</h3>
+
+  <p>
+    Systems that perform destructive one-shot operations should start disabled
+    (<code>Enabled = false</code> in <code>OnCreate</code>) and re-disable after each execution.
+    This differs from <code>RequireForUpdate</code> which auto-enables based on entity query emptiness.
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnCreate()
+{
+    base.OnCreate();
+    Enabled = false; // Only enable explicitly from UI/trigger
+}
+
+protected override void OnUpdate()
+{
+    PerformDangerousOperation();
+    Enabled = false; // Re-disable after execution
+}</code></pre>
+
+  <!-- ============================================================ -->
   <h2>GetUpdateInterval: Controlling System Tick Frequency</h2>
 
   <p>

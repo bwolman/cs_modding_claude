@@ -542,6 +542,46 @@ public class ParkingInspectorSystem : GameSystemBase
 }
 ```
 
+### Building Parking Detection (Prefab Inspection)
+
+To detect whether a building prefab has parking, use a recursive prefab inspection pattern (from FindIt):
+
+```csharp
+private bool HasParking(PrefabBase prefab)
+{
+    // Method 1: Check SpawnLocation connection type
+    if (prefab.TryGet<SpawnLocation>(out var spawnLocation)
+        && spawnLocation.m_ConnectionType == RouteConnectionType.Parking)
+        return true;
+
+    // Method 2: Check ObjectSubLanes for ParkingLane prefabs
+    if (prefab.TryGet<ObjectSubLanes>(out var subLanes) && subLanes.m_SubLanes is not null)
+    {
+        foreach (var lane in subLanes.m_SubLanes)
+        {
+            if (lane.m_LanePrefab.Has<ParkingLane>())
+                return true;
+        }
+    }
+
+    // Method 3: Recurse into sub-objects
+    if (prefab.TryGet<ObjectSubObjects>(out var subObjects) && subObjects.m_SubObjects is not null)
+    {
+        foreach (var obj in subObjects.m_SubObjects)
+        {
+            if (obj.m_Object is not null && HasParking(obj.m_Object))
+                return true;
+        }
+    }
+    return false;
+}
+```
+
+Three detection methods:
+1. **`SpawnLocation`** prefab component — if `m_ConnectionType == RouteConnectionType.Parking`, the building has a direct parking spawn point
+2. **`ObjectSubLanes`** — iterate `m_SubLanes` array, check if any lane prefab has a `ParkingLane` component
+3. **`ObjectSubObjects`** — recurse into sub-objects (e.g., parking structures attached to buildings)
+
 ## Open Questions
 
 - [ ] **Outside connection spawning**: Vehicles from outside connections use `PersonalCarFlags.DummyTraffic`. The exact mechanism for spawning traffic from outside connections (arrival rates, vehicle selection) was not fully traced.

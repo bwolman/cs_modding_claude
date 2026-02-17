@@ -628,6 +628,36 @@ public class ParkingInspectorSystem : GameSystemBase
     if they are not called from Burst contexts.
   </p>
 
+  <h3>Building Parking Detection</h3>
+
+  <p>
+    To detect whether a building prefab has parking, use a recursive prefab inspection pattern
+    checking three sources:
+  </p>
+
+  <ol>
+    <li><code>SpawnLocation</code> &mdash; if <code>m_ConnectionType == RouteConnectionType.Parking</code></li>
+    <li><code>ObjectSubLanes</code> &mdash; iterate <code>m_SubLanes</code>, check for <code>ParkingLane</code> component</li>
+    <li><code>ObjectSubObjects</code> &mdash; recurse into sub-objects (e.g., attached parking structures)</li>
+  </ol>
+
+  <pre><code class="language-csharp">bool HasParking(PrefabBase prefab)
+{
+    if (prefab.TryGet&lt;SpawnLocation&gt;(out var sl)
+        &amp;&amp; sl.m_ConnectionType == RouteConnectionType.Parking)
+        return true;
+
+    if (prefab.TryGet&lt;ObjectSubLanes&gt;(out var subLanes))
+        foreach (var lane in subLanes.m_SubLanes ?? Array.Empty&lt;SubLane&gt;())
+            if (lane.m_LanePrefab.Has&lt;ParkingLane&gt;()) return true;
+
+    if (prefab.TryGet&lt;ObjectSubObjects&gt;(out var subObjects))
+        foreach (var obj in subObjects.m_SubObjects ?? Array.Empty&lt;SubObject&gt;())
+            if (obj.m_Object != null &amp;&amp; HasParking(obj.m_Object)) return true;
+
+    return false;
+}</code></pre>
+
   <!-- ============================================================ -->
   <h2>Open Questions</h2>
 

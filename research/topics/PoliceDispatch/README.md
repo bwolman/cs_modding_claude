@@ -398,6 +398,15 @@ while (requestCount > 0 && serviceDispatches.Length > 0):
 >    immediately pops and discards the dispatch. The car appears to briefly activate then
 >    immediately return to station. See issue: EndOfPath not cleared in fallthrough path.
 >
+> 3. **`m_RequestCount == 0` activation gap** — When injecting a dispatch into a car with
+>    `m_RequestCount == 0` (no active dispatches), `CheckServiceDispatches()` accepts it and
+>    increments `m_RequestCount` to 1, but `SelectNextDispatch()` never runs because the car
+>    has neither `Returning` nor `Cancelled` set. The dispatch sits in the buffer, accepted but
+>    never activated. When the car eventually reaches its current path end, `SelectNextDispatch`
+>    pops index 0 as "completed" — destroying the dispatch without ever navigating to it. **Only
+>    target cars with `m_RequestCount >= 1`** (active patrol), or use the hybrid approach (direct
+>    flag manipulation + ServiceDispatch) to bypass `SelectNextDispatch` entirely.
+>
 > **Workaround**: Before injecting a `ServiceDispatch` entry, manually set the flags:
 > ```csharp
 > // Clear EndOfPath from previous patrol
