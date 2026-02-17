@@ -202,16 +202,38 @@
       <tr><th>Phase</th><th>When it Runs</th><th>Use For</th></tr>
     </thead>
     <tbody>
+      <tr><td>Modification1-5</td><td>Sequential modification passes</td><td>Entity modification systems</td></tr>
+      <tr><td>Modification4B</td><td>Extended fourth pass</td><td>Post-Modification4 processing</td></tr>
+      <tr><td>ModificationEnd</td><td>Final modification cleanup</td><td>End-of-modification cleanup</td></tr>
       <tr><td>PreSimulation</td><td>Before simulation tick</td><td>Pre-processing, data preparation</td></tr>
       <tr><td>GameSimulation</td><td>Main simulation tick</td><td>Core mod logic, ECS systems</td></tr>
       <tr><td>PostSimulation</td><td>After simulation tick</td><td>Post-processing, cleanup</td></tr>
       <tr><td>Rendering</td><td>Render frame</td><td>Custom rendering overlays</td></tr>
-      <tr><td>ToolUpdate</td><td>Tool system update</td><td>Custom tools</td></tr>
-      <tr><td>UIUpdate</td><td>UI data refresh</td><td>UI bindings, panel data</td></tr>
-      <tr><td>Modification1-5</td><td>Sequential modification passes</td><td>Entity modification systems</td></tr>
+      <tr><td>Raycast</td><td>Raycast processing</td><td>Custom raycast systems</td></tr>
+      <tr><td>PreTool / ToolUpdate / PostTool</td><td>Tool lifecycle phases</td><td>Custom tools</td></tr>
+      <tr><td>ApplyTool / ClearTool</td><td>Tool result phases</td><td>Tool result application, state cleanup</td></tr>
+      <tr><td>UIUpdate / UITooltip</td><td>UI data refresh</td><td>UI bindings, panel data, tooltips</td></tr>
       <tr><td>PrefabUpdate</td><td>Prefab system update</td><td>Prefab modifications</td></tr>
+      <tr><td>Serialize / Deserialize</td><td>Save/load phases</td><td>Custom serialization, cleanup systems</td></tr>
+      <tr><td>DebugGizmos</td><td>Debug visualization</td><td>Debug rendering overlays</td></tr>
     </tbody>
   </table>
+
+  <h3>Type-Constrained System Ordering</h3>
+
+  <p>
+    The two-type-parameter variants <code>UpdateBefore&lt;T, TOther&gt;</code> and
+    <code>UpdateAfter&lt;T, TOther&gt;</code> order your system relative to a specific vanilla
+    system. Both must be in the same phase:
+  </p>
+
+  <pre><code class="language-csharp">// CustomLaneSystem runs before LaneSystem within Modification4
+updateSystem.UpdateBefore&lt;CustomLaneSystem, Game.Net.LaneSystem&gt;(
+    SystemUpdatePhase.Modification4);
+
+// CustomOverlaySystem runs after OverlayRenderSystem within Rendering
+updateSystem.UpdateAfter&lt;CustomOverlaySystem, Game.Rendering.OverlayRenderSystem&gt;(
+    SystemUpdatePhase.Rendering);</code></pre>
 
   <!-- ============================================================ -->
   <h2>Data Flow</h2>
@@ -515,6 +537,35 @@ bool otherModLoaded = AppDomain.CurrentDomain.GetAssemblies()
     <li>Burst-compiled jobs inside the vanilla system are not affected -- they simply never get scheduled because <code>OnUpdate</code> is skipped.</li>
   </ul>
 
+  <h3>No-Harmony Architecture</h3>
+
+  <p>
+    Some of the most complex CS2 mods use <strong>zero Harmony patches</strong>, achieving all
+    functionality through pure ECS patterns. The Traffic mod (krzychu124) demonstrates this at scale
+    with a complete lane system replacement, custom tools, custom rendering, and custom serializable
+    components.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Aspect</th><th>Pure ECS</th><th>Harmony Patching</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Mod conflicts</td><td>Minimal (each mod owns its systems)</td><td>High (multiple mods patch same method)</td></tr>
+      <tr><td>Game update resilience</td><td>Medium (system interfaces may change)</td><td>Low (method signatures change frequently)</td></tr>
+      <tr><td>Burst compatibility</td><td>Full (can use Burst-compiled jobs)</td><td>None (Harmony cannot patch Burst jobs)</td></tr>
+      <tr><td>Code complexity</td><td>Higher (must reimplement full systems)</td><td>Lower (small targeted patches)</td></tr>
+      <tr><td>Debugging</td><td>Standard C# debugging</td><td>Complex (injected IL hard to trace)</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>When to use pure ECS</strong>: Complex mods modifying core simulation logic (traffic,
+    pathfinding, demand), mods needing Burst performance, or mods where entire system behavior
+    changes. <strong>When to use Harmony</strong>: Small targeted tweaks, UI modifications, or
+    intercepting specific calls without reimplementing the full system.
+  </p>
+
   <!-- ============================================================ -->
   <h2>Configuration</h2>
 
@@ -589,6 +640,164 @@ protected override void OnUpdate()
     PerformDangerousOperation();
     Enabled = false; // Re-disable after execution
 }</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Lifecycle Callbacks</h2>
+
+  <h3>OnGameLoadingComplete</h3>
+
+  <p>
+    Override <code>OnGameLoadingComplete(Purpose, GameMode)</code> to enable/disable features based
+    on whether the player is in Game mode, Editor mode, or the Main Menu. Fires after the game
+    finishes loading a save or entering a mode:
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnGameLoadingComplete(Purpose purpose, GameMode mode)
+{
+    base.OnGameLoadingComplete(purpose, mode);
+    bool isGameOrEditor = mode == GameMode.Game || mode == GameMode.Editor;
+    m_ToggleAction.shouldBeEnabled = isGameOrEditor;
+}</code></pre>
+
+  <p>
+    <strong><code>OnGameLoadingComplete</code> vs <code>OnGameLoaded</code></strong>:
+    <code>OnGameLoaded</code> fires during serialization context (for restoring system state).
+    <code>OnGameLoadingComplete</code> fires after the full load &mdash; use it for enabling
+    input actions, UI elements, and mode-dependent features.
+  </p>
+
+  <h3>GameManager.RegisterUpdater</h3>
+
+  <p>
+    <code>GameManager.instance.RegisterUpdater()</code> defers work to the next update cycle on the
+    main thread. Use it when system references aren&rsquo;t available during <code>OnCreate</code>,
+    when showing UI dialogs after initialization, or to start async work after the game loop is running:
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnCreate()
+{
+    base.OnCreate();
+    // Defer to next frame — some systems aren't ready during OnCreate
+    GameManager.instance.RegisterUpdater(() =&gt;
+    {
+        var otherSystem = World.GetExistingSystemManaged&lt;SomeOtherSystem&gt;();
+        // Now safe to access otherSystem
+        return Task.CompletedTask;
+    });
+}
+
+// Async work from IMod.OnLoad:
+GameManager.instance.RegisterUpdater(async () =&gt;
+{
+    await Task.Run(() =&gt; LoadExternalResources());
+});</code></pre>
+
+  <h3>onSettingsApplied Callback</h3>
+
+  <p>
+    <code>ModSetting.onSettingsApplied</code> fires when settings change at runtime (user clicks
+    Apply in the options menu). Use it to update cached values, UI bindings, or rendering parameters
+    without restarting:
+  </p>
+
+  <pre><code class="language-csharp">m_Settings.onSettingsApplied += OnSettingsApplied;
+
+private void OnSettingsApplied(Setting setting)
+{
+    if (setting is ModSettings modSettings)
+    {
+        UpdateKeybindingLabels(modSettings);
+        UpdateOverlayColors(modSettings);
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Deserialization Cleanup Pattern</h2>
+
+  <p>
+    When a mod creates transient entities at runtime that should not persist across save/load,
+    register a cleanup system in the <code>Deserialize</code> phase. This ensures stale entities
+    from a previous session are destroyed when a new game loads:
+  </p>
+
+  <pre><code class="language-csharp">public partial class ModDataClearSystem : GameSystemBase
+{
+    private EntityQuery m_TransientQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_TransientQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;MyTransientComponent&gt;(),
+            ComponentType.Exclude&lt;FakePrefabData&gt;()); // Don't destroy prefabs
+    }
+
+    protected override void OnUpdate()
+    {
+        EntityManager.DestroyEntity(m_TransientQuery);
+    }
+}
+
+// Register in Deserialize phase:
+updateSystem.UpdateAt&lt;ModDataClearSystem&gt;(SystemUpdatePhase.Deserialize);</code></pre>
+
+  <p>
+    <strong>Key details</strong>: Exclude <code>FakePrefabData</code> to avoid destroying permanent
+    prefab entities. The <code>Deserialize</code> phase runs when loading a save or starting a new
+    game. This is for runtime-only transient entities &mdash; serialized components survive by design.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Build Configuration Patterns</h2>
+
+  <h3>Conditional Attribute for Debug Logging</h3>
+
+  <p>
+    The <code>[Conditional]</code> attribute strips method calls from Release builds at compile time,
+    providing zero-cost debug logging:
+  </p>
+
+  <pre><code class="language-csharp">[System.Diagnostics.Conditional("DEBUG_TOOL")]
+public static void DebugTool(string message)
+{
+    Log.Info($"[Tool] {message}");
+}
+
+// Calls are omitted by the compiler when DEBUG_TOOL is not defined:
+ModLogger.DebugTool($"Processing node {entity}"); // zero-cost in Release</code></pre>
+
+  <p>Define symbols in your <code>.csproj</code> per configuration:</p>
+
+  <pre><code class="language-xml">&lt;PropertyGroup Condition="'$(Configuration)' == 'Debug'"&gt;
+  &lt;DefineConstants&gt;DEBUG;DEBUG_TOOL;DEBUG_CONNECTIONS&lt;/DefineConstants&gt;
+&lt;/PropertyGroup&gt;
+&lt;PropertyGroup Condition="'$(Configuration)' == 'Release'"&gt;
+  &lt;DefineConstants&gt;&lt;/DefineConstants&gt;
+&lt;/PropertyGroup&gt;</code></pre>
+
+  <h3>WITH_BURST Conditional Compilation</h3>
+
+  <p>
+    Use conditional Burst compilation: develop with standard C# debugging, release with Burst
+    performance. Define <code>WITH_BURST</code> only in Release:
+  </p>
+
+  <pre><code class="language-csharp">#if WITH_BURST
+[Unity.Burst.BurstCompile]
+#endif
+public partial struct MyExpensiveJob : IJobChunk
+{
+    public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex,
+        bool useEnabledMask, in v128 chunkEnabledMask)
+    {
+        // Burst-compiled in Release, debuggable in Debug
+    }
+}</code></pre>
+
+  <pre><code class="language-xml">&lt;PropertyGroup Condition="'$(Configuration)' == 'Release'"&gt;
+  &lt;DefineConstants&gt;WITH_BURST&lt;/DefineConstants&gt;
+  &lt;AllowUnsafeBlocks&gt;true&lt;/AllowUnsafeBlocks&gt;
+&lt;/PropertyGroup&gt;</code></pre>
 
   <!-- ============================================================ -->
   <h2>GetUpdateInterval: Controlling System Tick Frequency</h2>
