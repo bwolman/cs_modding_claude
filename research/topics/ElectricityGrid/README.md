@@ -289,8 +289,18 @@ Counts total production, consumption, and battery capacity for UI statistics.
 - `m_Direction`: FlowDirection (Forward, Backward, Both, None)
 - `m_Voltage`: Low (0) or High (1)
 
-### ConsumptionData (prefab)
-- `m_ElectricityConsumption`: Base electricity consumption for a building type
+### ConsumptionData (Game.Prefabs)
+
+Per-building-prefab component that defines base consumption for electricity and water. This is the starting point for `AdjustElectricityConsumptionSystem` and `AdjustWaterConsumptionSystem` calculations.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_ElectricityConsumption` | int | Base electricity consumption for this building type. Multiplied by temperature, fee, district, and occupancy modifiers in `AdjustElectricityConsumptionSystem`. |
+| `m_WaterConsumption` | int | Base water consumption for this building type. Used by `AdjustWaterConsumptionSystem` with similar multiplier chain. |
+
+Both fields represent the building's consumption at full occupancy under neutral conditions. The actual `WantedConsumption` written to `ElectricityConsumer.m_WantedConsumption` (or the water equivalent) is this base value multiplied by several factors. Community mods modify `ConsumptionData` on building prefabs at runtime to adjust per-building-type electricity and water demands. This is particularly useful for mods that want building consumption to reflect realistic values based on building size (see the Building Mesh Dimensions pattern in Zoning research).
+
+*Source: `Game.dll` -> `Game.Prefabs.ConsumptionData`*
 
 ## Harmony Patch Points
 

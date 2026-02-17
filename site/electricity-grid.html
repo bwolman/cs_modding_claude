@@ -419,6 +419,34 @@ public static class CustomProductionPatch
       </tr>
     </table>
 
+    <h3>ConsumptionData (Game.Prefabs)</h3>
+
+    <p>
+      Per-building-prefab component defining base consumption for electricity and water.
+      This is the starting point for <code>AdjustElectricityConsumptionSystem</code> and
+      <code>AdjustWaterConsumptionSystem</code> calculations.
+    </p>
+
+    <table>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+      <tr>
+        <td><code>m_ElectricityConsumption</code></td>
+        <td><code>int</code></td>
+        <td>Base electricity consumption. Multiplied by temperature, fee, district, and occupancy modifiers.</td>
+      </tr>
+      <tr>
+        <td><code>m_WaterConsumption</code></td>
+        <td><code>int</code></td>
+        <td>Base water consumption. Used by <code>AdjustWaterConsumptionSystem</code> with similar multiplier chain.</td>
+      </tr>
+    </table>
+
+    <p>
+      Both fields represent consumption at full occupancy under neutral conditions. Community mods
+      modify <code>ConsumptionData</code> on building prefabs at runtime to adjust per-building-type
+      demands based on realistic values or building size.
+    </p>
+
     <h3>ElectricityParameterData (Singleton)</h3>
 
     <table>
