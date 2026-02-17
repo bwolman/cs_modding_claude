@@ -234,17 +234,19 @@
 
   <p>
     CS2's pathfinding uses a <strong>4-dimensional cost model</strong> rather than a simple distance metric.
-    Every edge in the pathfind graph has a <code>PathfindCosts</code> vector, and every agent has a
-    <code>PathfindWeights</code> vector. The total cost is their dot product.
+    Every edge in the pathfind graph has a <code>PathfindCosts</code> vector (a <code>float4</code>), and
+    every agent has a <code>PathfindWeights</code> vector. The total cost is their dot product.
   </p>
 
+  <h3>PathfindCosts float4 Channel Mapping</h3>
+
   <table>
-    <thead><tr><th>Dimension</th><th>Index</th><th>What It Represents</th></tr></thead>
+    <thead><tr><th>Channel</th><th>Component</th><th>What It Represents</th></tr></thead>
     <tbody>
-      <tr><td>Time</td><td>x</td><td>Travel time (based on edge length / speed)</td></tr>
-      <tr><td>Behaviour</td><td>y</td><td>Behavioral preferences (avoid certain route types)</td></tr>
-      <tr><td>Money</td><td>z</td><td>Monetary cost (tolls, fares, parking)</td></tr>
-      <tr><td>Comfort</td><td>w</td><td>Comfort/quality (road condition, crowding)</td></tr>
+      <tr><td>.x</td><td>Time</td><td>Travel time (based on edge length / speed)</td></tr>
+      <tr><td>.y</td><td>Behaviour</td><td>Behavioral preferences (avoid certain route types)</td></tr>
+      <tr><td>.z</td><td>Money</td><td>Monetary cost (tolls, fares, parking)</td></tr>
+      <tr><td>.w</td><td>Comfort</td><td>Comfort/quality (road condition, crowding)</td></tr>
     </tbody>
   </table>
 
@@ -256,6 +258,26 @@ float totalCost = math.dot(costs, parameters.m_Weights.m_Value);
 // Unless Stable flag is set, add randomness to distribute agents:
 if ((flags &amp; PathfindFlags.Stable) == 0)
     totalCost *= random.NextFloat(0.5f, 1.0f);</code></pre>
+
+  <h3>TryAddCosts Utility</h3>
+  <p>
+    The <code>PathfindCosts</code> struct provides <code>TryAddCosts</code>, a utility method used
+    throughout edge evaluation to incrementally accumulate costs with early termination:
+  </p>
+
+  <pre><code>// PathfindCosts.TryAddCosts -- conditionally adds costs to the total.
+// Returns false if adding these costs would exceed m_MaxCost,
+// allowing early termination of edge evaluation.
+public bool TryAddCosts(ref float totalCost, PathfindWeights weights, float maxCost)
+{
+    totalCost += math.dot(m_Value, weights.m_Value);
+    return totalCost &lt; maxCost;
+}</code></pre>
+  <p>
+    <code>TryAddCosts</code> returns <code>false</code> when the running total exceeds
+    <code>m_MaxCost</code>, enabling the pathfinder to skip expensive edges early without computing
+    all cost components.
+  </p>
 
   <h3>Prefab Cost Data</h3>
   <p>
@@ -561,10 +583,24 @@ public static class PathCostPatch
       <tr><td><code>m_MaxResultCount</code></td><td>int</td><td>Maximum number of path results</td></tr>
       <tr><td><code>m_PathfindFlags</code></td><td>PathfindFlags</td><td>Algorithm behavior flags</td></tr>
       <tr><td><code>m_IgnoredRules</code></td><td>RuleFlags</td><td>Lane policy rules to ignore</td></tr>
-      <tr><td><code>m_ParkingTarget</code></td><td>Entity</td><td>Specific parking target (if any)</td></tr>
-      <tr><td><code>m_Authorization1/2</code></td><td>Entity</td><td>Access authorization entities</td></tr>
+      <tr><td><code>m_ParkingTarget</code></td><td>Entity</td><td>Specific parking target lane entity (if any)</td></tr>
+      <tr><td><code>m_ParkingDelta</code></td><td>float</td><td>Position along the parking lane curve (0.0-1.0)</td></tr>
+      <tr><td><code>m_ParkingSize</code></td><td>float</td><td>Size of the parking space required by the vehicle</td></tr>
+      <tr><td><code>m_Authorization1</code></td><td>Entity</td><td>First access authorization entity (e.g., gated area pass)</td></tr>
+      <tr><td><code>m_Authorization2</code></td><td>Entity</td><td>Second access authorization entity</td></tr>
     </tbody>
   </table>
+  <p>
+    <strong>Parking fields:</strong> <code>m_ParkingTarget</code>, <code>m_ParkingDelta</code>, and
+    <code>m_ParkingSize</code> are set when the pathfind request needs a route ending at a specific
+    parking spot. The target is the lane entity, the delta is the normalized curve position, and
+    the size constrains which spaces the vehicle can fit in.
+  </p>
+  <p>
+    <strong>Authorization fields:</strong> <code>m_Authorization1</code> and <code>m_Authorization2</code>
+    are checked against <code>PathSpecification.m_AccessRequirement</code> on graph edges. If an edge
+    requires authorization, the agent must carry a matching authorization entity to traverse it.
+  </p>
 
   <h3>Prefab Cost Data</h3>
   <p>Base traversal costs defined per transport mode in prefab components:</p>
