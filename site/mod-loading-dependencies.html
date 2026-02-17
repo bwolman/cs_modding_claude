@@ -401,6 +401,73 @@ public class MyModSettings : ModSetting
 }</code></pre>
 
   <!-- ============================================================ -->
+  <h2>System Replacement Pattern</h2>
+
+  <p>
+    A common community modding pattern is to replace vanilla ECS systems entirely with custom
+    implementations. This is more reliable than Harmony-patching complex systems with Burst-compiled
+    jobs, since the jobs themselves cannot be patched.
+  </p>
+
+  <h3>Disabling Vanilla Systems</h3>
+
+  <p>
+    Any <code>GameSystemBase</code> can be disabled by setting <code>.Enabled = false</code>. The
+    update loop skips disabled systems. Do this in <code>IMod.OnLoad()</code>:
+  </p>
+
+  <pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
+{
+    // Disable the vanilla system
+    var vanillaSystem = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;Game.Simulation.ResidentialDemandSystem&gt;();
+    vanillaSystem.Enabled = false;
+
+    // Register your replacement in the same phase
+    updateSystem.UpdateAt&lt;CustomResidentialDemandSystem&gt;(
+        SystemUpdatePhase.GameSimulation);
+}</code></pre>
+
+  <p>
+    The replacement system should implement the same public interface (properties, methods)
+    that other systems depend on. For example, replacing <code>ResidentialDemandSystem</code>
+    means your replacement must expose <code>householdDemand</code>, <code>buildingDemand</code>,
+    and <code>GetLowDensityDemandFactors()</code> because <code>ZoneSpawnSystem</code> and
+    UI systems read these.
+  </p>
+
+  <h3>Inter-Mod Detection</h3>
+
+  <p>
+    When multiple mods might replace the same system, detect each other to avoid conflicts:
+  </p>
+
+  <pre><code class="language-csharp">// Check if system is already disabled by another mod
+var vanillaSystem = World.DefaultGameObjectInjectionWorld
+    .GetOrCreateSystemManaged&lt;Game.Simulation.SomeSystem&gt;();
+if (vanillaSystem.Enabled)
+{
+    vanillaSystem.Enabled = false;
+    // Register replacement
+}
+else
+{
+    Log.Warn("SomeSystem already disabled by another mod");
+}
+
+// Or check for another mod's assembly
+bool otherModLoaded = AppDomain.CurrentDomain.GetAssemblies()
+    .Any(a =&gt; a.GetName().Name == "OtherModAssembly");</code></pre>
+
+  <h3>Caveats</h3>
+
+  <ul>
+    <li>The disabled system's <code>OnCreate</code> still ran (it was created before your mod loaded). Only <code>OnUpdate</code> is skipped.</li>
+    <li>If the vanilla system implements <code>IDefaultSerializable</code>/<code>ISerializable</code>, disabling it does NOT disable serialization. The serialization libraries call those methods directly, bypassing <code>Enabled</code>.</li>
+    <li>Burst-compiled jobs inside the vanilla system are not affected -- they simply never get scheduled because <code>OnUpdate</code> is skipped.</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Configuration</h2>
 
   <h3>Dependency Declaration</h3>

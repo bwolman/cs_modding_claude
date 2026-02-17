@@ -222,6 +222,74 @@ Dependencies are declared through standard .NET assembly references. The `Execut
 2. Attempts to resolve each reference against other registered mods and game assemblies
 3. If any reference cannot be resolved, sets `canBeLoaded = false` and state = `MissedDependenciesError`
 
+## System Replacement Pattern
+
+A common community modding pattern is to replace vanilla ECS systems entirely with custom implementations. This is more reliable than Harmony-patching complex systems with Burst-compiled jobs, since the jobs themselves cannot be patched.
+
+### Disabling Vanilla Systems
+
+Any `GameSystemBase` can be disabled at runtime by setting `.Enabled = false`. The game's update loop skips disabled systems. This is done in `IMod.OnLoad()`:
+
+```csharp
+public void OnLoad(UpdateSystem updateSystem)
+{
+    // Disable the vanilla system
+    var vanillaSystem = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<Game.Simulation.ResidentialDemandSystem>();
+    vanillaSystem.Enabled = false;
+
+    // Register your replacement system in the same phase
+    updateSystem.UpdateAt<CustomResidentialDemandSystem>(
+        SystemUpdatePhase.GameSimulation);
+}
+```
+
+### Registering Replacement Systems with UpdateAt
+
+The replacement system must be registered in the same `SystemUpdatePhase` as the vanilla system it replaces. Use `UpdateAfter` or `UpdateBefore` if ordering relative to other systems matters:
+
+```csharp
+// Replace ZoneSpawnSystem with a custom version
+updateSystem.UpdateBefore<CustomZoneSpawnSystem,
+    Game.Simulation.ZoneSpawnSystem>(
+    SystemUpdatePhase.GameSimulation);
+```
+
+The replacement system should implement the same public interface (properties, methods) that other systems depend on. For example, if replacing `ResidentialDemandSystem`, the replacement must expose `householdDemand`, `buildingDemand`, and the `GetLowDensityDemandFactors()` method, because `ZoneSpawnSystem` and UI systems read these.
+
+### Inter-Mod Detection
+
+When multiple mods might replace the same system, mods should detect each other to avoid conflicts. Common patterns:
+
+1. **Check if system is already disabled**: Before disabling a vanilla system, check if another mod already did:
+   ```csharp
+   var vanillaSystem = World.DefaultGameObjectInjectionWorld
+       .GetOrCreateSystemManaged<Game.Simulation.SomeSystem>();
+   if (vanillaSystem.Enabled)
+   {
+       vanillaSystem.Enabled = false;
+       // Register replacement
+   }
+   else
+   {
+       Log.Warn("SomeSystem already disabled by another mod, skipping replacement");
+   }
+   ```
+
+2. **Assembly reference check**: Reference the other mod's assembly and check for its presence:
+   ```csharp
+   bool otherModLoaded = AppDomain.CurrentDomain.GetAssemblies()
+       .Any(a => a.GetName().Name == "OtherModAssembly");
+   ```
+
+3. **Shared marker component**: Define a tag component that replacement systems add to a well-known entity, allowing other mods to detect which systems have been replaced.
+
+### Caveats
+
+- The disabled vanilla system's `OnCreate` still runs (it was created before your mod loaded). Only `OnUpdate` is skipped.
+- If the vanilla system implements `IDefaultSerializable` or `ISerializable`, disabling it does NOT disable its serialization. The serialization libraries call `Serialize`/`Deserialize` directly, bypassing the `Enabled` flag. Your replacement system should implement the same interfaces if it needs to persist state.
+- Burst-compiled jobs inside the vanilla system are not affected by `.Enabled = false` -- they simply never get scheduled because `OnUpdate` is skipped.
+
 ## Harmony Patch Points
 
 ### Candidate 1: `Game.Modding.ModManager.InitializeMods`
