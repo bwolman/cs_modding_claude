@@ -373,6 +373,32 @@ Updates route-related pathfind data for transit connections.
 6. Workers execute A* search on the pathfind graph, writing results to the action's data
 7. `PathfindResultSystem.OnUpdate()` checks for completed actions, writes results to entity components
 
+### `PathfindParameters` (Game.Pathfind)
+
+Submitted with every pathfind request via `SetupQueueItem`. Controls which transport methods are available, cost weights, and search constraints.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Methods | PathMethod (ushort) | Which transport methods are allowed |
+| m_Weights | PathfindWeights | Per-agent cost dimension weights (time, behaviour, money, comfort) |
+| m_MaxCost | float | Maximum total cost before search terminates |
+| m_MaxSpeed | float2 | Maximum vehicle speed (m/s) |
+| m_WalkSpeed | float2 | Walking speed (m/s) |
+| m_MaxResultCount | int | Maximum number of path results |
+| m_PathfindFlags | PathfindFlags | Algorithm behavior flags |
+| m_IgnoredRules | RuleFlags | Lane policy rules to ignore |
+| m_ParkingTarget | Entity | Specific parking target entity (if any) |
+| m_ParkingDelta | float | Position along the parking lane curve (0.0-1.0) |
+| m_ParkingSize | float | Size of the parking space required |
+| m_Authorization1 | Entity | First access authorization entity (e.g., gated area pass) |
+| m_Authorization2 | Entity | Second access authorization entity |
+
+*Source: `Game.dll` -> `Game.Pathfind.PathfindParameters`*
+
+**Parking fields**: `m_ParkingTarget`, `m_ParkingDelta`, and `m_ParkingSize` are set when the pathfind request needs to find a route that ends at a specific parking spot. The parking target is the lane entity, the delta is the normalized position on that lane, and the size constrains which parking spaces the vehicle can fit in.
+
+**Authorization fields**: `m_Authorization1` and `m_Authorization2` are entity references to access authorization passes. These are checked against `PathSpecification.m_AccessRequirement` on graph edges -- if an edge requires authorization, the agent must carry a matching authorization entity to traverse it.
+
 ## Prefab & Configuration
 
 | Value | Source | Location |
@@ -387,13 +413,33 @@ Updates route-related pathfind data for transit connections.
 
 ### Cost Model
 
-Pathfind costs are 4-dimensional vectors (`float4`):
-1. **Time** -- travel time cost
-2. **Behaviour** -- behavioral preference cost (e.g., avoiding certain routes)
-3. **Money** -- monetary cost (tolls, fares)
-4. **Comfort** -- comfort/quality cost
+Pathfind costs are 4-dimensional vectors (`float4`) stored in the `PathfindCosts` struct:
+
+| Channel | Component | What It Represents |
+|---------|-----------|-------------------|
+| .x | Time | Travel time cost (based on edge length / speed) |
+| .y | Behaviour | Behavioral preference cost (e.g., avoiding certain route types) |
+| .z | Money | Monetary cost (tolls, fares, parking) |
+| .w | Comfort | Comfort/quality cost (road condition, crowding) |
 
 The total cost is computed as: `dot(costs, weights)` where weights are per-agent (from `PathfindWeights`). Unless `PathfindFlags.Stable` is set, costs include random variation (`* random.NextFloat(0.5, 1.0)`) to distribute agents across routes.
+
+#### `PathfindCosts` Struct
+
+The `PathfindCosts` struct wraps a `float4` value and provides the `TryAddCosts` utility method:
+
+```csharp
+// PathfindCosts.TryAddCosts -- conditionally adds costs to the total
+// Returns false if adding these costs would exceed m_MaxCost, allowing
+// early termination of edge evaluation.
+public bool TryAddCosts(ref float totalCost, PathfindWeights weights, float maxCost)
+{
+    totalCost += math.dot(m_Value, weights.m_Value);
+    return totalCost < maxCost;
+}
+```
+
+`TryAddCosts` is used throughout the pathfind edge evaluation to accumulate costs incrementally. It returns `false` when the running total exceeds `m_MaxCost`, enabling the pathfinder to skip expensive edges early without computing all cost components.
 
 ## Harmony Patch Points
 
