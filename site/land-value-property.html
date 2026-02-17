@@ -260,8 +260,19 @@ int rentPerRenter = Round(totalRent / renterCount);</code></pre>
     <li>Sums total renter wealth (household money or company total worth)</li>
     <li>If renters can afford the monetary portion: <strong>condition increases</strong></li>
     <li>If renters cannot afford it: <strong>condition decreases</strong></li>
-    <li>Change magnitude scales with: <code>pow(2, level) * max(1, renterCount)</code></li>
+    <li>Change magnitude scales with: <code>conditionChange * pow(2, level) * max(1, renterCount)</code></li>
   </ol>
+
+  <p>
+    The <strong>exponential level scaling</strong> is significant: a level-3 building accumulates
+    condition changes 8x faster than a level-1 building (<code>pow(2, 3) = 8</code>), and a level-5
+    building accumulates 32x faster. This applies in both directions -- well-funded high-level
+    buildings level up faster, but underfunded ones deteriorate and reach abandonment faster too.
+    The <code>conditionChange</code> base value comes from <code>BuildingUtils.GetBuildingConditionChange()</code>,
+    and the <code>levelingCost</code> and <code>abandonCost</code> thresholds also scale with building
+    properties via <code>BuildingUtils.GetLevelingCost()</code> and <code>BuildingUtils.GetAbandonCost()</code>,
+    which factor in area type, lot size, and current level.
+  </p>
 
   <h4>Level-Up Trigger</h4>
 
@@ -510,10 +521,12 @@ BUILDING CONDITION (16x per day)
   BuildingUpkeepSystem.BuildingUpkeepJob
     upkeep = ConsumptionData.m_Upkeep / 16
     monetary = upkeep * 3/4, material = upkeep * 1/4
+    levelScale = pow(2, level) * max(1, renters)   // exponential!
     renterWealth &gt;= monetary?
-      YES: condition += increment * pow(2, level) * renters
+      YES: condition += conditionChange * levelScale
            Deduct upkeep from each renter
-      NO:  condition -= decrement * pow(2, level) * renters
+      NO:  condition -= conditionChange * levelScale
+    (Level-3 = 8x rate, Level-5 = 32x rate)
           |
           v
     condition &gt;= levelingCost
