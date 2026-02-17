@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Object Placement Tool - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html" class="active">Object Placement Tool</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Object Placement Tool (ObjectToolSystem)</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 place standalone objects (buildings, props, trees,
+      decorations) in the game world? What is the definition entity pipeline from preview to
+      permanent placement?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Object placement uses a <strong>definition entity pipeline</strong>.
+      <code>ObjectToolSystem</code> creates temporary definition entities (<code>CreationDefinition</code>
+      + <code>ObjectDefinition</code>) that preview the placement. When the user confirms, the
+      <code>Permanent</code> flag is set and the entities become real game objects. The tool supports
+      7 modes: Create, Upgrade, Move, Brush, Stamp, Line, and Curve.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The <code>ObjectToolSystem</code> is the primary tool for placing anything that is not a road
+    or network segment. It handles single object placement, brush-based scattering, stamp groups,
+    and line/curve placement of repeating objects like trees along a path.
+  </p>
+
+  <h3>The Definition Entity Pipeline</h3>
+
+  <p>
+    Object placement follows a two-phase approach: <strong>preview</strong> then <strong>commit</strong>.
+    During preview, the tool creates temporary "definition" entities that the game renders as
+    transparent ghost objects. When the user clicks to confirm, the definitions are flagged as
+    permanent and processed into real game entities.
+  </p>
+
+  <div class="diagram"><pre>
+[User selects prefab]
+        |
+        v
+[ObjectToolSystem.prefab = selected]
+  - Configures allowed modes (Create/Brush/Stamp/Line/Curve)
+  - Based on ObjectGeometryData flags (Brushable, Stampable)
+        |
+        v
+[Each frame: CreateDefinitionsJob]
+  - Raycast -> ControlPoint (snapped position)
+  - Creates definition entity:
+    Entity + CreationDefinition + ObjectDefinition + Updated
+  - Preview rendered with Temp component
+        |
+  [User clicks Apply]
+        |
+        v
+[CreationFlags.Permanent added]
+  - ToolOutputBarrier processes definitions
+  - Real game entities created
+  - Temp entities destroyed
+  - Sub-objects spawned (building props, lot decorations)
+  </pre></div>
+
+  <!-- ============================================================ -->
+  <h2>Tool Modes</h2>
+
+  <table>
+    <thead><tr><th>Mode</th><th>Value</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Create</td><td>0</td><td>Place a single object at the cursor position</td></tr>
+      <tr><td>Upgrade</td><td>1</td><td>Upgrade an existing object (e.g., add features to a building)</td></tr>
+      <tr><td>Move</td><td>2</td><td>Relocate an existing object to a new position</td></tr>
+      <tr><td>Brush</td><td>3</td><td>Paint objects across an area using a brush (trees, props)</td></tr>
+      <tr><td>Stamp</td><td>4</td><td>Place a predefined group/pattern of objects at once</td></tr>
+      <tr><td>Line</td><td>5</td><td>Place objects evenly along a straight line</td></tr>
+      <tr><td>Curve</td><td>6</td><td>Place objects evenly along a curved path</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Not all modes are available for all prefabs. The <code>actualMode</code> property resolves the
+    current mode based on what the selected prefab supports:
+  </p>
+  <ul>
+    <li><strong>Brushable</strong> objects (from <code>ObjectGeometryData.m_Flags</code>) enable Brush, Line, and Curve modes</li>
+    <li><strong>Stampable</strong> objects enable Stamp mode</li>
+    <li>Trees also enable the <strong>age mask</strong> selector (Sapling, Young, Mature, Elderly)</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <h3>CreationDefinition</h3>
+  <p>Defines <em>what</em> to create. Created as a temporary entity during the tool's definition phase.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Prefab</code></td><td>Entity</td><td>Prefab entity to instantiate</td></tr>
+      <tr><td><code>m_SubPrefab</code></td><td>Entity</td><td>Sub-prefab for variations</td></tr>
+      <tr><td><code>m_Original</code></td><td>Entity</td><td>Original entity (for Move/Upgrade operations)</td></tr>
+      <tr><td><code>m_Owner</code></td><td>Entity</td><td>Parent/owner entity</td></tr>
+      <tr><td><code>m_Attached</code></td><td>Entity</td><td>Entity to attach to</td></tr>
+      <tr><td><code>m_Flags</code></td><td>CreationFlags</td><td>Permanent, Select, Delete, Attach, Upgrade, Relocate, etc.</td></tr>
+      <tr><td><code>m_RandomSeed</code></td><td>int</td><td>Random seed for variation selection</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ObjectDefinition</h3>
+  <p>Specifies <em>where</em> and <em>how</em> to place the object.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Position</code></td><td>float3</td><td>World position</td></tr>
+      <tr><td><code>m_LocalPosition</code></td><td>float3</td><td>Position relative to parent</td></tr>
+      <tr><td><code>m_Scale</code></td><td>float3</td><td>Scale factor</td></tr>
+      <tr><td><code>m_Rotation</code></td><td>quaternion</td><td>World rotation</td></tr>
+      <tr><td><code>m_LocalRotation</code></td><td>quaternion</td><td>Rotation relative to parent</td></tr>
+      <tr><td><code>m_Elevation</code></td><td>float</td><td>Elevation offset</td></tr>
+      <tr><td><code>m_Age</code></td><td>float</td><td>Tree age (for vegetation)</td></tr>
+      <tr><td><code>m_ParentMesh</code></td><td>int</td><td>Parent mesh index (-1 if none)</td></tr>
+      <tr><td><code>m_Probability</code></td><td>int</td><td>Spawn probability (0-100)</td></tr>
+      <tr><td><code>m_PrefabSubIndex</code></td><td>int</td><td>Sub-object index (-1 if none)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Temp</h3>
+  <p>
+    Tag component on preview entities. While <code>Temp</code> is present, the entity is visible
+    but not committed to the game world. Removing <code>Temp</code> (or adding <code>Permanent</code>
+    flag) commits the object.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Snapping System</h2>
+
+  <p>
+    The <code>SnapJob</code> adjusts placement positions based on the active snap modes. Key snap
+    behaviors include:
+  </p>
+  <ul>
+    <li><strong>ZoneGrid</strong> -- snap to zone cell grid</li>
+    <li><strong>ObjectSurface</strong> -- snap to surfaces of existing objects</li>
+    <li><strong>NetSide / NetMiddle</strong> -- snap to road sides or median</li>
+    <li><strong>ExistingGeometry</strong> -- snap to existing object positions</li>
+    <li><strong>Upright</strong> -- force upright orientation regardless of surface normal</li>
+    <li><strong>LotGrid</strong> -- snap to building lot grid</li>
+    <li><strong>GuideLines</strong> -- show and snap to alignment guide lines</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>CreationFlags Reference</h2>
+
+  <pre><code>Permanent = 1        // Commit to game world
+Select = 2           // Select after creation
+Delete = 4           // Delete the original entity
+Attach = 8           // Attach to another entity
+Upgrade = 0x10       // Upgrade operation
+Relocate = 0x20      // Move existing object
+Invert = 0x40        // Invert direction
+Align = 0x80         // Align to surface
+Hidden = 0x100       // Hidden creation
+Parent = 0x200       // Set parent relationship
+Dragging = 0x400     // Created while dragging
+Recreate = 0x800     // Recreate existing
+Optional = 0x1000    // Optional sub-object
+Lowered = 0x2000     // Below grade
+Construction = 0x8000 // Under construction
+Duplicate = 0x20000  // Duplicate existing
+Stamping = 0x80000   // Part of stamp</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Placing an Object Programmatically</h3>
+  <p>
+    Create definition entities directly to place objects without using the tool UI. This is the
+    key pattern for mods that need to spawn buildings, props, or trees programmatically.
+  </p>
+  <pre><code>public partial class PlaceObjectSystem : GameSystemBase
+{
+    private PrefabSystem m_PrefabSystem;
+    private EndFrameBarrier m_Barrier;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_PrefabSystem = World.GetOrCreateSystemManaged&lt;PrefabSystem&gt;();
+        m_Barrier = World.GetOrCreateSystemManaged&lt;EndFrameBarrier&gt;();
+    }
+
+    public void PlaceObject(PrefabBase prefab, float3 position, quaternion rotation)
+    {
+        Entity prefabEntity = m_PrefabSystem.GetEntity(prefab);
+        EntityCommandBuffer ecb = m_Barrier.CreateCommandBuffer();
+
+        Entity defEntity = ecb.CreateEntity();
+
+        // What to create
+        ecb.AddComponent(defEntity, new CreationDefinition
+        {
+            m_Prefab = prefabEntity,
+            m_Flags = CreationFlags.Permanent
+        });
+
+        // Where and how
+        ecb.AddComponent(defEntity, new ObjectDefinition
+        {
+            m_Position = position,
+            m_Rotation = rotation,
+            m_Probability = 100,
+            m_PrefabSubIndex = -1,
+            m_ParentMesh = -1
+        });
+
+        // Trigger processing
+        ecb.AddComponent(defEntity, default(Updated));
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <h3>Example 2: Monitoring Object Placement</h3>
+  <p>React to objects being placed by querying definition entities with the Permanent flag.</p>
+  <pre><code>public partial class PlacementMonitorSystem : GameSystemBase
+{
+    private EntityQuery m_DefinitionQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_DefinitionQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;CreationDefinition&gt;(),
+            ComponentType.ReadOnly&lt;ObjectDefinition&gt;(),
+            ComponentType.ReadOnly&lt;Updated&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var defs = m_DefinitionQuery
+            .ToComponentDataArray&lt;CreationDefinition&gt;(Allocator.Temp);
+        var objs = m_DefinitionQuery
+            .ToComponentDataArray&lt;ObjectDefinition&gt;(Allocator.Temp);
+
+        for (int i = 0; i &lt; defs.Length; i++)
+        {
+            if ((defs[i].m_Flags &amp; CreationFlags.Permanent) != 0
+                &amp;&amp; (defs[i].m_Flags &amp; CreationFlags.Delete) == 0)
+            {
+                // New object placed at objs[i].m_Position
+                Entity prefab = defs[i].m_Prefab;
+            }
+        }
+
+        defs.Dispose();
+        objs.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 3: Activating the Tool with a Prefab</h3>
+  <p>Programmatically activate the object tool and set a specific prefab.</p>
+  <pre><code>public void ActivateObjectTool(
+    PrefabSystem prefabSystem,
+    ToolSystem toolSystem,
+    ObjectToolSystem objectToolSystem,
+    string prefabName)
+{
+    if (prefabSystem.TryGetPrefab(
+        new PrefabID(nameof(StaticObjectPrefab), prefabName),
+        out PrefabBase prefab))
+    {
+        objectToolSystem.prefab = prefab as ObjectPrefab;
+        objectToolSystem.mode = ObjectToolSystem.Mode.Create;
+        toolSystem.activeTool = objectToolSystem;
+    }
+}</code></pre>
+
+  <h3>Example 4: Reading Tool State</h3>
+  <pre><code>if (toolSystem.activeTool is ObjectToolSystem objectTool)
+{
+    ObjectToolSystem.Mode currentMode = objectTool.actualMode;
+    ObjectPrefab selectedPrefab = objectTool.prefab;
+    bool isUpgrading = objectTool.isUpgradeMode;
+
+    if (selectedPrefab != null)
+    {
+        string name = selectedPrefab.name;
+        // Object tool active with this prefab
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Warnings &amp; Pitfalls</h2>
+
+  <ul>
+    <li>
+      <strong>CreateDefinitionsJob is Burst-compiled.</strong> The core job that creates definition
+      entities cannot be patched with Harmony. To modify placement behavior, create a custom ECS system
+      that processes definition entities after they are created.
+    </li>
+    <li>
+      <strong>Definition entities are transient.</strong> Definition entities exist only for one or two
+      frames. They are created, processed, and destroyed quickly. Systems that read them must run at the
+      right update phase.
+    </li>
+    <li>
+      <strong>Permanent flag is the commit signal.</strong> Without <code>CreationFlags.Permanent</code>,
+      definition entities produce only preview (Temp) entities. The Permanent flag must be set for real
+      game entities to be created.
+    </li>
+    <li>
+      <strong>Sub-object creation is automatic.</strong> When placing a building, the game automatically
+      creates sub-objects (props, decorations) based on the prefab hierarchy. Do not manually create
+      sub-objects.
+    </li>
+    <li>
+      <strong>Snap conflicts.</strong> When multiple snap modes are active, the system uses priority
+      resolution. <code>AutoParent</code> and <code>ContourLines</code> are excluded from the
+      "snap all" mask.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>How exactly does <code>ToolOutputBarrier</code> process definition entities into real game entities?</li>
+    <li>How are sub-objects (building props, lot decorations) spawned from the prefab hierarchy during placement?</li>
+    <li>What is the exact snap priority resolution when multiple snap modes conflict?</li>
+    <li>How does brush mode determine object density and distribution?</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from Game.dll (Cities: Skylines II)</li>
+    <li>Namespaces: Game.Tools, Game.Prefabs, Game.Objects, Game.Common</li>
+    <li>Key types: ObjectToolSystem (~4400 lines), ObjectToolBaseSystem, ToolBaseSystem, CreationDefinition, ObjectDefinition, Temp, ControlPoint, PlaceableObjectData, CreationFlags, TempFlags, Snap</li>
+  </ul>
+
+  </main>
+
+</div>
+
+<footer>
+  <p>Research decompiled from Cities: Skylines II game assemblies using ilspycmd. For educational and modding purposes.</p>
+  <div class="attribution-footer">
+    <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+  </div>
+</footer>
+
+</body>
+</html>
