@@ -1023,7 +1023,7 @@ InfoLoom implements a multi-level menu as a conditionally-rendered absolutely-po
         <div className={styles.buttonRow}>
             {sections.map(name => (
                 <Button key={name} variant="flat"
-                    onClick={() => toggleSection(name)}>
+                    onSelect={() => toggleSection(name)}>
                     {name}
                 </Button>
             ))}
@@ -1031,6 +1031,12 @@ InfoLoom implements a multi-level menu as a conditionally-rendered absolutely-po
     </div>
 )}
 ```
+
+> **Note on `onSelect` vs `onClick`:** The `cs2/ui` `Button` component extends
+> `React.ButtonHTMLAttributes`, so both `onSelect` (CS2-specific) and `onClick`
+> (standard HTML) are valid props. Always prefer `onSelect` — it integrates with
+> the game's input system (gamepad support, UI sounds). InfoLoom's actual source
+> uses `onClick` on flyout sub-buttons, which works but bypasses CS2 input handling.
 
 Key SCSS for the flyout panel:
 

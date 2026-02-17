@@ -594,12 +594,21 @@ export const setMenuOpen = (open: boolean) =&gt; trigger(mod.id, "MenuOpen", ope
         &lt;header&gt;Info Loom&lt;/header&gt;
         {sections.map(name =&gt; (
             &lt;Button key={name} variant="flat"
-                onClick={() =&gt; toggleSection(name)}&gt;
+                onSelect={() =&gt; toggleSection(name)}&gt;
                 {name}
             &lt;/Button&gt;
         ))}
     &lt;/div&gt;
 )}</code></pre>
+
+<p>
+  <strong>Note on <code>onSelect</code> vs <code>onClick</code>:</strong> The <code>cs2/ui</code>
+  <code>Button</code> component extends <code>React.ButtonHTMLAttributes</code>, so both
+  <code>onSelect</code> (CS2-specific) and <code>onClick</code> (standard HTML) are valid props.
+  Always prefer <code>onSelect</code> -- it integrates with the game's input system (gamepad
+  support, UI sounds). InfoLoom's actual source uses <code>onClick</code> on flyout sub-buttons,
+  which works but bypasses CS2 input handling.
+</p>
 
 <p>Key SCSS for the flyout:</p>
 
