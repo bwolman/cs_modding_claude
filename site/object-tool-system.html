@@ -162,8 +162,8 @@
       <tr><td>Move</td><td>2</td><td>Relocate an existing object to a new position</td></tr>
       <tr><td>Brush</td><td>3</td><td>Paint objects across an area using a brush (trees, props)</td></tr>
       <tr><td>Stamp</td><td>4</td><td>Place a predefined group/pattern of objects at once</td></tr>
-      <tr><td>Line</td><td>5</td><td>Place objects evenly along a straight line</td></tr>
-      <tr><td>Curve</td><td>6</td><td>Place objects evenly along a curved path</td></tr>
+      <tr><td>Line</td><td>5</td><td>Place objects evenly along a straight line between two control points</td></tr>
+      <tr><td>Curve</td><td>6</td><td>Place objects evenly along a curved path defined by three control points</td></tr>
     </tbody>
   </table>
 
@@ -176,6 +176,24 @@
     <li><strong>Stampable</strong> objects enable Stamp mode</li>
     <li>Trees also enable the <strong>age mask</strong> selector (Sapling, Young, Mature, Elderly)</li>
   </ul>
+
+  <h3>Line and Curve Mode Details</h3>
+
+  <p>
+    <strong>Line mode (5)</strong> lets the user place two control points defining a straight line.
+    The tool reuses <code>NetCourse</code> entities (the same system used by <code>NetToolSystem</code>
+    for roads) to define the path. <code>CreateDefinitionsJob</code> distributes objects evenly along
+    the line based on the object's size from <code>ObjectGeometryData</code>. Spacing equals the
+    object's size along the placement axis, ensuring edge-to-edge placement without overlap.
+  </p>
+
+  <p>
+    <strong>Curve mode (6)</strong> works similarly but with three control points defining a Bezier
+    curve (start, midpoint, end). Objects are distributed evenly along the curve's arc length and
+    rotated to follow the curve tangent at each placement point. Both modes register the
+    "Place Net Edge" and "Undo Net Control Point" input actions and require the <code>Brushable</code>
+    flag on the prefab's <code>ObjectGeometryData</code>.
+  </p>
 
   <!-- ============================================================ -->
   <h2>Key Components</h2>
