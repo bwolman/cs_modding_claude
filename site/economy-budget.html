@@ -630,6 +630,110 @@ int tradeWorth = budgetSystem.GetTradeWorth(Resource.Electronics);
 int totalTradeWorth = budgetSystem.GetTotalTradeWorth();</code></pre>
 
   <!-- ============================================================ -->
+  <h2>CityServiceBudgetSystem Patch Targets</h2>
+
+  <p>
+    <code>CityServiceBudgetSystem</code> provides public methods to read aggregated budget values.
+    These are key Harmony patch candidates for mods that need to modify reported budget figures:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Returns</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>GetExpense(ExpenseSource)</code></td><td>int</td><td>Expense for a specific category. Reads from <code>m_Expenses</code> NativeArray.</td></tr>
+      <tr><td><code>GetTotalExpenses()</code></td><td>int</td><td>Sum of all 15 expense categories. Iterates <code>m_Expenses[0..14]</code>.</td></tr>
+      <tr><td><code>GetIncome(IncomeSource)</code></td><td>int</td><td>Income for a specific category. Reads from <code>m_Income</code> NativeArray.</td></tr>
+      <tr><td><code>GetTotalIncome()</code></td><td>int</td><td>Sum of all 14 income categories.</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Important:</strong> When patching expense/income reporting, both the per-category method
+    (<code>GetExpense</code>) AND the total method (<code>GetTotalExpenses</code>) must be patched
+    together. <code>GetTotalExpenses</code> reads directly from the array, not by calling
+    <code>GetExpense</code> per source. Similarly, <code>BudgetApplySystem</code> reads from the raw
+    arrays, not through these methods -- so patching only affects UI display and systems using the
+    public API.
+  </p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(CityServiceBudgetSystem), "GetExpense")]
+public static class PatchGetExpense
+{
+    public static void Postfix(ExpenseSource source, ref int __result)
+    {
+        if (source == ExpenseSource.ServiceUpkeep)
+            __result = (int)(__result * 0.9f); // 10% display discount
+    }
+}
+
+[HarmonyPatch(typeof(CityServiceBudgetSystem), "GetTotalExpenses")]
+public static class PatchGetTotalExpenses
+{
+    public static void Postfix(ref int __result)
+    {
+        // Must also patch total to stay consistent
+        __result = (int)(__result * 0.9f);
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>EconomyParameterData Runtime Modification</h2>
+
+  <p>
+    <code>EconomyParameterData</code> is a singleton ECS component on the economy prefab entity.
+    Mods can modify its fields at runtime to adjust wages, efficiency, costs, and other economic
+    parameters. Because the game may reset these on load, a robust mod should use a
+    <strong>baseline-caching pattern</strong>:
+  </p>
+
+  <pre><code class="language-csharp">public partial class EconomyParameterModSystem : GameSystemBase
+{
+    private EntityQuery m_EconParamQuery;
+    private bool _baselineCached;
+    private float _originalIndustrialEfficiency;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_EconParamQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;EconomyParameterData&gt;()
+        );
+        RequireForUpdate(m_EconParamQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        var data = m_EconParamQuery.GetSingleton&lt;EconomyParameterData&gt;();
+
+        // Cache baseline on first run (or after game load)
+        if (!_baselineCached)
+        {
+            _originalIndustrialEfficiency = data.m_IndustrialEfficiency;
+            _baselineCached = true;
+        }
+
+        // Apply modifications relative to baseline
+        data.m_IndustrialEfficiency = _originalIndustrialEfficiency * 1.5f;
+        data.m_Wage0 = 18;  // Adjust level-0 wage
+
+        m_EconParamQuery.SetSingleton(data);
+    }
+
+    // Reset baseline on game load so we re-cache fresh values
+    public void OnGameLoaded() { _baselineCached = false; }
+}</code></pre>
+
+  <p><strong>Key considerations:</strong></p>
+  <ul>
+    <li>Changes affect ALL systems reading <code>EconomyParameterData</code> (wages, profitability, rent, production)</li>
+    <li>Changes persist only until next game load unless separately serialized</li>
+    <li>Subscribe to <code>LoadGameSystem.onOnSaveGameLoaded</code> to reset baseline cache</li>
+    <li>Multiple mods modifying the same singleton will conflict (last writer wins)</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Harmony Patch Points</h2>
 
   <h3>TaxSystem.OnUpdate</h3>
