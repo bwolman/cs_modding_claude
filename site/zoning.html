@@ -338,6 +338,121 @@
     </tbody>
   </table>
 
+  <h3>BuildingPropertyData (Game.Prefabs)</h3>
+
+  <p>
+    Per-building property configuration attached to spawnable building prefab entities. This is the
+    building-level counterpart to <code>ZonePropertiesData</code> (which is zone-level). When a
+    building spawns, the game uses <code>BuildingPropertyData</code> to determine household count,
+    tradeable resources, and workspace capacity. Community mods modify <code>m_ResidentialProperties</code>
+    and <code>m_SpaceMultiplier</code> at runtime to adjust building capacity based on physical dimensions.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ResidentialProperties</td><td>int</td><td>Number of residential units (households) this building holds</td></tr>
+      <tr><td>m_SpaceMultiplier</td><td>float</td><td>Multiplier for workspace/commercial space. Higher = more employees per lot cell.</td></tr>
+      <tr><td>m_AllowedSold</td><td>Resource</td><td>Bitmask of resources this building can sell (commercial)</td></tr>
+      <tr><td>m_AllowedManufactured</td><td>Resource</td><td>Bitmask of resources this building can manufacture (industrial)</td></tr>
+      <tr><td>m_AllowedStored</td><td>Resource</td><td>Bitmask of resources this building can store (warehouse)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>SpawnableBuildingData (Game.Prefabs)</h3>
+
+  <p>
+    The bridge between buildings and zones. Every spawnable zoned building has this component, linking
+    it to a zone type and tracking its level. <code>ZoneSpawnSystem</code> reads <code>m_ZonePrefab</code>
+    to match buildings to vacant lots and filters for <code>m_Level == 1</code> for initial construction.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ZonePrefab</td><td>Entity</td><td>Reference to the zone prefab entity (e.g., Low Density Residential)</td></tr>
+      <tr><td>m_Level</td><td>byte</td><td>Building level (1-5). Spawns at 1, upgrades based on land value/services.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ZoneFlags Semantic Meaning</h3>
+
+  <p>
+    The <code>ZoneFlags</code> enum on <code>ZoneData.m_ZoneFlags</code> controls zone behavior beyond
+    simple area type classification:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Semantic Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>SupportNarrow</td><td>1</td>
+        <td><strong>Row homes / narrow buildings</strong> (1-cell wide). Low-density residential does NOT have this (detached houses need 2+ cells). Medium-density residential DOES (row homes are the defining building type).</td>
+      </tr>
+      <tr><td>SupportLeftCorner</td><td>2</td><td>Allow corner buildings on the left side</td></tr>
+      <tr><td>SupportRightCorner</td><td>4</td><td>Allow corner buildings on the right side</td></tr>
+      <tr>
+        <td>Office</td><td>8</td>
+        <td><strong>Office zone</strong> (still <code>AreaType.Industrial</code> internally). Uses office demand instead of industrial demand. Tax classified as <code>TaxOffice</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Density tiers</strong> are controlled by the combination of <code>ZoneData.m_MaxHeight</code>
+    and <code>ZoneDensity</code>:
+  </p>
+
+  <ul>
+    <li><strong>Low density</strong> (<code>ZoneDensity.Low</code>): Small <code>m_MaxHeight</code> (18-24). Detached houses, small shops. Does NOT have <code>SupportNarrow</code>.</li>
+    <li><strong>Medium density</strong> (<code>ZoneDensity.Medium</code>): Mid-range <code>m_MaxHeight</code>. Row homes, mid-rise buildings. HAS <code>SupportNarrow</code> for residential.</li>
+    <li><strong>High density</strong> (<code>ZoneDensity.High</code>): Large <code>m_MaxHeight</code> (60+). Apartment towers, office buildings. May or may not have <code>SupportNarrow</code>.</li>
+  </ul>
+
+  <p>
+    The <code>m_MaxHeight</code> is written to <code>Cell.m_Height</code> when the zone is painted.
+    <code>ZoneSpawnSystem</code> uses it to filter building prefabs -- buildings whose mesh height
+    exceeds the cell's height limit are not eligible for spawning.
+  </p>
+
+  <h3>Building Mesh Dimensions Pattern</h3>
+
+  <p>
+    When mods need a building's physical size (e.g., to derive realistic workplace counts from volume),
+    they use the <code>SubMesh</code> / <code>MeshData</code> / <code>ObjectUtils.GetSize()</code> pattern:
+  </p>
+
+  <ol>
+    <li><strong>Get SubMesh references:</strong> Each building prefab has a <code>SubMesh</code> buffer with mesh sub-object references.</li>
+    <li><strong>Read MeshData:</strong> Each <code>SubMesh</code> entry references a mesh entity with a <code>MeshData</code> component containing bounding box vertices.</li>
+    <li><strong>Calculate size:</strong> <code>ObjectUtils.GetSize(size, rotation)</code> returns axis-aligned bounding box dimensions.</li>
+  </ol>
+
+  <pre><code class="language-csharp">// Get building prefab mesh dimensions for realistic capacity calculation
+Entity buildingPrefab = ...; // from PrefabRef
+DynamicBuffer&lt;SubMesh&gt; subMeshes = EntityManager.GetBuffer&lt;SubMesh&gt;(buildingPrefab);
+
+if (subMeshes.Length &gt; 0)
+{
+    Entity meshEntity = subMeshes[0].m_SubMesh;
+    MeshData meshData = EntityManager.GetComponentData&lt;MeshData&gt;(meshEntity);
+
+    // Local-space bounding box
+    float3 size = meshData.m_Vertices.max - meshData.m_Vertices.min;
+
+    float volume = size.x * size.y * size.z;
+    float floorArea = size.x * size.z;
+    int floors = (int)(size.y / 3.0f);  // ~3m per floor
+    float usableArea = floorArea * floors * 0.7f;  // 70% usable
+    int workplaces = (int)(usableArea / 20.0f);    // ~20 sq m per worker
+}</code></pre>
+
   <h3>Key Constants</h3>
 
   <table>
