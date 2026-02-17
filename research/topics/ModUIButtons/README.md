@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-15
+> **Last updated**: 2026-02-16
 
 ## Scope
 
@@ -961,17 +961,221 @@ const register: ModRegistrar = (moduleRegistry) => {
 export default register;
 ```
 
+## Community Patterns (from InfoLoom)
+
+The following patterns were discovered by analyzing [InfoLoom](https://github.com/bruceyboy24804/InfoLoom), a large data-display mod with a toolbar button, multi-level flyout menu, and draggable panels.
+
+### Same Binding Key for ValueBinding and TriggerBinding
+
+A `ValueBinding` and `TriggerBinding` can share the same group+name key. They're registered in different internal registries and don't collide. This simplifies toggle state management:
+
+```csharp
+// C# — same key "InfoLoomMenuOpen" for both
+_panelVisibleBinding = new ValueBinding<bool>(ModID, "InfoLoomMenuOpen", false);
+AddBinding(_panelVisibleBinding);
+AddBinding(new TriggerBinding<bool>(ModID, "InfoLoomMenuOpen", SetVisibility));
+
+private void SetVisibility(bool open) => _panelVisibleBinding.Update(open);
+```
+
+```typescript
+// TypeScript — same key for both subscribe and trigger
+export const menuOpen$ = bindValue<boolean>(mod.id, "InfoLoomMenuOpen", false);
+export const setMenuOpen = (open: boolean) => trigger(mod.id, "InfoLoomMenuOpen", open);
+```
+
+### Visibility-Gated Data Updates
+
+When a mod has multiple data panels, only fetch and push ECS data when the panel is actually visible. This avoids unnecessary queries and serialization every frame:
+
+```csharp
+protected override void OnUpdate()
+{
+    base.OnUpdate();
+
+    // Only query ECS and update bindings when the user has this panel open
+    if (_demographicsPanelVisible.value)
+    {
+        var data = QueryDemographicsData();
+        _demographicsBinding.Update(data);
+    }
+    if (_workforcesPanelVisible.value)
+    {
+        var data = QueryWorkforcesData();
+        _workforcesBinding.Update(data);
+    }
+}
+```
+
+### Custom Flyout Menu (Dropdown from Toolbar Button)
+
+InfoLoom implements a multi-level menu as a conditionally-rendered absolutely-positioned `<div>` below the toolbar button. This is the standard pattern — CS2 has no native dropdown widget for toolbar menus.
+
+```typescript
+// InfoLoomMenu.tsx — button + conditional flyout
+<Tooltip tooltip="Info Loom">
+    <Button variant="floating" src={icon} selected={isOpen}
+            onSelect={() => setMenuOpen(!isOpen)} />
+</Tooltip>
+{isOpen && (
+    <div className={styles.panel}>
+        <header className={styles.header}>Info Loom</header>
+        <div className={styles.buttonRow}>
+            {sections.map(name => (
+                <Button key={name} variant="flat"
+                    onClick={() => toggleSection(name)}>
+                    {name}
+                </Button>
+            ))}
+        </div>
+    </div>
+)}
+```
+
+Key SCSS for the flyout panel:
+
+```scss
+.panel {
+    position: absolute;
+    top: 40rem;               // below the toolbar button
+    width: 200rem;
+    background-color: var(--panelColorNormal);
+    backdrop-filter: var(--panelBlur);
+    border-radius: 4rem;
+    z-index: 10;
+    animation: scale-up-center 0.25s ease;
+}
+```
+
+### Independent Sub-Menu Sections
+
+Sub-menu sections (Residential, Commercial, Industrial) persist independently of their parent menu. They're rendered unconditionally at the component root so they stay visible when the main menu closes:
+
+```typescript
+// Always render sub-menus regardless of main menu state
+// Each manages its own visibility binding
+<ResidentialMenuButton />
+<IndustrialMenuButton />
+<CommercialMenuButton />
+```
+
+### Button `src` Prop for Icons
+
+The `cs2/ui` `Button` component supports a `src` prop for icon rendering, as an alternative to the mask-image CSS approach:
+
+```typescript
+import icon from 'images/Statistics.svg';
+
+<Button variant="floating" src={icon} selected={isOpen} onSelect={onToggle} />
+```
+
+### Draggable Panel with Initial Position
+
+Individual data panels use the `Panel` component from `cs2/ui` with `draggable` and `initialPosition`:
+
+```typescript
+import { Panel, DraggablePanelProps } from "cs2/ui";
+
+const MyPanel = ({ onClose }: DraggablePanelProps) => (
+    <Panel draggable onClose={onClose}
+           initialPosition={{ x: 0.16, y: 0.15 }}
+           header={<span>Panel Title</span>}>
+        {/* panel content */}
+    </Panel>
+);
+```
+
+The parent injects `onClose` via `React.cloneElement`:
+
+```typescript
+{React.cloneElement(section.component, {
+    onClose: () => toggleSection(name),
+})}
+```
+
+### ExtendedUISystemBase with ValueBindingHelper
+
+InfoLoom (and other Yenyang-derived mods) use `ExtendedUISystemBase`, which wraps `UISystemBase` with:
+
+- **`ValueBindingHelper<T>`** — wraps a `ValueBinding` with dirty-checking. Defers updates until `ForceUpdate()` is called during `OnUpdate()`, batching changes per frame.
+- **`GenericUIWriter<T>` / `GenericUIReader<T>`** — reflection-based serialization that auto-serializes any object by iterating public properties and fields, avoiding the need to implement `IJsonWritable` on every type.
+
+```csharp
+public ValueBindingHelper<T> CreateBinding<T>(string key, T initialValue)
+{
+    var helper = new ValueBindingHelper<T>(
+        new(Mod.modName, key, initialValue, new GenericUIWriter<T?>()));
+    AddBinding(helper.Binding);
+    _updateCallbacks.Add(helper.ForceUpdate);
+    return helper;
+}
+```
+
+### Extending the Selected Info Panel
+
+InfoLoom uses `moduleRegistry.extend()` to inject custom sections into the vanilla entity info panel:
+
+```typescript
+moduleRegistry.extend(
+    'game-ui/game/components/selected-info-panel/selected-info-sections/selected-info-sections.tsx',
+    'selectedInfoSectionComponents',
+    ILCitizenInfoSection
+);
+```
+
+The info section component receives the component list as a parameter and adds itself using its system-qualified name:
+
+```typescript
+export const ILCitizenInfoSection = (componentList: any): any => {
+    componentList['InfoLoomTwo.Systems.Sections.ILCitizenSection'] = (props) => {
+        return (
+            <InfoSectionFoldout header="Citizen Info" initialExpanded={true}>
+                <PanelSectionRow left="Health" right={props.Health} />
+            </InfoSectionFoldout>
+        );
+    };
+    return componentList;
+};
+```
+
+### Accessing Vanilla Internal Components
+
+The `VanillaComponentResolver` pattern (from Klyte45) accesses game-internal React components not exposed through `cs2/ui`:
+
+```typescript
+const registryIndex = {
+    Section: ['game-ui/game/components/tool-options/mouse-tool-options/mouse-tool-options.tsx', 'Section'],
+    ToolButton: ['game-ui/game/components/tool-options/tool-button/tool-button.tsx', 'ToolButton'],
+};
+
+// Usage: VanillaComponentResolver.instance.Section
+```
+
+### Additional CSS Variables
+
+| Variable | Description |
+|----------|-------------|
+| `--panelBlur` | Frosted glass backdrop blur for panels |
+| `--panelColorDark` | Darker panel background variant |
+| `--accentColorDark-focused` | Dark accent for focused/active states |
+| `--menuText1Normal` | Standard menu text color |
+| `--normalTextColorLocked` | Greyed-out text for disabled controls |
+
 ## Open Questions
 
-- [ ] What `moduleRegistry.extend()` wrapper components receive as props (the wrapped component? its props?)
 - [ ] Whether `CallBinding` results are serialized automatically by cohtml or require manual `IJsonWritable`
 - [ ] Full list of available `moduleRegistry` injection slots beyond the documented ones
 - [ ] Whether `cs2/api` exposes a `call()` function for `CallBinding` (not observed in community mods)
 - [ ] How the game resolves the mod UI build output path at load time (convention vs. explicit config)
 - [ ] Thread safety of `ValueBinding.Update()` when called from background systems
 
+### Answered Questions
+
+- **What does `moduleRegistry.extend()` wrapper receive as props?** For `selectedInfoSectionComponents`, the wrapper receives the component list (an object mapping system-qualified names to React components) and adds/modifies entries. For component wrapping (like `RightMenu`), the wrapper receives the original component as a prop.
+
 ## Sources
 
 - Decompiled from: `Colossal.UI.Binding.dll`, `Game.dll` (Cities: Skylines II)
 - Reference mod: [RoadBuilder-CSII](https://github.com/JadHajjar/RoadBuilder-CSII) by JadHajjar
+- Reference mod: [InfoLoom](https://github.com/bruceyboy24804/InfoLoom) — toolbar button, multi-level flyout menu, draggable panels, visibility-gated updates, ExtendedUISystemBase
 - Game version tested: Current Steam release

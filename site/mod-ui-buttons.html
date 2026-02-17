@@ -533,15 +533,182 @@ ModName/
 </table>
 
 <!-- ============================================================ -->
+<h2>Community Patterns (from InfoLoom)</h2>
+
+<p>
+  The following patterns were discovered by analyzing
+  <a href="https://github.com/bruceyboy24804/InfoLoom">InfoLoom</a>, a data-display mod with a
+  toolbar button, multi-level flyout menu, and draggable panels.
+</p>
+
+<h3>Same Binding Key for ValueBinding and TriggerBinding</h3>
+
+<p>
+  A <code>ValueBinding</code> and <code>TriggerBinding</code> can share the same group+name key.
+  They're registered in different internal registries and don't collide. This simplifies toggle
+  state management:
+</p>
+
+<pre><code class="language-csharp">// C# -- same key "MenuOpen" for both value and trigger
+_panelVisible = new ValueBinding&lt;bool&gt;(ModID, "MenuOpen", false);
+AddBinding(_panelVisible);
+AddBinding(new TriggerBinding&lt;bool&gt;(ModID, "MenuOpen", open =&gt; _panelVisible.Update(open)));</code></pre>
+
+<pre><code class="language-typescript">// TypeScript -- same key for subscribe and trigger
+export const menuOpen$ = bindValue&lt;boolean&gt;(mod.id, "MenuOpen", false);
+export const setMenuOpen = (open: boolean) =&gt; trigger(mod.id, "MenuOpen", open);</code></pre>
+
+<h3>Visibility-Gated Data Updates</h3>
+
+<p>
+  When a mod has multiple data panels, only fetch and push ECS data when the panel is visible.
+  This avoids unnecessary queries and serialization every frame:
+</p>
+
+<pre><code class="language-csharp">protected override void OnUpdate()
+{
+    base.OnUpdate();
+    if (_demographicsPanelVisible.value)
+    {
+        _demographicsBinding.Update(QueryDemographicsData());
+    }
+    if (_workforcesPanelVisible.value)
+    {
+        _workforcesBinding.Update(QueryWorkforcesData());
+    }
+}</code></pre>
+
+<h3>Custom Flyout Menu (Dropdown from Toolbar Button)</h3>
+
+<p>
+  CS2 has no native dropdown widget for toolbar menus. InfoLoom implements its menu as a
+  conditionally-rendered, absolutely-positioned <code>&lt;div&gt;</code> below the toolbar button:
+</p>
+
+<pre><code class="language-typescript">&lt;Tooltip tooltip="Info Loom"&gt;
+    &lt;Button variant="floating" src={icon} selected={isOpen}
+            onSelect={() =&gt; setMenuOpen(!isOpen)} /&gt;
+&lt;/Tooltip&gt;
+{isOpen &amp;&amp; (
+    &lt;div className={styles.panel}&gt;
+        &lt;header&gt;Info Loom&lt;/header&gt;
+        {sections.map(name =&gt; (
+            &lt;Button key={name} variant="flat"
+                onClick={() =&gt; toggleSection(name)}&gt;
+                {name}
+            &lt;/Button&gt;
+        ))}
+    &lt;/div&gt;
+)}</code></pre>
+
+<p>Key SCSS for the flyout:</p>
+
+<pre><code class="language-scss">.panel {
+    position: absolute;
+    top: 40rem;
+    width: 200rem;
+    background-color: var(--panelColorNormal);
+    backdrop-filter: var(--panelBlur);
+    border-radius: 4rem;
+    z-index: 10;
+    animation: scale-up-center 0.25s ease;
+}</code></pre>
+
+<h3>Button <code>src</code> Prop for Icons</h3>
+
+<p>
+  The <code>cs2/ui</code> <code>Button</code> component supports a <code>src</code> prop for icon
+  rendering, as an alternative to the mask-image CSS approach shown in the blueprint above:
+</p>
+
+<pre><code class="language-typescript">import icon from 'images/Statistics.svg';
+&lt;Button variant="floating" src={icon} selected={isOpen} onSelect={onToggle} /&gt;</code></pre>
+
+<h3>Draggable Panels with Initial Position</h3>
+
+<p>
+  Data panels use the <code>Panel</code> component with <code>draggable</code> and
+  <code>initialPosition</code>. The parent injects <code>onClose</code> via
+  <code>React.cloneElement</code>:
+</p>
+
+<pre><code class="language-typescript">// Panel component
+const MyPanel = ({ onClose }: DraggablePanelProps) =&gt; (
+    &lt;Panel draggable onClose={onClose}
+           initialPosition={{ x: 0.16, y: 0.15 }}
+           header={&lt;span&gt;Panel Title&lt;/span&gt;}&gt;
+        {/* content */}
+    &lt;/Panel&gt;
+);
+
+// Parent injects onClose
+{React.cloneElement(section.component, {
+    onClose: () =&gt; toggleSection(name),
+})}</code></pre>
+
+<h3>Extending the Selected Info Panel</h3>
+
+<p>
+  Use <code>moduleRegistry.extend()</code> on <code>selectedInfoSectionComponents</code> to inject
+  custom sections into the vanilla entity info panel:
+</p>
+
+<pre><code class="language-typescript">moduleRegistry.extend(
+    'game-ui/game/components/selected-info-panel/selected-info-sections/selected-info-sections.tsx',
+    'selectedInfoSectionComponents',
+    ILCitizenInfoSection
+);
+
+// The wrapper receives the component list and adds an entry
+export const ILCitizenInfoSection = (componentList: any): any =&gt; {
+    componentList['MyMod.Systems.MySection'] = (props) =&gt; {
+        return (&lt;InfoSectionFoldout header="My Data"&gt;...&lt;/InfoSectionFoldout&gt;);
+    };
+    return componentList;
+};</code></pre>
+
+<h3>Accessing Vanilla Internal Components</h3>
+
+<p>
+  The <code>VanillaComponentResolver</code> pattern (from Klyte45) accesses game-internal React
+  components not exposed through <code>cs2/ui</code>:
+</p>
+
+<pre><code class="language-typescript">const registryIndex = {
+    Section: ['game-ui/game/components/tool-options/mouse-tool-options/mouse-tool-options.tsx', 'Section'],
+    ToolButton: ['game-ui/game/components/tool-options/tool-button/tool-button.tsx', 'ToolButton'],
+};
+// Usage: VanillaComponentResolver.instance.Section</code></pre>
+
+<h3>Additional CSS Variables</h3>
+
+<table>
+  <tr><th>Variable</th><th>Description</th></tr>
+  <tr><td><code>--panelBlur</code></td><td>Frosted glass backdrop blur for panels</td></tr>
+  <tr><td><code>--panelColorDark</code></td><td>Darker panel background variant</td></tr>
+  <tr><td><code>--accentColorDark-focused</code></td><td>Dark accent for focused/active states</td></tr>
+  <tr><td><code>--menuText1Normal</code></td><td>Standard menu text color</td></tr>
+  <tr><td><code>--normalTextColorLocked</code></td><td>Greyed-out text for disabled controls</td></tr>
+</table>
+
+<!-- ============================================================ -->
 <h2>Open Questions</h2>
 
 <ul>
-  <li>What props does a <code>moduleRegistry.extend()</code> wrapper component receive?</li>
   <li>Are <code>CallBinding</code> results serialized automatically by cohtml, or do they need <code>IJsonWritable</code>?</li>
   <li>What is the full list of <code>moduleRegistry</code> injection slots beyond the documented ones?</li>
   <li>Does <code>cs2/api</code> expose a <code>call()</code> function for <code>CallBinding</code>?</li>
   <li>How does the game resolve the mod UI build output path at load time?</li>
   <li>Is <code>ValueBinding.Update()</code> thread-safe when called from background systems?</li>
+</ul>
+
+<h3>Answered Questions</h3>
+
+<ul>
+  <li><strong>What does <code>moduleRegistry.extend()</code> wrapper receive as props?</strong>
+    For <code>selectedInfoSectionComponents</code>, it receives the component list (an object mapping
+    system-qualified names to React components) and adds/modifies entries. For component wrapping
+    (like <code>RightMenu</code>), it receives the original component as a prop.</li>
 </ul>
 
 <!-- ============================================================ -->
@@ -550,6 +717,7 @@ ModName/
 <ul>
   <li>Decompiled from: <code>Colossal.UI.Binding.dll</code>, <code>Game.dll</code> (Cities: Skylines II)</li>
   <li>Reference mod: <a href="https://github.com/JadHajjar/RoadBuilder-CSII">RoadBuilder-CSII</a> by JadHajjar</li>
+  <li>Reference mod: <a href="https://github.com/bruceyboy24804/InfoLoom">InfoLoom</a> -- toolbar button, multi-level flyout menu, draggable panels, visibility-gated updates</li>
 </ul>
 
 <footer>
