@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pathfinding System - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html" class="active">Pathfinding</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Pathfinding System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2's pathfinding work -- from request submission through graph
+      traversal to path element output? How can mods interact with pathfinding requests, modify costs,
+      or react to completed paths?
+    </p>
+    <p>
+      <strong>Verdict:</strong> CS2 uses a <strong>multi-threaded A* pathfinder</strong> operating on a
+      lane-level graph. Pathfind requests flow through a three-stage pipeline:
+      <code>PathfindSetupSystem</code> resolves abstract targets into concrete lane positions,
+      <code>PathfindQueueSystem</code> dispatches work to parallel worker threads, and
+      <code>PathfindResultSystem</code> writes results back to entity components. The system uses a
+      4-dimensional cost model (time, behaviour, money, comfort) with per-agent weights.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    Every moving agent in CS2 -- citizens walking to work, garbage trucks collecting waste, ambulances
+    responding to emergencies -- uses the same pathfinding pipeline. The process begins when a game
+    system detects that an entity needs a path, and ends when the <code>PathElement</code> buffer on
+    that entity is populated with a sequence of lane segments to follow.
+  </p>
+
+  <h3>The Three-Stage Pipeline</h3>
+
+  <ol>
+    <li>
+      <strong>Setup</strong> (<code>PathfindSetupSystem</code>): Game systems enqueue abstract pathfind
+      requests with origin/destination types (e.g., "from current location to nearest hospital").
+      Domain-specific helpers resolve these into concrete lane-level <code>PathTarget</code> lists.
+    </li>
+    <li>
+      <strong>Execution</strong> (<code>PathfindQueueSystem</code>): Resolved requests are dispatched to
+      a pool of worker threads that execute A* search on the pathfind graph. Workers use half the available
+      CPU cores and operate on a double-buffered graph structure.
+    </li>
+    <li>
+      <strong>Results</strong> (<code>PathfindResultSystem</code>): Completed results are written back to
+      entities: <code>PathOwner</code> state is updated, <code>PathElement</code> buffer is filled with
+      the path segments, and <code>PathInformation</code> receives distance/duration/cost summaries.
+    </li>
+  </ol>
+
+  <div class="diagram"><pre>
+[Game Systems]                     [Pathfind Pipeline]                   [Entity Data]
+
+  Citizens,                    +---------------------------+
+  Vehicles,         enqueue    |  PathfindSetupSystem      |
+  Services    ===============&gt; |  - GetQueue() API         |
+                SetupQueueItem |  - Domain-specific helpers |
+                               |  - Target resolution      |
+                               +---------------------------+
+                                            |
+                                    PathfindAction
+                                   (start + end targets)
+                                            |
+                                            v
+                               +---------------------------+
+                               |  PathfindQueueSystem      |
+                               |  - Multi-threaded A*      |
+                               |  - Double-buffered graph  |
+                               |  - Priority scheduling    |
+                               +---------------------------+
+                                            |
+                                   completed actions
+                                            |
+                                            v
+                               +---------------------------+
+                               |  PathfindResultSystem     |     PathOwner
+                               |  - Write PathElement buf  | ==&gt; PathElement buffer
+                               |  - Update PathInformation |     PathInformation
+                               |  - Fire PathUpdated event |
+                               +---------------------------+
+  </pre></div>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <h3>PathOwner</h3>
+  <p>
+    Every entity that needs a path carries this component. It tracks the entity's progress along
+    its computed path and the lifecycle state of the path request.
+  </p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_ElementIndex</code></td><td>int</td><td>Current index into the PathElement buffer -- how far along the path the agent is</td></tr>
+      <tr><td><code>m_State</code></td><td>PathFlags</td><td>Bitfield: Pending, Failed, Obsolete, Scheduled, Updated, Stuck, etc.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PathElement (Buffer)</h3>
+  <p>
+    Dynamic buffer attached to path-owning entities. Each element is one segment of the computed path,
+    referencing a specific lane entity and the portion of that lane to traverse.
+  </p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Target</code></td><td>Entity</td><td>The lane entity this path segment traverses</td></tr>
+      <tr><td><code>m_TargetDelta</code></td><td>float2</td><td>Start/end position along the lane curve (0.0 to 1.0)</td></tr>
+      <tr><td><code>m_Flags</code></td><td>PathElementFlags</td><td>Secondary, PathStart, Action, Return, Reverse, WaitPosition, Leader, Hangaround</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PathInformation</h3>
+  <p>Summary data about a completed path. Provides distance, duration, cost, and which transport methods are used.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Origin</code></td><td>Entity</td><td>Origin lane entity</td></tr>
+      <tr><td><code>m_Destination</code></td><td>Entity</td><td>Destination lane entity</td></tr>
+      <tr><td><code>m_Distance</code></td><td>float</td><td>Total path distance in game units</td></tr>
+      <tr><td><code>m_Duration</code></td><td>float</td><td>Estimated travel time</td></tr>
+      <tr><td><code>m_TotalCost</code></td><td>float</td><td>Weighted pathfind cost</td></tr>
+      <tr><td><code>m_Methods</code></td><td>PathMethod</td><td>Transport methods used (bitfield)</td></tr>
+      <tr><td><code>m_State</code></td><td>PathFlags</td><td>Result state flags</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PathNode</h3>
+  <p>
+    Compact graph node representation that packs an entity index, lane index, segment index, and curve
+    position into a single <code>ulong</code>. This encoding enables efficient hash-based lookups during
+    A* traversal.
+  </p>
+  <pre><code>// Bit layout of PathNode.m_SearchKey (ulong):
+// [63:32] Owner entity index
+// [31]    Secondary node flag
+// [30:16] Curve position (float encoded as int * 32767)
+// [15:8]  Segment index
+// [7:0]   Lane index</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Cost Model</h2>
+
+  <p>
+    CS2's pathfinding uses a <strong>4-dimensional cost model</strong> rather than a simple distance metric.
+    Every edge in the pathfind graph has a <code>PathfindCosts</code> vector, and every agent has a
+    <code>PathfindWeights</code> vector. The total cost is their dot product.
+  </p>
+
+  <table>
+    <thead><tr><th>Dimension</th><th>Index</th><th>What It Represents</th></tr></thead>
+    <tbody>
+      <tr><td>Time</td><td>x</td><td>Travel time (based on edge length / speed)</td></tr>
+      <tr><td>Behaviour</td><td>y</td><td>Behavioral preferences (avoid certain route types)</td></tr>
+      <tr><td>Money</td><td>z</td><td>Monetary cost (tolls, fares, parking)</td></tr>
+      <tr><td>Comfort</td><td>w</td><td>Comfort/quality (road condition, crowding)</td></tr>
+    </tbody>
+  </table>
+
+  <pre><code>// Cost calculation (from PathUtils.CalculateCost):
+float4 costs = pathSpecification.m_Costs.m_Value;
+costs.x += edgeLength / speed;  // add time cost
+float totalCost = math.dot(costs, parameters.m_Weights.m_Value);
+
+// Unless Stable flag is set, add randomness to distribute agents:
+if ((flags &amp; PathfindFlags.Stable) == 0)
+    totalCost *= random.NextFloat(0.5f, 1.0f);</code></pre>
+
+  <h3>Prefab Cost Data</h3>
+  <p>
+    Base costs for different transport modes are defined in prefab components. For example,
+    <code>PathfindCarData</code> defines costs for driving, turning, U-turns, lane crossing,
+    parking, spawning, and forbidden routes. Each cost is a <code>PathfindCosts</code> (float4).
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Enums</h2>
+
+  <h3>PathFlags</h3>
+  <pre><code>Pending = 1        // Request queued, not yet processed
+Failed = 2         // No route found
+Obsolete = 4       // Path is stale, needs recalculation
+Scheduled = 8      // Submitted to worker threads
+Append = 0x10      // Append to existing path
+Updated = 0x20     // Recently updated
+Stuck = 0x40       // Agent is stuck
+WantsEvent = 0x80  // Fire PathUpdated event on completion
+AddDestination = 0x100
+Debug = 0x200      // Debug visualization
+Divert = 0x400     // Mid-path rerouting
+DivertObsolete = 0x800
+CachedObsolete = 0x1000</code></pre>
+  <p>
+    <strong>Important:</strong> On deserialization (loading a save), <code>Pending</code> is automatically
+    converted to <code>Obsolete</code>. Paths that were in-progress when the game was saved are
+    invalidated and will be recalculated.
+  </p>
+
+  <h3>PathMethod</h3>
+  <pre><code>Pedestrian = 1       Road = 2              Parking = 4
+PublicTransportDay = 8   Track = 0x10      Taxi = 0x20
+CargoTransport = 0x40    CargoLoading = 0x80   Flying = 0x100
+PublicTransportNight = 0x200   Boarding = 0x400
+Offroad = 0x800      SpecialParking = 0x1000
+MediumRoad = 0x2000  Bicycle = 0x4000
+BicycleParking = 0x8000</code></pre>
+
+  <h3>RuleFlags</h3>
+  <p>Lane policy rules applied via district or building policies that affect edge traversal costs.</p>
+  <pre><code>HasBlockage = 1               ForbidCombustionEngines = 2
+ForbidTransitTraffic = 4      ForbidHeavyTraffic = 8
+ForbidPrivateTraffic = 0x10   ForbidSlowTraffic = 0x20
+AvoidBicycles = 0x40</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Systems</h2>
+
+  <h3>PathfindSetupSystem</h3>
+  <p>
+    The public entry point for all pathfind requests. Other game systems call
+    <code>GetQueue()</code> to obtain a native queue, enqueue <code>SetupQueueItem</code> structs,
+    and then call <code>AddQueueWriter()</code> to register their job dependency.
+  </p>
+  <p>
+    Internally, <code>PathfindSetupSystem</code> uses 12 domain-specific setup helpers to resolve
+    abstract target types (e.g., "nearest hospital") into concrete lane-level
+    <code>PathTarget</code> lists:
+  </p>
+  <ul>
+    <li><strong>CommonPathfindSetup</strong> -- current location, accident location, safety</li>
+    <li><strong>CitizenPathfindSetup</strong> -- tourist targets, leisure, school, job, attraction, homeless shelter, find home</li>
+    <li><strong>TransportPathfindSetup</strong> -- transport vehicles, taxis, route waypoints</li>
+    <li><strong>FirePathfindSetup</strong> -- fire engines, emergency shelters, evacuation transport</li>
+    <li><strong>HealthcarePathfindSetup</strong> -- ambulances, hospitals, hearses</li>
+    <li><strong>PolicePathfindSetup</strong> -- police patrols, crime producers, prisoner transport</li>
+    <li><strong>GarbagePathfindSetup</strong> -- garbage collectors, garbage transfer</li>
+    <li><strong>PostServicePathfindSetup</strong> -- post vans, mail transfer, mailboxes</li>
+    <li><strong>RoadPathfindSetup</strong> -- maintenance vehicles, random traffic, outside connections</li>
+    <li><strong>ResourcePathfindSetup</strong> -- resource sellers, resource exports, storage transfers</li>
+    <li><strong>GoodsDeliveryPathfindSetup</strong> -- goods delivery vehicles</li>
+    <li><strong>AreaPathfindSetup</strong> -- area locations, wood resources</li>
+  </ul>
+
+  <h3>PathfindQueueSystem</h3>
+  <p>
+    Manages the multi-threaded pathfind worker pool. Uses <code>JobsUtility.JobWorkerCount / 2</code>
+    threads, each with a 1 MB linear allocator. Workers pull actions from a shared atomic counter
+    and execute A* search on a <strong>double-buffered</strong> pathfind graph.
+  </p>
+  <p>
+    The system processes 9 action types: graph modifications (Create, Update, Delete edges),
+    pathfind queries (Pathfind, Coverage, Availability), and traffic data updates (Density, Time, Flow).
+    Graph modifications run sequentially across both buffers; pathfind queries run in parallel on the
+    current read buffer.
+  </p>
+
+  <h3>PathfindResultSystem</h3>
+  <p>
+    Processes completed pathfind results. Checks <code>PathfindActionState.Completed</code> on
+    each scheduled action, then writes results to entity components via parallel jobs. Tracks
+    query statistics (success rate, graph traversal percentage, efficiency) accessible via
+    the <code>queryStats</code> dictionary. Creates <code>PathUpdated</code> event entities
+    when the <code>WantsEvent</code> flag was set on the request.
+  </p>
+
+  <h3>Graph Maintenance Systems</h3>
+  <ul>
+    <li><strong>LaneDataSystem</strong> -- converts lane network data into pathfind graph edges when lanes are created or modified</li>
+    <li><strong>LanesModifiedSystem</strong> -- updates pathfind edges when existing lanes change</li>
+    <li><strong>LanePoliciesSystem</strong> -- updates edge <code>RuleFlags</code> when district or building policies change</li>
+    <li><strong>RoutesModifiedSystem</strong> -- updates pathfind edges when transit routes change</li>
+    <li><strong>PathOwnerTargetMovedSystem</strong> -- marks paths as obsolete when path targets move</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Reading an Entity's Current Path</h3>
+  <p>Query entities with PathOwner and PathElement to inspect their computed paths.</p>
+  <pre><code>public partial class ReadPathSystem : GameSystemBase
+{
+    private EntityQuery m_PathQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_PathQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;PathOwner&gt;(),
+            ComponentType.ReadOnly&lt;PathElement&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var pathOwners = m_PathQuery.ToComponentDataArray&lt;PathOwner&gt;(Allocator.Temp);
+        var entities = m_PathQuery.ToEntityArray(Allocator.Temp);
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            PathOwner owner = pathOwners[i];
+            DynamicBuffer&lt;PathElement&gt; elements =
+                EntityManager.GetBuffer&lt;PathElement&gt;(entities[i]);
+
+            if ((owner.m_State &amp; PathFlags.Failed) != 0)
+                continue; // No route found
+
+            if ((owner.m_State &amp; PathFlags.Obsolete) != 0)
+                continue; // Needs recalculation
+
+            // Read remaining path elements from current position
+            for (int j = owner.m_ElementIndex; j &lt; elements.Length; j++)
+            {
+                PathElement element = elements[j];
+                Entity laneEntity = element.m_Target;
+                float2 delta = element.m_TargetDelta;
+                // Process path segment...
+            }
+        }
+
+        pathOwners.Dispose();
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 2: Requesting a Pathfind</h3>
+  <p>Submit a pathfind request using the PathfindSetupSystem queue API.</p>
+  <pre><code>public partial class CustomPathfindRequestSystem : GameSystemBase
+{
+    private PathfindSetupSystem m_PathfindSetupSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_PathfindSetupSystem =
+            World.GetOrCreateSystemManaged&lt;PathfindSetupSystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        // Get a queue (maxDelayFrames=16, spreadFrames=4)
+        NativeQueue&lt;SetupQueueItem&gt; queue =
+            m_PathfindSetupSystem.GetQueue(this, 16, 4);
+
+        PathfindParameters parameters = new PathfindParameters
+        {
+            m_MaxCost = 50000f,
+            m_Methods = PathMethod.Road | PathMethod.Pedestrian,
+            m_Weights = new PathfindWeights(1f, 0.5f, 0f, 0.5f),
+            m_MaxSpeed = new float2(40f, 40f),
+            m_WalkSpeed = new float2(1.4f, 1.4f),
+            m_PathfindFlags = PathfindFlags.Stable
+        };
+
+        SetupQueueTarget origin = new SetupQueueTarget
+        {
+            m_Type = SetupTargetType.CurrentLocation,
+            m_Methods = PathMethod.Road | PathMethod.Pedestrian
+        };
+
+        SetupQueueTarget destination = new SetupQueueTarget
+        {
+            m_Type = SetupTargetType.CurrentLocation,
+            m_Methods = PathMethod.Road | PathMethod.Pedestrian
+        };
+
+        Entity entity = default; // your path-owning entity
+        queue.Enqueue(new SetupQueueItem(
+            entity, parameters, origin, destination));
+        m_PathfindSetupSystem.AddQueueWriter(Dependency);
+    }
+}</code></pre>
+
+  <h3>Example 3: Reacting to Completed Pathfinds</h3>
+  <p>Listen for PathUpdated event entities to react when a pathfind completes.</p>
+  <pre><code>public partial class PathCompletionSystem : GameSystemBase
+{
+    private EntityQuery m_UpdatedPathQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_UpdatedPathQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Event&gt;(),
+            ComponentType.ReadOnly&lt;PathUpdated&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var events = m_UpdatedPathQuery
+            .ToComponentDataArray&lt;PathUpdated&gt;(Allocator.Temp);
+
+        for (int i = 0; i &lt; events.Length; i++)
+        {
+            Entity pathOwnerEntity = events[i].m_Owner;
+            if (!EntityManager.Exists(pathOwnerEntity)) continue;
+
+            if (EntityManager.HasComponent&lt;PathInformation&gt;(pathOwnerEntity))
+            {
+                PathInformation info = EntityManager
+                    .GetComponentData&lt;PathInformation&gt;(pathOwnerEntity);
+
+                float distance = info.m_Distance;
+                float duration = info.m_Duration;
+                PathMethod methods = info.m_Methods;
+
+                if ((methods &amp; PathMethod.PublicTransportDay) != 0)
+                {
+                    // Path includes public transit
+                }
+            }
+        }
+        events.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 4: Forcing Path Recalculation</h3>
+  <p>Mark an entity's path as obsolete to trigger automatic re-pathing.</p>
+  <pre><code>// Set the Obsolete flag on PathOwner to force recalculation
+if (EntityManager.HasComponent&lt;PathOwner&gt;(targetEntity))
+{
+    PathOwner owner = EntityManager.GetComponentData&lt;PathOwner&gt;(targetEntity);
+    owner.m_State |= PathFlags.Obsolete;
+    owner.m_ElementIndex = 0; // reset progress
+    EntityManager.SetComponentData(targetEntity, owner);
+}</code></pre>
+
+  <h3>Example 5: Modifying Pathfind Costs (Harmony Patch)</h3>
+  <p>
+    Patch <code>PathUtils.CalculateCost</code> to adjust route costs. This example penalizes
+    congested roads to encourage route distribution.
+  </p>
+  <pre><code>[HarmonyPatch(typeof(PathUtils), nameof(PathUtils.CalculateCost),
+    new[] { typeof(Unity.Mathematics.Random),
+            typeof(PathSpecification),
+            typeof(PathfindParameters) },
+    new[] { ArgumentType.Ref, ArgumentType.Ref, ArgumentType.Ref })]
+public static class PathCostPatch
+{
+    public static void Postfix(
+        ref float __result,
+        in PathSpecification pathSpecification)
+    {
+        if (pathSpecification.m_Density &gt; 0.5f)
+        {
+            float penalty = 1f + (pathSpecification.m_Density - 0.5f) * 2f;
+            __result *= penalty;
+        }
+    }
+}</code></pre>
+  <div class="warning">
+    <strong>Warning:</strong> <code>PathUtils.CalculateCost</code> is called extremely frequently
+    during pathfinding. Patches must be as lightweight as possible. Heavy computation here will
+    significantly impact simulation performance.
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>PathfindParameters</h3>
+  <p>Submitted with every pathfind request. Key fields:</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Methods</code></td><td>PathMethod</td><td>Which transport methods are allowed</td></tr>
+      <tr><td><code>m_Weights</code></td><td>PathfindWeights</td><td>Per-agent cost dimension weights (time, behaviour, money, comfort)</td></tr>
+      <tr><td><code>m_MaxCost</code></td><td>float</td><td>Maximum total cost before search terminates</td></tr>
+      <tr><td><code>m_MaxSpeed</code></td><td>float2</td><td>Maximum vehicle speed (m/s)</td></tr>
+      <tr><td><code>m_WalkSpeed</code></td><td>float2</td><td>Walking speed (m/s)</td></tr>
+      <tr><td><code>m_MaxResultCount</code></td><td>int</td><td>Maximum number of path results</td></tr>
+      <tr><td><code>m_PathfindFlags</code></td><td>PathfindFlags</td><td>Algorithm behavior flags</td></tr>
+      <tr><td><code>m_IgnoredRules</code></td><td>RuleFlags</td><td>Lane policy rules to ignore</td></tr>
+      <tr><td><code>m_ParkingTarget</code></td><td>Entity</td><td>Specific parking target (if any)</td></tr>
+      <tr><td><code>m_Authorization1/2</code></td><td>Entity</td><td>Access authorization entities</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Prefab Cost Data</h3>
+  <p>Base traversal costs defined per transport mode in prefab components:</p>
+  <ul>
+    <li><strong>PathfindCarData</strong>: DrivingCost, TurningCost, UnsafeTurningCost, UTurnCost, UnsafeUTurnCost, CurveAngleCost, LaneCrossCost, ParkingCost, SpawnCost, ForbiddenCost</li>
+    <li><strong>PathfindPedestrianData</strong>: WalkingCost, CrosswalkCost, UnsafeCrosswalkCost, SpawnCost</li>
+    <li><strong>PathfindTrackData</strong>: Rail-specific costs</li>
+    <li><strong>PathfindTransportData</strong>: Public transit boarding/transfer costs</li>
+    <li><strong>PathfindConnectionData</strong>: Outside connection costs</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Warnings &amp; Pitfalls</h2>
+
+  <ul>
+    <li>
+      <strong>Burst-compiled jobs are not patchable.</strong> The domain-specific setup helpers
+      (e.g., <code>CitizenPathfindSetup.SetupTouristTargetJob</code>) and the core pathfind
+      executor (<code>PathfindJobs.PathfindExecutor</code>) are Burst-compiled. They cannot be
+      patched with Harmony. Intercept at the queue or result level instead.
+    </li>
+    <li>
+      <strong>Performance sensitivity.</strong> The pathfind pipeline processes thousands of requests
+      per frame. Any Harmony patch on <code>PathUtils.CalculateCost</code> or similar hot paths
+      must be extremely lightweight.
+    </li>
+    <li>
+      <strong>Pending-to-Obsolete on load.</strong> When deserializing, <code>PathOwner</code> and
+      <code>PathInformation</code> automatically convert the <code>Pending</code> flag to
+      <code>Obsolete</code>. Do not rely on <code>Pending</code> surviving a save/load cycle.
+    </li>
+    <li>
+      <strong>Double-buffered graph.</strong> The pathfind graph is double-buffered. Graph
+      modifications (Create/Update/Delete edges) are applied to both buffers sequentially. Pathfind
+      queries run on the current read buffer. Do not assume immediate graph updates.
+    </li>
+    <li>
+      <strong>Native container lifetimes.</strong> Queues from <code>GetQueue()</code> are managed
+      by <code>PathfindSetupSystem</code>. Do not dispose them manually.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>How exactly does the A* heuristic use <code>PathfindHeuristicData</code>? The per-method minimum costs appear to be used for admissible heuristic estimation, but the formula in the Burst-compiled executor is hard to trace.</li>
+    <li>What is the internal structure of <code>NativePathfindData</code>? The double-buffering scheme suggests read/write separation, but the graph data layout is opaque.</li>
+    <li>How does <code>PathfindTargetSeekerData</code> resolve generic target types into lane-level positions? The spatial query mechanism is spread across domain helpers.</li>
+    <li>When is <code>PathfindFlags.SkipPathfind</code> used? It appears to bypass graph traversal and pick the cheapest target directly -- possibly for simplified service dispatch.</li>
+    <li>How does the <code>Divert</code> mechanism work for mid-path rerouting?</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from Game.dll (Cities: Skylines II)</li>
+    <li>Namespaces: Game.Pathfind, Game.Simulation, Game.Prefabs, Game.Common</li>
+    <li>Key types: PathOwner, PathElement, PathInformation, PathNode, Edge, PathSpecification, PathTarget, PathfindParameters, PathfindWeights, PathfindCosts, SetupQueueItem, SetupQueueTarget, PathfindSetupSystem, PathfindQueueSystem, PathfindResultSystem, PathUtils, all related enums</li>
+  </ul>
+
+  </main>
+
+</div>
+
+<footer>
+  <p>Research decompiled from Cities: Skylines II game assemblies using ilspycmd. For educational and modding purposes.</p>
+  <div class="attribution-footer">
+    <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+  </div>
+</footer>
+
+</body>
+</html>
