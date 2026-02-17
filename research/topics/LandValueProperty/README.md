@@ -204,7 +204,7 @@ Global singleton controlling land value computation factors.
     - Splits upkeep into material (1/4) and monetary (3/4) portions
     - If total renter wealth < monetary upkeep: condition decreases (building deteriorates)
     - If renters can pay: condition increases, upkeep deducted from renters
-    - Condition change scales with building level: `pow(2, level) * max(1, renterCount)`
+    - **Condition scaling by building level**: The change magnitude is `conditionChange * pow(2, level) * max(1, renterCount)`, where `conditionChange` comes from `BuildingUtils.GetBuildingConditionChange()`. This exponential scaling means a level-3 building accumulates condition 8x faster than a level-1 building. This applies in both directions -- well-funded high-level buildings level up faster, but underfunded ones deteriorate and abandon faster too. The `levelingCost` and `abandonCost` thresholds also scale with building properties via `BuildingUtils.GetLevelingCost()` and `BuildingUtils.GetAbandonCost()`, which factor in area type, lot size, and current level.
     - If condition >= levelingCost: queues level-up (requests resource delivery)
     - If condition <= -abandonCost: queues level-down (abandonment)
   - `ResourceNeedingUpkeepJob`: Checks if all level-up materials were delivered; if so, queues actual level-up
@@ -265,11 +265,14 @@ BUILDING CONDITION (16x per day)
   BuildingUpkeepSystem.BuildingUpkeepJob
     upkeep = ConsumptionData.m_Upkeep / 16
     monetary = upkeep * 3/4
+    levelScale = pow(2, level) * max(1, renters)   // Level-3 = 8x, Level-5 = 32x
     If renterWealth >= monetary:
-      condition += increment * pow(2, level) * max(1, renters)
+      condition += conditionChange * levelScale
       Deduct upkeep from renters
     Else:
-      condition -= decrement * pow(2, level) * max(1, renters)
+      condition -= conditionChange * levelScale
+    NOTE: exponential scaling means high-level buildings level up faster
+          when well-funded, but also abandon faster when underfunded
           |
           v
     condition >= levelingCost  -->  Request level-up materials
