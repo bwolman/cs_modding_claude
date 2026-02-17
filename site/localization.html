@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Localization System - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="localization.html" class="active">Localization</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Localization System</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2's localization pipeline load and resolve
+      translated strings, and how do mods add their own localized text?
+    </p>
+    <p>
+      <strong>Verdict:</strong> CS2 uses a <strong>source-based dictionary system</strong>.
+      <code>LocalizationManager</code> maintains per-locale dictionaries populated by
+      <code>IDictionarySource</code> implementations. Mods add strings via
+      <code>MemorySource</code> (an in-memory dictionary wrapper). The system supports
+      fallback locales, indexed entries, and parameterized substitutions through
+      <code>LocalizedString</code>.
+    </p>
+  </div>
+
+  <h2>How It Works</h2>
+
+  <div class="diagram"><pre>
+[Locale assets loaded from AssetDatabase]
+        |
+[LocalizationManager.LoadAvailableLocales()]
+  - Finds all LocaleAsset objects
+  - Calls AddLocale() and AddSourceInternal() for each
+        |
+[Mod calls AddSource("en-US", new MemorySource(dict))]
+  - Source added to m_UserSources list
+  - If locale matches active: entries loaded into activeDictionary
+  - If locale matches fallback: merged into fallback dictionary
+        |
+[UI requests a string]
+  - activeDictionary.TryGetValue(entryID, out value)
+  - Fallback entries used if not found in active locale
+  - LocalizedString sent to UI with id/value/args
+  </pre></div>
+
+  <h2>Key Components</h2>
+
+  <h3>LocalizationManager</h3>
+  <p>Central manager for all localization data. Maintains dictionaries per locale.</p>
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>AddSource(localeId, source)</code></td><td>Add a dictionary source for a locale</td></tr>
+      <tr><td><code>RemoveSource(localeId, source)</code></td><td>Remove a dictionary source</td></tr>
+      <tr><td><code>SetActiveLocale(localeId)</code></td><td>Switch the active language</td></tr>
+      <tr><td><code>GetSupportedLocales()</code></td><td>List all registered locale IDs</td></tr>
+      <tr><td><code>ReloadActiveLocale()</code></td><td>Clear and reload current locale</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LocalizationDictionary</h3>
+  <p>String lookup dictionary for a single locale. Simple key-value store with fallback tracking.</p>
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>TryGetValue(entryID, out value)</code></td><td>Lookup a string by ID</td></tr>
+      <tr><td><code>ContainsID(entryID)</code></td><td>Check if an ID exists</td></tr>
+      <tr><td><code>Add(entryID, value)</code></td><td>Add or replace an entry</td></tr>
+      <tr><td><code>MergeFrom(other, fallback)</code></td><td>Merge entries from another dictionary</td></tr>
+    </tbody>
+  </table>
+
+  <h3>IDictionarySource</h3>
+  <p>Interface for providing localization entries.</p>
+  <pre><code>public interface IDictionarySource
+{
+    IEnumerable&lt;KeyValuePair&lt;string, string&gt;&gt; ReadEntries(
+        IList&lt;IDictionaryEntryError&gt; errors,
+        Dictionary&lt;string, int&gt; indexCounts);
+    void Unload();
+}</code></pre>
+
+  <h3>MemorySource</h3>
+  <p>Simple in-memory implementation of <code>IDictionarySource</code>. Wraps a <code>Dictionary&lt;string, string&gt;</code>. This is what mods use to inject strings.</p>
+
+  <h3>LocalizedString</h3>
+  <p>Readonly struct used in UI bindings to reference localized text.</p>
+  <table>
+    <thead><tr><th>Factory Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>LocalizedString.Id(id)</code></td><td>Lookup by localization key</td></tr>
+      <tr><td><code>LocalizedString.Value(value)</code></td><td>Literal text (no lookup)</td></tr>
+      <tr><td><code>LocalizedString.IdWithFallback(id, value)</code></td><td>ID with fallback value</td></tr>
+      <tr><td><code>LocalizedString.IdHash&lt;T&gt;(id, hash)</code></td><td>ID with enum hash suffix</td></tr>
+    </tbody>
+  </table>
+
+  <h2>String ID Convention</h2>
+
+  <pre><code>// Prefab names
+Assets.NAME:PrefabName
+
+// Settings
+Options.SECTION[ModName.ModName.Mod]:Setting.DisplayName
+Options.SECTION[ModName.ModName.Mod]:Setting.Description
+
+// UI elements
+Menu.TITLE[SomeTool]
+ToolOptions.TOOLTIP[SomeOption]
+
+// Indexed entries (colon + index)
+SubServices.NAME:0
+SubServices.NAME:1</code></pre>
+
+  <h2>Examples</h2>
+
+  <h3>Example 1: Adding Mod Strings</h3>
+  <pre><code>public void AddLocalization(LocalizationManager manager)
+{
+    var strings = new Dictionary&lt;string, string&gt;
+    {
+        { "MyMod.Title", "My Custom Mod" },
+        { "MyMod.Description", "This mod adds cool features" },
+        { "MyMod.Setting.Enabled", "Enable Feature" },
+        { "MyMod.Setting.Enabled.Desc", "Toggle the main feature on or off" }
+    };
+
+    manager.AddSource("en-US", new MemorySource(strings));
+}</code></pre>
+
+  <h3>Example 2: Supporting Multiple Languages</h3>
+  <pre><code>public void AddMultiLanguageStrings(LocalizationManager manager)
+{
+    manager.AddSource("en-US", new MemorySource(
+        new Dictionary&lt;string, string&gt;
+        {
+            { "MyMod.Title", "My Custom Mod" },
+            { "MyMod.Greeting", "Hello, Mayor!" }
+        }));
+
+    manager.AddSource("de-DE", new MemorySource(
+        new Dictionary&lt;string, string&gt;
+        {
+            { "MyMod.Title", "Mein benutzerdefinierter Mod" },
+            { "MyMod.Greeting", "Hallo, Buergermeister!" }
+        }));
+}</code></pre>
+
+  <h3>Example 3: Looking Up a String</h3>
+  <pre><code>var dictionary = GameManager.instance.localizationManager.activeDictionary;
+if (dictionary.TryGetValue("MyMod.Title", out string title))
+{
+    // Use title
+}</code></pre>
+
+  <h3>Example 4: Using LocalizedString in UI Bindings</h3>
+  <pre><code>// ID-only (resolved by the UI)
+LocalizedString label = LocalizedString.Id("MyMod.Title");
+
+// With substitution parameters
+LocalizedString greeting = LocalizedString.Id("MyMod.Welcome",
+    ("PLAYER_NAME", LocalizedString.Value("Mayor")));
+
+// Literal value (no localization lookup)
+LocalizedString literal = LocalizedString.Value("Fixed text");
+
+// ID with fallback
+LocalizedString safe = LocalizedString.IdWithFallback(
+    "MyMod.MaybeExists", "Default Text");</code></pre>
+
+  <h2>Warnings &amp; Pitfalls</h2>
+
+  <ul>
+    <li><strong>Sources are per-locale</strong> -- you must call <code>AddSource()</code> separately for each locale you support.</li>
+    <li><strong>Fallback dictionary auto-merges</strong> -- entries added to the fallback locale are automatically available in all other locales (as fallback values).</li>
+    <li><strong>User sources persist across reloads</strong> -- <code>m_UserSources</code> is re-applied when <code>LoadAvailableLocales()</code> runs.</li>
+    <li><strong>TryGetValue is case-sensitive</strong> -- string IDs use ordinal comparison.</li>
+    <li><strong>Duplicate keys overwrite silently</strong> -- the last source to add a key wins.</li>
+  </ul>
+
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>How does the UI template engine resolve <code>ILocElement</code> arguments in format strings?</li>
+    <li>How are indexed entries used in practice?</li>
+    <li>What is the complete set of locale IDs supported by the base game?</li>
+  </ul>
+
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from Colossal.Localization.dll and Game.dll (Cities: Skylines II)</li>
+    <li>Key types: LocalizationManager, LocalizationDictionary, MemorySource, IDictionarySource, LocalizedString</li>
+  </ul>
+
+  </main>
+
+</div>
+
+<footer>
+  <p>Research decompiled from Cities: Skylines II game assemblies using ilspycmd. For educational and modding purposes.</p>
+  <div class="attribution-footer">
+    <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+  </div>
+</footer>
+
+</body>
+</html>
