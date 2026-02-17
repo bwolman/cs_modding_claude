@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Prefab System - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="prefab-system.html" class="active">Prefab System</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Prefab System &amp; Custom Assets</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 load, index, and resolve prefabs at runtime?
+      How can mods add custom prefabs, modify existing ones, or query the prefab database?
+    </p>
+    <p>
+      <strong>Verdict:</strong> CS2 uses a <strong>two-entity model</strong> where managed
+      <code>PrefabBase</code> objects (loaded from asset bundles) are registered with
+      <code>PrefabSystem</code>, which creates corresponding ECS entities. Each prefab entity
+      stores configuration data and an <code>ObjectData.m_Archetype</code> used to instantiate
+      game-world objects. Mods can add, duplicate, modify, and query prefabs through the
+      <code>PrefabSystem</code> API.
+    </p>
+  </div>
+
+  <h2>How It Works</h2>
+
+  <p>
+    The prefab system bridges the gap between Unity's managed <code>ScriptableObject</code>
+    world and the ECS simulation. Every prefab goes through a registration and initialization
+    pipeline that creates an ECS entity with the right components and generates an archetype
+    template for spawning game instances.
+  </p>
+
+  <div class="diagram"><pre>
+[Asset Database loads PrefabBase objects]
+        |
+[PrefabSystem.AddPrefab(prefab)]
+  - Collects ComponentBase list from prefab
+  - Each ComponentBase declares ECS components via GetPrefabComponents()
+  - Creates Entity with those components + Created + Updated
+  - Sets PrefabData.m_Index
+  - Registers in m_Entities and m_PrefabIndices
+        |
+[PrefabInitializeSystem.OnUpdate]
+  - Phase 1: ComponentBase.Initialize() + dependency discovery
+  - Dependencies queued and added via PrefabSystem.AddPrefab()
+  - Phase 2: ComponentBase.LateInitialize()
+  - Sets up unlock requirements
+        |
+[ObjectPrefab.LateInitialize -&gt; RefreshArchetype]
+  - GetArchetypeComponents() collects instance components
+  - Creates EntityArchetype stored in ObjectData.m_Archetype
+  - This archetype is used when spawning game objects
+  </pre></div>
+
+  <h2>Two-Entity Model</h2>
+
+  <p>
+    CS2 maintains two kinds of entities for each prefab:
+  </p>
+
+  <table>
+    <thead><tr><th>Entity Type</th><th>Created By</th><th>Key Component</th><th>Count</th></tr></thead>
+    <tbody>
+      <tr><td>Prefab Entity</td><td><code>PrefabSystem.AddPrefab()</code></td><td><code>PrefabData</code> (index into master list)</td><td>One per prefab type</td></tr>
+      <tr><td>Instance Entity</td><td>Object placement / simulation</td><td><code>PrefabRef</code> (points to prefab entity)</td><td>Many per prefab type</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Prefab Type Hierarchy</h2>
+
+  <pre><code>PrefabBase (abstract)
+  +-- ObjectPrefab                    // Any standalone object
+  |     +-- StaticObjectPrefab        // Non-moving objects
+  |     |     +-- BuildingPrefab      // Buildings with lots
+  |     +-- MovingObjectPrefab        // Vehicles, citizens
+  |           +-- VehiclePrefab
+  |           +-- CreaturePrefab
+  +-- NetPrefab                       // Networks (roads, pipes)
+  +-- AreaPrefab                      // Zones, districts
+  +-- ContentPrefab                   // DLC/mod content markers
+  +-- UnlockRequirementPrefab         // Milestone prerequisites</code></pre>
+
+  <h2>Key Components</h2>
+
+  <h3>PrefabBase (Managed)</h3>
+  <p>Abstract base class for all prefab definitions. Extends <code>ScriptableObject</code>.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>components</code></td><td>List&lt;ComponentBase&gt;</td><td>Attached component definitions</td></tr>
+      <tr><td><code>isDirty</code></td><td>bool</td><td>Needs re-initialization</td></tr>
+      <tr><td><code>asset</code></td><td>PrefabAsset</td><td>Asset database entry reference</td></tr>
+      <tr><td><code>isBuiltin</code></td><td>bool</td><td>True if from base game</td></tr>
+      <tr><td><code>isSubscribedMod</code></td><td>bool</td><td>True if from ParadoxMods</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PrefabID (Struct)</h3>
+  <p>Unique identifier for prefab lookup. Composed of type name + prefab name + optional hash.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Type</code></td><td>string</td><td>Type name (e.g., "BuildingPrefab")</td></tr>
+      <tr><td><code>m_Name</code></td><td>string</td><td>Prefab name (e.g., "Commercial_CornerStore01")</td></tr>
+      <tr><td><code>m_Hash</code></td><td>Hash128</td><td>Asset GUID or platform ID hash</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PrefabData (ECS)</h3>
+  <p>Minimal ECS component on prefab entities. Links back to the managed prefab via index.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Index</code></td><td>int</td><td>Index into PrefabSystem's master list</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ComponentBase (Managed)</h3>
+  <p>
+    Abstract data container attached to prefabs. Each subclass declares which ECS components
+    its prefab entity and game instances need via <code>GetPrefabComponents()</code> and
+    <code>GetArchetypeComponents()</code>.
+  </p>
+
+  <h2>PrefabSystem API</h2>
+
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>AddPrefab(prefab)</code></td><td>Register a new prefab, create ECS entity</td></tr>
+      <tr><td><code>RemovePrefab(prefab)</code></td><td>Unregister, mark entity Deleted</td></tr>
+      <tr><td><code>UpdatePrefab(prefab)</code></td><td>Schedule for re-initialization</td></tr>
+      <tr><td><code>DuplicatePrefab(template, name)</code></td><td>Clone an existing prefab</td></tr>
+      <tr><td><code>GetEntity(prefab)</code></td><td>Get ECS entity for a managed prefab</td></tr>
+      <tr><td><code>GetPrefab&lt;T&gt;(entity)</code></td><td>Get managed prefab from ECS entity</td></tr>
+      <tr><td><code>TryGetPrefab(PrefabID, out prefab)</code></td><td>Lookup by type name + prefab name</td></tr>
+      <tr><td><code>GetComponentData&lt;T&gt;(prefab)</code></td><td>Read ECS data from prefab entity</td></tr>
+      <tr><td><code>AddComponentData&lt;T&gt;(prefab, data)</code></td><td>Add ECS data to prefab entity</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Examples</h2>
+
+  <h3>Example 1: Looking Up a Prefab by ID</h3>
+  <pre><code>PrefabID id = new PrefabID(nameof(BuildingPrefab), "Commercial_CornerStore01");
+if (prefabSystem.TryGetPrefab(id, out PrefabBase prefab))
+{
+    Entity prefabEntity = prefabSystem.GetEntity(prefab);
+    // Use prefab or its entity
+}</code></pre>
+
+  <h3>Example 2: Duplicating and Registering a Prefab</h3>
+  <pre><code>PrefabID templateID = new PrefabID(
+    nameof(BuildingPrefab), "Commercial_CornerStore01");
+
+if (prefabSystem.TryGetPrefab(templateID, out PrefabBase template))
+{
+    PrefabBase clone = prefabSystem.DuplicatePrefab(
+        template, "MyMod_CustomStore");
+    // clone is now registered and has its own ECS entity
+}</code></pre>
+
+  <h3>Example 3: Reading Prefab Data from a Game Entity</h3>
+  <pre><code>if (EntityManager.TryGetComponent&lt;PrefabRef&gt;(entity, out PrefabRef prefabRef))
+{
+    Entity prefabEntity = prefabRef.m_Prefab;
+    PrefabData data = EntityManager.GetComponentData&lt;PrefabData&gt;(prefabEntity);
+    PrefabBase prefab = prefabSystem.GetPrefab&lt;PrefabBase&gt;(data);
+
+    string name = prefab.name;           // e.g., "Commercial_CornerStore01"
+    string type = prefab.GetType().Name; // e.g., "BuildingPrefab"
+    bool builtin = prefab.isBuiltin;     // true for base game prefabs
+}</code></pre>
+
+  <h3>Example 4: Modifying Prefab ECS Data</h3>
+  <pre><code>PrefabID id = new PrefabID(nameof(BuildingPrefab), "SomeBuilding");
+if (prefabSystem.TryGetPrefab(id, out PrefabBase prefab))
+{
+    Entity entity = prefabSystem.GetEntity(prefab);
+    if (EntityManager.TryGetComponent&lt;PlaceableObjectData&gt;(entity, out var data))
+    {
+        data.m_ConstructionCost = 5000;
+        EntityManager.SetComponentData(entity, data);
+    }
+}</code></pre>
+
+  <h3>Example 5: Iterating All Building Prefabs</h3>
+  <pre><code>foreach (PrefabBase prefab in prefabSystem.prefabs)
+{
+    if (prefab is BuildingPrefab building)
+    {
+        int lotSize = building.m_LotWidth * building.m_LotDepth;
+        // Process building prefab
+    }
+}</code></pre>
+
+  <h2>Warnings &amp; Pitfalls</h2>
+
+  <ul>
+    <li><strong>AddPrefab checks availability</strong> -- prefabs from unavailable mods/DLC will be rejected.</li>
+    <li><strong>PrefabData.m_Index can change</strong> -- when prefabs are removed, the last prefab swaps into the removed slot.</li>
+    <li><strong>Two initialization phases</strong> -- <code>Initialize()</code> runs first for all components, then <code>LateInitialize()</code>. Dependencies discovered in phase 1 are added before phase 2.</li>
+    <li><strong>Duplicate PrefabIDs warn but don't crash</strong> -- the second registration is ignored.</li>
+    <li><strong>UpdatePrefab replaces the entity</strong> -- old entity gets <code>Deleted</code>, a new entity is created. Any cached entity references become stale.</li>
+  </ul>
+
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>How does the asset database load PrefabAsset objects from disk at startup?</li>
+    <li>How does <code>ReplacePrefabSystem</code> handle entity replacement when prefabs are updated?</li>
+    <li>What is the complete list of <code>ComponentBase</code> subclasses that mods can attach?</li>
+    <li>How does the content prerequisite system gate DLC/mod content availability?</li>
+  </ul>
+
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from Game.dll (Cities: Skylines II)</li>
+    <li>Namespaces: Game.Prefabs, Game.Common</li>
+    <li>Key types: PrefabSystem, PrefabBase, ComponentBase, PrefabID, PrefabData, PrefabRef, PrefabInitializeSystem, ObjectPrefab, BuildingPrefab, ObjectData</li>
+  </ul>
+
+  </main>
+
+</div>
+
+<footer>
+  <p>Research decompiled from Cities: Skylines II game assemblies using ilspycmd. For educational and modding purposes.</p>
+  <div class="attribution-footer">
+    <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+  </div>
+</footer>
+
+</body>
+</html>
