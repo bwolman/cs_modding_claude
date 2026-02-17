@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Harmony Transpiler Patterns</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="harmony-transpilers.html" class="active">Harmony Transpilers</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Harmony Transpiler Patterns</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How do Harmony transpilers work at the IL level? When should you
+      use a transpiler instead of a prefix/postfix, and what are the key patterns for safely
+      rewriting game method bodies in CS2?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Transpilers rewrite a method's <strong>IL instruction stream</strong>
+      at patch time, not at call time. They receive the original method as
+      <code>IEnumerable&lt;CodeInstruction&gt;</code> and return a modified sequence. The
+      <strong>CodeMatcher</strong> API provides cursor-based pattern matching that is far more
+      maintainable than manual index iteration. In CS2, transpilers work on any
+      <strong>managed (non-Burst-compiled)</strong> code -- meaning system classes, UI systems,
+      and prefab initialization are patchable, but Burst-compiled job Execute() methods are not.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Prefix/postfix basics, reverse patches, and finalizers.
+      This page covers only the transpiler API and IL-level patching.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <h3>What is a Transpiler?</h3>
+
+  <p>
+    A <strong>transpiler</strong> is a special Harmony patch type that receives the IL instructions
+    of the original method and returns modified IL instructions. Unlike prefix/postfix patches
+    that run every time the method is called, a transpiler runs <strong>once at patch time</strong>
+    and permanently rewrites the method body. This means:
+  </p>
+
+  <ul>
+    <li><strong>Zero runtime overhead</strong> -- the modified IL runs as if it were the original code</li>
+    <li><strong>Full control</strong> -- you can insert, remove, or replace any IL instruction</li>
+    <li><strong>High complexity</strong> -- you must understand IL opcodes and stack manipulation</li>
+    <li><strong>Fragile</strong> -- IL patterns may change between game versions</li>
+  </ul>
+
+  <h3>Transpiler Signature</h3>
+
+  <pre><code class="language-csharp">[HarmonyTranspiler]
+static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+    IEnumerable&lt;CodeInstruction&gt; instructions,  // Required: original IL
+    ILGenerator generator,                       // Optional: for labels/locals
+    MethodBase original                          // Optional: original MethodInfo
+)</code></pre>
+
+  <p>
+    Harmony injects all three parameters. Only <code>instructions</code> is required. Add
+    <code>ILGenerator</code> when you need to create new labels (for branching) or local variables.
+    Add <code>MethodBase</code> when you need to inspect the original method's attributes.
+  </p>
+
+  <h3>When to Use a Transpiler vs. Prefix/Postfix</h3>
+
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Best Approach</th><th>Why</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Run code before/after a method</td><td>Prefix/Postfix</td><td>Simpler, no IL knowledge needed</td></tr>
+      <tr><td>Skip the original method entirely</td><td>Prefix (return false)</td><td>Simpler than removing all IL</td></tr>
+      <tr><td>Modify the return value</td><td>Postfix (__result)</td><td>Cleaner than IL manipulation</td></tr>
+      <tr><td>Change a value mid-method</td><td>Transpiler</td><td>Only way to reach inside method body</td></tr>
+      <tr><td>Replace a specific method call</td><td>Transpiler</td><td>Prefix/postfix cannot intercept internal calls</td></tr>
+      <tr><td>Add a conditional branch</td><td>Transpiler</td><td>Requires IL label/branch manipulation</td></tr>
+      <tr><td>Change a hardcoded constant</td><td>Transpiler</td><td>Only way to modify inline values</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <h3>CodeInstruction (HarmonyLib)</h3>
+
+  <p>Represents a single IL instruction. Every method body is a sequence of these.</p>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>opcode</td><td>OpCode</td><td>The IL operation (Ldarg_0, Call, Stfld, etc.)</td></tr>
+      <tr><td>operand</td><td>object</td><td>Argument: MethodInfo, FieldInfo, Label, int, string, etc.</td></tr>
+      <tr><td>labels</td><td>List&lt;Label&gt;</td><td>Branch targets pointing to this instruction</td></tr>
+      <tr><td>blocks</td><td>List&lt;ExceptionBlock&gt;</td><td>Exception handler boundaries</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Factory Methods</h4>
+
+  <p>Static methods on <code>CodeInstruction</code> that create instructions without manual opcode lookup:</p>
+
+  <table>
+    <thead>
+      <tr><th>Factory Method</th><th>IL Opcode(s)</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Call(type, name, params, generics)</td><td>Call</td><td>Call a method</td></tr>
+      <tr><td>LoadField(type, name, useAddress)</td><td>Ldfld / Ldsfld</td><td>Load field value</td></tr>
+      <tr><td>StoreField(type, name)</td><td>Stfld / Stsfld</td><td>Store to field</td></tr>
+      <tr><td>LoadLocal(index, useAddress)</td><td>Ldloc / Ldloc_N</td><td>Load local variable</td></tr>
+      <tr><td>StoreLocal(index)</td><td>Stloc / Stloc_N</td><td>Store local variable</td></tr>
+      <tr><td>LoadArgument(index)</td><td>Ldarg / Ldarg_N</td><td>Load method argument</td></tr>
+      <tr><td>StoreArgument(index)</td><td>Starg</td><td>Store method argument</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CodeMatcher (HarmonyLib)</h3>
+
+  <p>
+    A <strong>cursor-based API</strong> for finding and modifying IL instruction patterns. Far more
+    maintainable than iterating through instruction lists by index.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>MatchStartForward(CodeMatch[])</td><td>Find pattern forward, cursor at start of match</td></tr>
+      <tr><td>MatchEndForward(CodeMatch[])</td><td>Find pattern forward, cursor at end of match</td></tr>
+      <tr><td>MatchStartBackward(CodeMatch[])</td><td>Find pattern backward, cursor at start</td></tr>
+      <tr><td>Insert(CodeInstruction[])</td><td>Insert before current position</td></tr>
+      <tr><td>InsertAndAdvance(CodeInstruction[])</td><td>Insert and move cursor past inserted code</td></tr>
+      <tr><td>RemoveInstruction()</td><td>Remove instruction at cursor</td></tr>
+      <tr><td>RemoveInstructions(int)</td><td>Remove N instructions from cursor</td></tr>
+      <tr><td>SetInstruction(CodeInstruction)</td><td>Replace instruction at cursor</td></tr>
+      <tr><td>SetOperandAndAdvance(object)</td><td>Change operand and advance</td></tr>
+      <tr><td>Advance(int)</td><td>Move cursor by offset</td></tr>
+      <tr><td>Repeat(Action&lt;CodeMatcher&gt;)</td><td>Repeat match for all occurrences</td></tr>
+      <tr><td>ThrowIfInvalid(string)</td><td>Throw if last match failed</td></tr>
+      <tr><td>IsValid</td><td>True if last match succeeded</td></tr>
+      <tr><td>Instructions()</td><td>Return the modified instruction list</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CodeMatch (HarmonyLib)</h3>
+
+  <p>Pattern matching expressions used with CodeMatcher.</p>
+
+  <pre><code class="language-csharp">// Match by opcode only
+new CodeMatch(OpCodes.Ldarg_0)
+
+// Match by opcode and specific operand
+new CodeMatch(OpCodes.Call, AccessTools.Method(typeof(Foo), "Bar"))
+
+// Match by opcode with a name hint (for debugging)
+new CodeMatch(OpCodes.Ldfld, null, "myFieldMatch")
+
+// Type-safe expression matching
+CodeMatch.Calls(() =&gt; default(SomeType).SomeMethod(default))
+
+// Wildcard: match any instruction
+new CodeMatch()</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+HARMONY PATCH APPLICATION (one-time, at mod load)
+
+  Harmony.PatchAll() or harmony.Patch(original, transpiler: ...)
+        |
+        v
+  Harmony reads original method's IL body
+  Converts to List&lt;CodeInstruction&gt;
+        |
+        v
+  Your Transpiler method receives IEnumerable&lt;CodeInstruction&gt;
+        |
+        +--- CodeMatcher wraps the list
+        |    |
+        |    +--- MatchStartForward() finds patterns
+        |    |
+        |    +--- Insert/Remove/Set modifies instructions
+        |    |
+        |    +--- Instructions() returns modified list
+        |
+        v
+  Harmony receives modified IEnumerable&lt;CodeInstruction&gt;
+  Validates labels and exception blocks
+  Emits new IL via ILGenerator.Emit()
+  Replaces original method body with new IL
+        |
+        v
+  RUNTIME: method executes modified IL directly
+  (no per-call overhead from the transpiler itself)
+</pre>
+  </div>
+
+  <h3>Labels and Branching</h3>
+
+  <div class="diagram">
+<pre>
+CREATING A CONDITIONAL SKIP:
+
+  Original IL:             Modified IL:
+  ...                      ...
+  [instruction A]          [instruction A]
+  [instruction B]     --&gt;  call ShouldSkip()     &lt;-- inserted
+  [instruction C]          brtrue skipLabel       &lt;-- inserted
+                           [instruction B]
+                           [instruction C]
+                           [skipLabel:] ...       &lt;-- label added
+</pre>
+  </div>
+
+  <p>
+    To create new branches: call <code>generator.DefineLabel()</code> to get a <code>Label</code>,
+    add it to the target instruction's <code>labels</code> list, and use it as the operand for
+    a branch opcode (<code>Br</code>, <code>Brtrue</code>, <code>Brfalse</code>, etc.).
+  </p>
+
+  <p><strong>Critical rule:</strong> When removing instructions that have labels, always move those
+  labels to an adjacent instruction. Orphaned labels cause <code>InvalidProgramException</code>
+  at runtime.</p>
+
+  <!-- ============================================================ -->
+  <h2>CS2-Specific Considerations</h2>
+
+  <h3>Burst Compilation Limitation</h3>
+
+  <p>
+    CS2 uses Unity's Burst compiler to compile ECS jobs into native code. <strong>Harmony cannot
+    patch Burst-compiled methods</strong> because they are no longer managed .NET code.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Can Transpile</th><th>Cannot Transpile</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>GameSystemBase.OnUpdate, OnCreate</td>
+        <td>IJob.Execute (Burst-compiled)</td>
+      </tr>
+      <tr>
+        <td>UISystemBase subclasses</td>
+        <td>IJobChunk.Execute (Burst-compiled)</td>
+      </tr>
+      <tr>
+        <td>PrefabBase.Initialize</td>
+        <td>Any [BurstCompile] method</td>
+      </tr>
+      <tr>
+        <td>ToolSystem, ToolBaseSystem</td>
+        <td>Native/unmanaged code paths</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    For Burst-compiled simulation logic, use the ECS approach instead: create custom systems that
+    run before/after the target system and modify entity components directly.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Replace a Method Call with CodeMatcher</h3>
+
+  <p>Find a specific method call in the IL and replace it with your own implementation.
+  The replacement method must have the same signature.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(TargetClass), "TargetMethod")]
+public static class ReplaceCallTranspiler
+{
+    static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+        IEnumerable&lt;CodeInstruction&gt; instructions)
+    {
+        var matcher = new CodeMatcher(instructions);
+        var original = AccessTools.Method(typeof(OriginalClass), "Calculate");
+        var replacement = AccessTools.Method(
+            typeof(ReplaceCallTranspiler), nameof(CustomCalculate));
+
+        matcher.MatchStartForward(
+            new CodeMatch(OpCodes.Call, original)
+        )
+        .ThrowIfInvalid("Could not find OriginalClass.Calculate")
+        .SetInstruction(new CodeInstruction(OpCodes.Call, replacement));
+
+        return matcher.Instructions();
+    }
+
+    // Must match original signature exactly
+    public static float CustomCalculate(float input, int multiplier)
+    {
+        return input * multiplier * 0.5f; // Custom logic
+    }
+}</code></pre>
+
+  <h3>Insert a Callback Before a Specific Point</h3>
+
+  <p>Inject a static method call at a precise location without disturbing the original logic.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Tools.ToolSystem), "SetInfoview")]
+public static class InsertCallbackTranspiler
+{
+    static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+        IEnumerable&lt;CodeInstruction&gt; instructions)
+    {
+        var matcher = new CodeMatcher(instructions);
+        matcher.MatchStartForward(
+            new CodeMatch(OpCodes.Callvirt,
+                AccessTools.Method(typeof(PrefabSystem), "GetEntity"))
+        )
+        .ThrowIfInvalid("Could not find PrefabSystem.GetEntity")
+        .InsertAndAdvance(
+            new CodeInstruction(OpCodes.Ldarg_1),  // load InfoviewPrefab param
+            CodeInstruction.Call(typeof(InsertCallbackTranspiler),
+                nameof(OnBeforeGetEntity))
+        );
+
+        return matcher.Instructions();
+    }
+
+    public static void OnBeforeGetEntity(object prefab)
+    {
+        Mod.Log.Info($"About to get entity for: {prefab}");
+    }
+}</code></pre>
+
+  <h3>Add a Conditional Branch to Skip Logic</h3>
+
+  <p>Wrap existing logic in an if-check so it can be disabled at runtime.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(SomeSystem), "OnUpdate")]
+public static class ConditionalSkipTranspiler
+{
+    static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+        IEnumerable&lt;CodeInstruction&gt; instructions, ILGenerator generator)
+    {
+        var skipLabel = generator.DefineLabel();
+        var matcher = new CodeMatcher(instructions, generator);
+
+        matcher.MatchStartForward(
+            new CodeMatch(OpCodes.Ldarg_0),
+            new CodeMatch(OpCodes.Call, AccessTools.Method(
+                typeof(SomeSystem), "ExpensiveOperation"))
+        )
+        .ThrowIfInvalid("Could not find ExpensiveOperation")
+        .InsertAndAdvance(
+            CodeInstruction.Call(typeof(ConditionalSkipTranspiler),
+                nameof(ShouldSkip)),
+            new CodeInstruction(OpCodes.Brtrue, skipLabel)
+        );
+
+        // Mark the instruction after ExpensiveOperation with the skip label
+        matcher.MatchEndForward(
+            new CodeMatch(OpCodes.Call, AccessTools.Method(
+                typeof(SomeSystem), "ExpensiveOperation"))
+        )
+        .Advance(1);
+        matcher.Instruction.labels.Add(skipLabel);
+
+        return matcher.Instructions();
+    }
+
+    public static bool ShouldSkip()
+    {
+        return ModSettings.Instance.DisableFeature;
+    }
+}</code></pre>
+
+  <h3>Replace a Hardcoded Constant</h3>
+
+  <p>Change a numeric literal embedded in the IL, such as an update interval or threshold.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(SomeSystem), "OnUpdate")]
+public static class ReplaceConstantTranspiler
+{
+    static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+        IEnumerable&lt;CodeInstruction&gt; instructions)
+    {
+        var matcher = new CodeMatcher(instructions);
+
+        // Find: ldc.i4 128 (a hardcoded update interval)
+        matcher.MatchStartForward(
+            new CodeMatch(OpCodes.Ldc_I4, 128)
+        )
+        .ThrowIfInvalid("Could not find constant 128")
+        .SetOperandAndAdvance(64);  // Change to 64
+
+        return matcher.Instructions();
+    }
+}</code></pre>
+
+  <h3>Repeat Replacement for All Occurrences</h3>
+
+  <p>Replace every occurrence of a pattern using <code>Repeat()</code>.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(SomeUISystem), "PerformUpdate")]
+public static class ReplaceAllTranspiler
+{
+    static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+        IEnumerable&lt;CodeInstruction&gt; instructions)
+    {
+        var original = AccessTools.Method(typeof(UIUtils), "GetLabel");
+        var replacement = AccessTools.Method(
+            typeof(ReplaceAllTranspiler), nameof(CustomLabel));
+
+        var matcher = new CodeMatcher(instructions);
+        matcher.MatchStartForward(new CodeMatch(OpCodes.Call, original))
+            .Repeat(cm =&gt;
+            {
+                cm.SetInstruction(
+                    new CodeInstruction(OpCodes.Call, replacement));
+            });
+
+        return matcher.Instructions();
+    }
+
+    public static string CustomLabel(/* same params */)
+    {
+        return "Modified Label";
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Debugging Transpilers</h3>
+
+  <table>
+    <thead>
+      <tr><th>Technique</th><th>How</th><th>What it Shows</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Harmony debug log</td>
+        <td><code>Harmony.DEBUG = true;</code> or <code>[HarmonyDebug]</code></td>
+        <td>Full IL listing before and after patching</td>
+      </tr>
+      <tr>
+        <td>ThrowIfInvalid</td>
+        <td><code>matcher.ThrowIfInvalid("message")</code></td>
+        <td>Fails loudly if pattern not found (vs. silent no-op)</td>
+      </tr>
+      <tr>
+        <td>dnSpy / ILSpy IL view</td>
+        <td>Open Game.dll, switch to IL view</td>
+        <td>See exact IL instructions to match against</td>
+      </tr>
+      <tr>
+        <td>SharpLab</td>
+        <td>sharplab.io -- paste C#, see IL output</td>
+        <td>Test what IL your C# patterns compile to</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Common Errors</h3>
+
+  <table>
+    <thead>
+      <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>InvalidProgramException</td>
+        <td>Orphaned labels (removed instruction had labels)</td>
+        <td>Move labels to adjacent instruction before removing</td>
+      </tr>
+      <tr>
+        <td>InvalidProgramException</td>
+        <td>Duplicate labels (copied instruction kept labels)</td>
+        <td>Clear labels on copied instructions</td>
+      </tr>
+      <tr>
+        <td>NullReferenceException in CodeMatcher</td>
+        <td>Missing ILGenerator parameter</td>
+        <td>Add <code>ILGenerator generator</code> to transpiler, pass to CodeMatcher</td>
+      </tr>
+      <tr>
+        <td>Patch not applying</td>
+        <td>Target method is Burst-compiled</td>
+        <td>Use ECS approach instead of Harmony</td>
+      </tr>
+      <tr>
+        <td>ThrowIfInvalid exception</td>
+        <td>IL pattern changed between game versions</td>
+        <td>Update match pattern or use wider match criteria</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>HarmonyX vs Harmony 2.x:</strong> CS2 may use HarmonyX (BepInEx fork) rather than
+      vanilla Harmony 2.x. The API is nearly identical but there may be minor differences in
+      transpiler behavior and error reporting.
+    </li>
+    <li>
+      <strong>Burst deoptimization:</strong> Whether it is possible to disable Burst compilation
+      for specific jobs at runtime to make them patchable via environment variables or attributes.
+    </li>
+    <li>
+      <strong>Multi-transpiler compatibility:</strong> When multiple mods transpile the same method,
+      each transpiler sees the output of the previous one, which can cause match failures if
+      patterns shift. No standard co-existence protocol exists.
+    </li>
+    <li>
+      <strong>IL verification:</strong> There is no built-in way to validate transpiler output
+      before it executes. Bad IL causes runtime crashes rather than compile-time errors.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li><a href="https://harmony.pardeike.net/articles/patching-transpiler.html">Harmony Transpiler Documentation</a></li>
+    <li><a href="https://harmony.pardeike.net/articles/patching-transpiler-matcher.html">Harmony CodeMatcher Documentation</a></li>
+    <li><a href="https://harmony.pardeike.net/articles/patching-transpiler-codes.html">Harmony CodeInstruction Documentation</a></li>
+    <li><a href="https://harmony.pardeike.net/api/HarmonyLib.CodeInstruction.html">CodeInstruction API Reference</a></li>
+    <li><a href="https://harmony.pardeike.net/api/HarmonyLib.CodeMatcher.html">CodeMatcher API Reference</a></li>
+    <li><a href="https://gist.github.com/pardeike/c02e29f9e030e6a016422ca8a89eefc9">Simple Transpiler Tutorial by pardeike</a></li>
+    <li><a href="https://gist.github.com/JavidPack/454477b67db8b017cb101371a8c49a1c">Another Transpiler Tutorial by JavidPack</a></li>
+    <li><a href="https://www.paradoxinteractive.com/games/cities-skylines-ii/modding/dev-diary-3-code-modding">CS2 Code Modding Dev Diary (Paradox)</a></li>
+    <li><a href="https://github.com/pardeike/Harmony">Harmony GitHub Repository</a></li>
+  </ul>
+
+  <footer>
+    <p>Source: Harmony 2.x documentation and community resources. CS2 Burst limitations from Paradox/Colossal Order dev diaries.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
