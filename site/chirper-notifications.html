@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chirper / Social Media Notifications</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="chirper-notifications.html" class="active">Chirper Notifications</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="localization.html">Localization</a>
+
+      <h3>Vehicles &amp; Transport</h3>
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Chirper / Social Media Notifications</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2's in-game "Chirper" social media system create,
+      display, and manage chirp notifications -- the Twitter/X-like messages from citizens,
+      brands, and city services?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Chirps are ECS entities created by <code>CreateChirpSystem</code>
+      from a <strong>NativeQueue</strong> that other systems enqueue into. Each chirp has a sender
+      (citizen, brand, or service account), a like count that animates over time via a
+      <strong>viral curve</strong>, and linked entities for clickable references. A deduplication
+      system prevents the same chirp type from appearing more than once every 18,000 frames
+      (~5 minutes). The UI layer binds chirp data as JSON for the frontend panel.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Life path event triggers that produce chirps, localization
+      of chirp message text (see <a href="localization.html">Localization</a>).
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The Chirper system is a <strong>producer-consumer pipeline</strong>. Game systems (milestones,
+    service issues, citizen events) enqueue <code>ChirpCreationData</code> requests into a
+    shared <code>NativeQueue</code>. The <code>CreateChirpSystem</code> drains this queue each
+    frame, resolves the chirp type, selects a sender, calculates engagement parameters, and
+    creates the chirp entity. The <code>ChirpLikeCountSystem</code> then animates the like
+    count over time, and the <code>ChirperUISystem</code> binds everything to the UI.
+  </p>
+
+  <h3>Three Sender Types</h3>
+
+  <p>Every chirp has a sender, resolved in priority order:</p>
+
+  <ol>
+    <li><strong>Service accounts</strong> -- City service chirps (water department, fire dept)
+    use a dedicated <code>ChirperAccountData</code> entity as sender. The account has its own
+    name, avatar, and links to an infoview.</li>
+    <li><strong>Brands</strong> -- Company/brand chirps use the company entity directly.
+    The UI resolves the brand's logo as the avatar.</li>
+    <li><strong>Citizens</strong> -- Most chirps. The system tries to find a random living adult
+    citizen from: the sender company's employees, the sender household's members, or
+    (as fallback) any adult citizen in the city.</li>
+  </ol>
+
+  <h3>Deduplication (18,000-Frame Cooldown)</h3>
+
+  <p>
+    Before creating a chirp, the system checks if a chirp with the <strong>same prefab</strong>
+    was created within the last 18,000 frames (~5 minutes at 60 FPS). If so, the request is
+    silently dropped. This prevents repetitive "water shortage" or "crime wave" chirps from
+    flooding the feed. The check is performed by <code>CollectRecentChirpsJob</code>, which
+    builds a hashmap of <code>(prefab Entity, chirp Entity)</code> pairs from existing chirps.
+  </p>
+
+  <h3>Like Count Animation (Viral Curve)</h3>
+
+  <p>
+    Chirps don't instantly show their final like count. Instead, likes accumulate over time
+    following a <strong>viral curve</strong>:
+  </p>
+
+  <p>
+    <code>likes = targetLikes * (1 - (1 - progress)^viralFactor)</code>
+  </p>
+
+  <p>Where:</p>
+  <ul>
+    <li><code>progress</code> = fraction of time elapsed from creation to inactive frame</li>
+    <li><code>viralFactor</code> = random integer 5-100 (higher = faster initial growth)</li>
+    <li><code>targetLikes</code> = population * random factor (0.1%-3% of population)</li>
+  </ul>
+
+  <p>
+    With a high viral factor, likes spike quickly then plateau. With a low viral factor,
+    growth is more linear. The <code>m_ContinuousFactor</code> (default 0.2) adds randomness
+    by occasionally skipping update ticks.
+  </p>
+
+  <h3>Entity Name Caching</h3>
+
+  <p>
+    When a chirp references a citizen or building that later gets deleted (citizen dies,
+    building demolished), the <code>ChirpLinkSystem</code> preserves the entity's name in a
+    serializable cache. This ensures old chirps remain readable even after their referenced
+    entities no longer exist.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Triggers</td>
+        <td>Chirp, ChirpEntity, ChirpLink, ChirpCreationData, ChirpFlags, CreateChirpSystem, ChirpLikeCountSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>ChirpData, ChirpDataFlags, ChirperAccountData, TriggerChirpData, ServiceChirpData, BrandChirpData, RandomLikeCountData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.UI.InGame</td>
+        <td>ChirperUISystem, ChirpLinkSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Chirp (Game.Triggers)</h3>
+
+  <p>Core component on every chirp entity. Serializable for save/load persistence.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Sender</td><td>Entity</td><td>The citizen, brand, or account that posted</td></tr>
+      <tr><td>m_CreationFrame</td><td>uint</td><td>Simulation frame when created</td></tr>
+      <tr><td>m_Likes</td><td>uint</td><td>Current animated like count</td></tr>
+      <tr><td>m_TargetLikes</td><td>uint</td><td>Final target likes (from population)</td></tr>
+      <tr><td>m_InactiveFrame</td><td>uint</td><td>Frame when like animation stops</td></tr>
+      <tr><td>m_ViralFactor</td><td>int</td><td>Curve shape (5-100, higher = faster spike)</td></tr>
+      <tr><td>m_ContinuousFactor</td><td>float</td><td>Skip probability per tick (default 0.2)</td></tr>
+      <tr><td>m_Flags</td><td>ChirpFlags</td><td>Liked (1) = player liked this chirp</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ChirpCreationData (Game.Triggers)</h3>
+
+  <p>Struct enqueued by other systems to request chirp creation.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TriggerPrefab</td><td>Entity</td><td>Trigger/event prefab (must have TriggerChirpData buffer)</td></tr>
+      <tr><td>m_Sender</td><td>Entity</td><td>Suggested sender (household, company, citizen)</td></tr>
+      <tr><td>m_Target</td><td>Entity</td><td>Optional entity to link in the chirp</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ChirpDataFlags (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>None</td><td>0</td><td>No special behavior</td></tr>
+      <tr><td>CitizensCanSend</td><td>1</td><td>Random citizens can be selected as sender</td></tr>
+      <tr><td>BrandsCanSend</td><td>2</td><td>Company brands can be sender</td></tr>
+      <tr><td>ServiceCanSend</td><td>4</td><td>City service accounts can send</td></tr>
+    </tbody>
+  </table>
+
+  <h3>RandomLikeCountData (Game.Prefabs)</h3>
+
+  <p>Optional prefab component that overrides default like calculation for specific chirp types.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_EducatedPercentage</td><td>float</td><td>Fraction of educated pop contributing to likes</td></tr>
+      <tr><td>m_UneducatedPercentage</td><td>float</td><td>Fraction of uneducated pop contributing to likes</td></tr>
+      <tr><td>m_RandomAmountFactor</td><td>float2</td><td>Min/max range for like % of population</td></tr>
+      <tr><td>m_ActiveDays</td><td>float2</td><td>Min/max in-game days the chirp stays active</td></tr>
+      <tr><td>m_ContinuousFactor</td><td>float</td><td>Override for Chirp.m_ContinuousFactor</td></tr>
+      <tr><td>m_GoViralFactor</td><td>int2</td><td>Min/max range for viral factor</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+CHIRP CREATION REQUEST
+  Various game systems (milestones, service issues, citizen events)
+    Enqueue ChirpCreationData into CreateChirpSystem.GetQueue()
+      { m_TriggerPrefab, m_Sender, m_Target }
+          |
+          v
+DEDUPLICATION CHECK (CreateChirpSystem)
+  CollectRecentChirpsJob (Burst, IJobChunk):
+    Scans all existing chirps
+    Builds hashmap of chirps created within last 18,000 frames
+    Key = chirp prefab Entity, Value = chirp Entity
+          |
+          v
+CHIRP CREATION (CreateChirpSystem)
+  CreateChirpJob (Burst, IJob):
+    Dequeue ChirpCreationData
+    GetChirpPrefab: resolve trigger -&gt; chirp prefab (random if multiple)
+    Skip if recent chirp of same prefab exists (dedup)
+    FindSender:
+      Service -&gt; ServiceChirpData.m_Account
+      Brand -&gt; sender entity directly
+      Citizen -&gt; random from company employees / household / population
+    Calculate likes:
+      targetLikes = population * random(0.001, 0.03)
+      activeDuration = random(0.2, 1.0) * 262144 frames
+      viralFactor = random(5, 100)
+    Create entity with Chirp + PrefabRef + ChirpEntity buffer
+          |
+          v
+LIKE ANIMATION (ChirpLikeCountSystem, every 64 frames)
+  LikeCountUpdateJob (Burst, IJobChunk):
+    progress = (currentFrame - creationFrame) / (inactiveFrame - creationFrame)
+    likes = max(likes, targetLikes * (1 - (1-progress)^viralFactor))
+    Random skip via continuousFactor for natural variation
+          |
+          v
+NAME CACHING (ChirpLinkSystem)
+  Caches sender and link entity names on creation
+  Preserves names when entities are deleted (citizen death, demolition)
+          |
+          v
+UI BINDING (ChirperUISystem)
+  Binds chirp array as JSON to "chirper.chirps"
+  Fires "chirper.chirpAdded" event for new chirps
+  Handles player like/unlike via "chirper.addLike" / "chirper.removeLike"
+  Resolves avatars: icon -&gt; infoview icon -&gt; brand thumbnail
+          |
+          v
+FRONTEND (Chirper Panel)
+  Displays feed sorted newest-first
+  Shows sender name, avatar, localized message, like count
+  Clickable links to entities and infoviews
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Key Systems</h2>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Namespace</th><th>Interval</th><th>Role</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>CreateChirpSystem</td>
+        <td>Game.Triggers</td>
+        <td>Every frame (when queue non-empty)</td>
+        <td>Drains chirp queue, deduplicates, selects senders, creates chirp entities</td>
+      </tr>
+      <tr>
+        <td>ChirpLikeCountSystem</td>
+        <td>Game.Triggers</td>
+        <td>Every 64 frames</td>
+        <td>Animates like counts using viral curve formula</td>
+      </tr>
+      <tr>
+        <td>ChirperUISystem</td>
+        <td>Game.UI.InGame</td>
+        <td>On chirp change</td>
+        <td>Binds chirp data to UI, handles player interactions (like/unlike/select)</td>
+      </tr>
+      <tr>
+        <td>ChirpLinkSystem</td>
+        <td>Game.UI.InGame</td>
+        <td>On chirp creation/deletion</td>
+        <td>Caches entity names so chirps remain readable after entity deletion</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Enqueue a Custom Chirp</h3>
+
+  <p>Enqueue a chirp creation request from a mod system. CreateChirpSystem processes it on
+  its next update.</p>
+
+  <pre><code class="language-csharp">public partial class CustomChirpTriggerSystem : GameSystemBase
+{
+    private CreateChirpSystem _createChirpSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _createChirpSystem = World.GetOrCreateSystemManaged&lt;CreateChirpSystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        if (!ShouldTriggerChirp()) return;
+
+        JobHandle deps;
+        NativeQueue&lt;ChirpCreationData&gt; queue = _createChirpSystem.GetQueue(out deps);
+        deps.Complete();
+
+        queue.Enqueue(new ChirpCreationData
+        {
+            m_TriggerPrefab = myTriggerPrefabEntity,  // Must have TriggerChirpData buffer
+            m_Sender = senderHouseholdOrCompany,       // Household/company for citizen selection
+            m_Target = Entity.Null                     // Optional linked entity
+        });
+
+        _createChirpSystem.AddQueueWriter(Dependency);
+    }
+
+    private bool ShouldTriggerChirp() { /* your logic */ return false; }
+}</code></pre>
+
+  <h3>Read All Active Chirps</h3>
+
+  <p>Query and log all current chirps in the game.</p>
+
+  <pre><code class="language-csharp">public void LogAllChirps(EntityManager em)
+{
+    EntityQuery chirpQuery = em.CreateEntityQuery(
+        ComponentType.ReadOnly&lt;Chirp&gt;(),
+        ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+        ComponentType.Exclude&lt;Deleted&gt;()
+    );
+
+    NativeArray&lt;Entity&gt; entities = chirpQuery.ToEntityArray(Allocator.Temp);
+    NativeArray&lt;Chirp&gt; chirps = chirpQuery.ToComponentDataArray&lt;Chirp&gt;(Allocator.Temp);
+
+    for (int i = 0; i &lt; chirps.Length; i++)
+    {
+        Chirp chirp = chirps[i];
+        Log.Info($"Chirp {entities[i]}: sender={chirp.m_Sender}, " +
+                 $"likes={chirp.m_Likes}/{chirp.m_TargetLikes}, " +
+                 $"viral={chirp.m_ViralFactor}, " +
+                 $"liked={((chirp.m_Flags &amp; ChirpFlags.Liked) != 0)}");
+    }
+
+    entities.Dispose();
+    chirps.Dispose();
+    chirpQuery.Dispose();
+}</code></pre>
+
+  <h3>Modify Like Engagement via Harmony Postfix</h3>
+
+  <p>Patch the like count system to apply a multiplier to all chirp engagement.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(ChirpLikeCountSystem), "OnUpdate")]
+public static class ChirpLikeMultiplierPatch
+{
+    private static float _likeMultiplier = 2.0f;
+
+    public static void Postfix(ChirpLikeCountSystem __instance)
+    {
+        EntityManager em = __instance.EntityManager;
+        EntityQuery query = em.CreateEntityQuery(
+            ComponentType.ReadWrite&lt;Chirp&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+
+        NativeArray&lt;Entity&gt; entities = query.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            Chirp chirp = em.GetComponentData&lt;Chirp&gt;(entities[i]);
+            chirp.m_TargetLikes = (uint)(chirp.m_TargetLikes * _likeMultiplier);
+            em.SetComponentData(entities[i], chirp);
+        }
+
+        entities.Dispose();
+        query.Dispose();
+    }
+}</code></pre>
+
+  <h3>Filter Unwanted Chirps After Creation</h3>
+
+  <p>Remove specific chirp types by deleting newly created chirp entities that match
+  blocked prefabs.</p>
+
+  <pre><code class="language-csharp">public partial class ChirpCleanupSystem : GameSystemBase
+{
+    private EntityQuery _newChirpQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _newChirpQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Chirp&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.ReadOnly&lt;Created&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        EntityManager em = EntityManager;
+        NativeArray&lt;Entity&gt; entities = _newChirpQuery.ToEntityArray(Allocator.Temp);
+        NativeArray&lt;PrefabRef&gt; prefabs =
+            _newChirpQuery.ToComponentDataArray&lt;PrefabRef&gt;(Allocator.Temp);
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            if (ShouldBlock(prefabs[i].m_Prefab))
+            {
+                em.AddComponent&lt;Deleted&gt;(entities[i]);
+            }
+        }
+
+        entities.Dispose();
+        prefabs.Dispose();
+    }
+
+    private bool ShouldBlock(Entity prefab) { /* your filter logic */ return false; }
+}</code></pre>
+
+  <h3>Inspect the Chirp Queue API</h3>
+
+  <p>Access the chirp creation queue to monitor or debug what systems are requesting chirps.</p>
+
+  <pre><code class="language-csharp">public void InspectChirpQueue(CreateChirpSystem createChirpSystem)
+{
+    // GetQueue returns the NativeQueue and a JobHandle for dependencies
+    JobHandle deps;
+    NativeQueue&lt;ChirpCreationData&gt; queue = createChirpSystem.GetQueue(out deps);
+    deps.Complete();
+
+    Log.Info($"Chirp queue count: {queue.Count}");
+
+    // Important: after accessing the queue, register your dependency
+    // so CreateChirpSystem waits for your access to complete
+    createChirpSystem.AddQueueWriter(default(JobHandle));
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Key Tuning Points</h3>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Dedup cooldown</td>
+        <td>CollectRecentChirpsJob (hardcoded)</td>
+        <td>18,000 frames (~5 min)</td>
+        <td>Minimum time between chirps of the same type</td>
+      </tr>
+      <tr>
+        <td>Like update interval</td>
+        <td>ChirpLikeCountSystem.GetUpdateInterval</td>
+        <td>64 frames</td>
+        <td>How often like counts are recalculated</td>
+      </tr>
+      <tr>
+        <td>Active duration base</td>
+        <td>CreateChirpJob (hardcoded)</td>
+        <td>262,144 frames (~1 day)</td>
+        <td>Base for how long chirps accumulate likes</td>
+      </tr>
+      <tr>
+        <td>Default like % range</td>
+        <td>CreateChirpJob (hardcoded)</td>
+        <td>0.1% - 3% of population</td>
+        <td>Range for random target likes without RandomLikeCountData</td>
+      </tr>
+      <tr>
+        <td>Default viral factor</td>
+        <td>CreateChirpJob (hardcoded)</td>
+        <td>5 - 100</td>
+        <td>Random range for viral curve steepness</td>
+      </tr>
+      <tr>
+        <td>Per-chirp like tuning</td>
+        <td>RandomLikeCountData (prefab)</td>
+        <td>Varies</td>
+        <td>Overrides defaults for specific chirp types</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Patch Type</th><th>What It Enables</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>CreateChirpSystem.OnUpdate</code></td>
+        <td>Prefix</td>
+        <td>Intercept chirp creation -- filter queue, inject custom chirps</td>
+      </tr>
+      <tr>
+        <td><code>CreateChirpJob.FindSender</code></td>
+        <td>Postfix</td>
+        <td>Override sender selection for specific chirp types</td>
+      </tr>
+      <tr>
+        <td><code>ChirperUISystem.BindChirp</code></td>
+        <td>Prefix/Postfix</td>
+        <td>Modify chirp display data before UI rendering</td>
+      </tr>
+      <tr>
+        <td><code>ChirpLikeCountSystem.OnUpdate</code></td>
+        <td>Prefix</td>
+        <td>Change like curve formula, add dislike mechanics</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Chirp localization:</strong> The <code>RandomLocalizationIndex</code> component
+      selects a message variant via <code>RandomLocalization.m_LocalizationID</code>, but the
+      full path from prefab to displayed text needs more investigation.
+    </li>
+    <li>
+      <strong>Trigger catalog:</strong> Many game systems enqueue <code>ChirpCreationData</code>
+      (milestones, population thresholds, service issues), but the complete catalog of triggers
+      is not documented.
+    </li>
+    <li>
+      <strong>Runtime chirp prefabs:</strong> Can modders register new chirp prefabs at runtime,
+      or must they exist in the prefab system at load time? The <code>TriggerChirpData</code>
+      buffer approach suggests load-time registration.
+    </li>
+    <li>
+      <strong>Burst job patching:</strong> The <code>ChirpLikeCountSystem</code> and
+      <code>CreateChirpSystem</code> use Burst-compiled jobs. Harmony patches on Burst jobs
+      require special handling (targeting the managed wrapper, not the Burst-compiled code).
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Triggers.CreateChirpSystem, Game.Triggers.ChirpLikeCountSystem, Game.Triggers.Chirp, Game.Triggers.ChirpEntity, Game.Triggers.ChirpLink, Game.Triggers.ChirpCreationData, Game.Triggers.ChirpFlags</li>
+    <li>Prefab types: Game.Prefabs.ChirpData, Game.Prefabs.ChirpDataFlags, Game.Prefabs.ChirperAccountData, Game.Prefabs.TriggerChirpData, Game.Prefabs.ServiceChirpData, Game.Prefabs.BrandChirpData, Game.Prefabs.RandomLikeCountData</li>
+    <li>UI systems: Game.UI.InGame.ChirperUISystem, Game.UI.InGame.ChirpLinkSystem</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- CreateChirpSystem, ChirpLikeCountSystem, ChirperUISystem, ChirpLinkSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
