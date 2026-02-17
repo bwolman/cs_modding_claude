@@ -544,6 +544,117 @@ bool otherModLoaded = AppDomain.CurrentDomain.GetAssemblies()
   </p>
 
   <!-- ============================================================ -->
+  <h2>GetUpdateInterval: Controlling System Tick Frequency</h2>
+
+  <p>
+    Custom systems do not need to run every frame. <code>GameSystemBase</code> provides a virtual
+    method <code>GetUpdateInterval(SystemUpdatePhase)</code> that controls how many frames elapse
+    between each <code>OnUpdate</code> call:
+  </p>
+
+  <pre><code class="language-csharp">// Decompiled from Game.GameSystemBase
+public virtual int GetUpdateInterval(SystemUpdatePhase phase)
+{
+    return 1; // Default: run every frame
+}</code></pre>
+
+  <p>
+    Override this to reduce how often your system ticks. For example, the vanilla
+    <code>TreeGrowthSystem</code> and community mods like Tree_Controller use an interval of 512:
+  </p>
+
+  <pre><code class="language-csharp">public override int GetUpdateInterval(SystemUpdatePhase phase)
+{
+    return 512; // Run every 512 frames (= 32 updates per day)
+}</code></pre>
+
+  <h3>SimulationUtils.GetUpdateFrame: Work Distribution</h3>
+
+  <p>
+    When a system runs at a reduced interval, it typically processes only a subset of entities per
+    tick using the <code>UpdateFrame</code> shared component filter. The
+    <code>SimulationUtils.GetUpdateFrame</code> method determines which group to process:
+  </p>
+
+  <pre><code class="language-csharp">// Decompiled from Game.Simulation.SimulationUtils
+public static uint GetUpdateFrame(uint frame, int updatesPerDay, int groupCount)
+{
+    return (uint)((frame / (262144 / (updatesPerDay * groupCount)))
+                  &amp; (groupCount - 1));
+}</code></pre>
+
+  <ul>
+    <li><code>frame</code> -- the current <code>SimulationSystem.frameIndex</code></li>
+    <li><code>updatesPerDay</code> -- how many times per day each entity should be processed (e.g., 32)</li>
+    <li><code>groupCount</code> -- how many groups entities are divided into (e.g., 16)</li>
+  </ul>
+
+  <p>
+    The method divides the day (262144 frames) into <code>updatesPerDay * groupCount</code> buckets
+    and returns the current bucket index masked to <code>groupCount - 1</code>.
+  </p>
+
+  <h3>Applying the UpdateFrame Filter</h3>
+
+  <p>
+    Use <code>SetSharedComponentFilter</code> on your <code>EntityQuery</code> to process only the
+    current group:
+  </p>
+
+  <pre><code class="language-csharp">private SimulationSystem m_SimulationSystem;
+private EntityQuery m_TreeQuery;
+
+protected override void OnUpdate()
+{
+    // 32 updates/day, 16 groups -&gt; each group processed every 512 frames
+    uint updateFrame = SimulationUtils.GetUpdateFrame(
+        m_SimulationSystem.frameIndex, 32, 16);
+    m_TreeQuery.ResetFilter();
+    m_TreeQuery.SetSharedComponentFilter(new UpdateFrame(updateFrame));
+
+    // Now m_TreeQuery only contains entities in the current group
+    // Process them...
+}</code></pre>
+
+  <h3>Relationship: Interval vs Updates-Per-Day</h3>
+
+  <table>
+    <thead>
+      <tr><th>Interval</th><th>Updates/Day</th><th>Groups</th><th>Entities per tick</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>512</td><td>32</td><td>16</td><td>1/16 of total</td></tr>
+      <tr><td>256</td><td>64</td><td>16</td><td>1/16 of total</td></tr>
+      <tr><td>128</td><td>128</td><td>16</td><td>1/16 of total</td></tr>
+      <tr><td>16</td><td>1024</td><td>16</td><td>1/16 of total</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The interval determines how often your <code>OnUpdate</code> runs. The <code>groupCount</code>
+    determines what fraction of entities are processed per tick. Together they control total
+    throughput: with interval=512 and groups=16, each entity is processed 32 times per day.
+  </p>
+
+  <h3>When to Match Vanilla Intervals</h3>
+
+  <p>
+    Custom systems that read data produced by vanilla systems should match or be a multiple of the
+    vanilla system&rsquo;s interval. For example, a mod system that reads tree growth data should use
+    interval 512 (same as <code>TreeGrowthSystem</code>) to ensure synchronized data. Running at a
+    faster interval wastes CPU cycles processing stale data.
+  </p>
+
+  <h3>GetUpdateOffset: Staggering System Execution</h3>
+
+  <p>
+    <code>GameSystemBase</code> also provides <code>GetUpdateOffset(SystemUpdatePhase)</code>
+    (default: -1, meaning auto-assigned) to stagger when systems run within the same interval. The
+    game distributes systems across frames to avoid spikes. Override this only if your system must
+    run on a specific frame offset.
+  </p>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
