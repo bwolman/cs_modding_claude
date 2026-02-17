@@ -143,6 +143,99 @@ Per-zone-prefab configuration. The `AreaType` determines which demand system dri
 
 *Source: `Game.dll` -> `Game.Prefabs.ZonePropertiesData`*
 
+### `BuildingPropertyData` (Game.Prefabs)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_ResidentialProperties | int | Number of residential units (households) this building can hold |
+| m_SpaceMultiplier | float | Multiplier applied to the building's workspace/commercial space. Higher values mean more employees or commercial capacity per lot cell. |
+| m_AllowedSold | Resource | Bitmask of resources this building is allowed to sell (commercial buildings) |
+| m_AllowedManufactured | Resource | Bitmask of resources this building is allowed to manufacture (industrial buildings) |
+| m_AllowedStored | Resource | Bitmask of resources this building is allowed to store (warehouse buildings) |
+
+Per-building property configuration attached to spawnable building prefab entities. This component is the building-level counterpart to `ZonePropertiesData` (which is zone-level). When a building spawns, the game uses `BuildingPropertyData` from the building prefab to determine how many households it supports, what resources it can trade, and how much workspace it provides. Mods like RealisticWorkplacesAndHouseholds modify `m_ResidentialProperties` and `m_SpaceMultiplier` at runtime to adjust building capacity based on physical dimensions. The `m_SpaceMultiplier` is particularly important -- it scales the number of workplaces or commercial units, and community mods often recalculate it from the building's mesh volume.
+
+*Source: `Game.dll` -> `Game.Prefabs.BuildingPropertyData`*
+
+### `SpawnableBuildingData` (Game.Prefabs)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_ZonePrefab | Entity | Reference to the zone prefab entity this building belongs to. Links the building to its zone type (e.g., Low Density Residential, High Density Commercial). |
+| m_Level | byte | Current level of the building (1-5). Buildings spawn at level 1 and can upgrade to higher levels based on land value, services, and other factors. `ZoneSpawnSystem` only selects buildings with `m_Level == 1` for new construction. |
+
+The bridge between buildings and zones. Every spawnable zoned building has this component, which tells the game which zone type it belongs to and what level it is. `ZoneSpawnSystem.EvaluateSpawnAreas` reads `m_ZonePrefab` to match buildings to vacant lots of the correct zone type, and filters for `m_Level == 1` when selecting buildings for initial construction. When a building upgrades, `m_Level` increases and the building may be replaced with a higher-level prefab. The `m_ZonePrefab` entity reference can be resolved to get `ZoneData` and `ZonePropertiesData` for the building's zone.
+
+*Source: `Game.dll` -> `Game.Prefabs.SpawnableBuildingData`*
+
+### `ZoneFlags` Semantic Meaning (Game.Prefabs)
+
+The `ZoneFlags` enum on `ZoneData.m_ZoneFlags` controls zone behavior beyond simple area type classification:
+
+| Flag | Value | Semantic Meaning |
+|------|-------|-----------------|
+| SupportNarrow | 1 | Zone supports **row homes / narrow buildings** (1-cell wide). This is the defining flag for row-house style zoning. Without it, 1-wide lots are skipped during building selection. Low-density residential typically does NOT have this flag (detached houses need 2+ cells wide), while medium-density residential DOES (row homes are 1-cell wide). |
+| SupportLeftCorner | 2 | Allow corner buildings on the left side of a lot |
+| SupportRightCorner | 4 | Allow corner buildings on the right side of a lot |
+| Office | 8 | Marks the zone as **office** rather than manufacturing. The zone still has `AreaType.Industrial` but the `Office` flag causes `ZoneSpawnSystem` to use office demand instead of industrial demand, and `TaxSystem` classifies companies here as `TaxOffice` instead of `TaxIndustrial`. |
+
+**Density tiers** are controlled by the combination of `ZoneData.m_MaxHeight` and `ZoneDensity`:
+
+- **Low density** (`ZoneDensity.Low`): Small `m_MaxHeight` values (e.g., 18-24). Produces detached houses, small shops, small factories. Does NOT have `SupportNarrow`.
+- **Medium density** (`ZoneDensity.Medium`): Mid-range `m_MaxHeight`. Produces row homes, mid-rise buildings. HAS `SupportNarrow` for residential (row homes are the defining building type).
+- **High density** (`ZoneDensity.High`): Large `m_MaxHeight` values (e.g., 60+). Produces apartment towers, office buildings, large commercial. May or may not have `SupportNarrow`.
+
+The `m_MaxHeight` value in `ZoneData` is written to `Cell.m_Height` when the zone is painted, and `ZoneSpawnSystem` uses it to filter building prefabs by height. Buildings whose mesh height exceeds the cell's `m_Height` are not eligible for spawning on that lot.
+
+## Building Mesh Dimensions Pattern
+
+When mods need to calculate a building's physical size (e.g., to derive realistic workplace counts or household capacity from volume), they use the `SubMesh` / `MeshData` / `ObjectUtils.GetSize()` pattern:
+
+### How It Works
+
+1. **Get SubMesh references**: Each building prefab entity has a `SubMesh` buffer containing references to its mesh sub-objects.
+2. **Read MeshData**: Each `SubMesh` entry references a mesh entity that has a `MeshData` component containing the bounding box vertices.
+3. **Calculate size**: `Game.Objects.ObjectUtils.GetSize(float3 size, Quaternion rotation)` returns the axis-aligned bounding box dimensions after applying rotation.
+
+### Key Types
+
+- **`SubMesh`** (`Game.Prefabs`): Buffer element on building prefabs. Contains `m_SubMesh` (Entity reference to the mesh prefab).
+- **`MeshData`** (`Game.Prefabs`): Component on mesh entities. Contains `m_Vertices` (Bounds3 -- min/max corners of the mesh bounding box).
+- **`ObjectUtils.GetSize()`** (`Game.Objects`): Static method that computes world-space dimensions from mesh bounds and rotation.
+
+### Mod Usage Pattern
+
+Community mods (e.g., RealisticWorkplacesAndHouseholds) use this pattern to calculate building volume and derive realistic property counts:
+
+```csharp
+// Get the building prefab's mesh dimensions
+Entity buildingPrefab = ...; // from PrefabRef on a building entity
+DynamicBuffer<SubMesh> subMeshes = EntityManager.GetBuffer<SubMesh>(buildingPrefab);
+
+if (subMeshes.Length > 0)
+{
+    Entity meshEntity = subMeshes[0].m_SubMesh;
+    MeshData meshData = EntityManager.GetComponentData<MeshData>(meshEntity);
+
+    // meshData.m_Vertices.min / .max give the local-space bounding box
+    float3 size = meshData.m_Vertices.max - meshData.m_Vertices.min;
+
+    // For world-space dimensions with rotation:
+    // float3 worldSize = ObjectUtils.GetSize(size, buildingRotation);
+
+    float volume = size.x * size.y * size.z;
+    float floorArea = size.x * size.z;
+    float height = size.y;
+
+    // Use dimensions to calculate realistic workplace/household counts
+    int floors = (int)(height / 3.0f); // ~3m per floor
+    float usableArea = floorArea * floors * 0.7f; // 70% usable
+    int workplaces = (int)(usableArea / 20.0f); // ~20 sq m per worker
+}
+```
+
+This pattern is essential for any mod that wants to make building capacity proportional to physical building size rather than relying on the game's default per-prefab values.
+
 ## System Map
 
 ### `BlockSystem` (Game.Zones)
