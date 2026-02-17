@@ -159,11 +159,17 @@
   +-- ObjectPrefab                    // Any standalone object
   |     +-- StaticObjectPrefab        // Non-moving objects
   |     |     +-- BuildingPrefab      // Buildings with lots
+  |     |     +-- SignObjectPrefab    // Signs
   |     +-- MovingObjectPrefab        // Vehicles, citizens
-  |           +-- VehiclePrefab
-  |           +-- CreaturePrefab
+  |     |     +-- VehiclePrefab
+  |     |     |     +-- WatercraftPrefab  // Boats, ships
+  |     |     +-- CreaturePrefab
+  |     +-- ObjectGeometryPrefab      // Geometry/LOD data for objects
   +-- NetPrefab                       // Networks (roads, pipes)
+  |     +-- NetLaneGeometryPrefab     // Lane geometry definitions
   +-- AreaPrefab                      // Zones, districts
+  +-- UIAssetMenuPrefab               // UI menu entries
+  +-- ClimatePrefab                   // Climate settings
   +-- ContentPrefab                   // DLC/mod content markers
   +-- UnlockRequirementPrefab         // Milestone prerequisites</code></pre>
 
@@ -280,6 +286,78 @@ if (prefabSystem.TryGetPrefab(id, out PrefabBase prefab))
         // Process building prefab
     }
 }</code></pre>
+
+  <h2>Content Source Detection</h2>
+
+  <p>
+    CS2 prefabs come from different sources (vanilla, PDX Mods, DLC).
+    <code>PrefabBase</code> provides properties to distinguish content origin:
+  </p>
+
+  <pre><code>// How isBuiltin works (decompiled)
+public bool isBuiltin
+{
+    get
+    {
+        if (AssetDatabase.global.resources.prefabsMap.TryGetGuid(this, out _))
+            return true;
+        return asset?.database is AssetDatabase&lt;Game&gt;;
+    }
+}
+
+public bool isSubscribedMod =&gt; asset?.database is AssetDatabase&lt;ParadoxMods&gt;;</code></pre>
+
+  <table>
+    <thead><tr><th>Source</th><th>Check</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Vanilla</td><td><code>prefab.isBuiltin</code></td><td>True for Game database or global resources map</td></tr>
+      <tr><td>PDX Mods</td><td><code>prefab.asset?.database == AssetDatabase&lt;ParadoxMods&gt;.instance</code></td><td>Also via <code>isSubscribedMod</code></td></tr>
+      <tr><td>Platform ID</td><td><code>prefab.asset.GetMeta().platformID</code></td><td>Unique per-mod identifier (&gt; 0 for published)</td></tr>
+      <tr><td>DLC</td><td>ContentPrerequisite chain</td><td>Requires checking unlock prerequisite components</td></tr>
+      <tr><td>Mod-generated</td><td>Custom tag component</td><td>Runtime-created prefabs have no asset database entry</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Placeholder Objects (Random Variants)</h2>
+
+  <p>
+    Some prefabs use <code>PlaceholderObjectData</code> and <code>PlaceholderObjectElement</code>
+    to randomly select from variant prefabs at placement time.
+  </p>
+
+  <table>
+    <thead><tr><th>Component</th><th>Type</th><th>Key Fields</th></tr></thead>
+    <tbody>
+      <tr><td><code>PlaceholderObjectData</code></td><td>ComponentBase</td><td><code>m_RequirementMask</code> (ObjectRequirementFlags), <code>m_RandomizeGroupIndex</code> (bool)</td></tr>
+      <tr><td><code>PlaceholderObjectElement</code></td><td>IBufferElementData</td><td><code>m_Object</code> (Entity) &mdash; variant prefab reference</td></tr>
+      <tr><td><code>PlaceholderBuildingData</code></td><td>ComponentBase</td><td><code>m_ZonePrefab</code> (Entity), <code>m_Type</code> (BuildingType)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Decal Detection via MeshData</h2>
+
+  <p>Detect decal objects by checking <code>MeshFlags.Decal</code> on the first sub-mesh:</p>
+
+  <pre><code>public static bool IsDecal(EntityManager em, Entity prefabEntity)
+{
+    if (!em.TryGetBuffer&lt;SubMesh&gt;(prefabEntity, true, out var subMesh)
+        || subMesh.Length == 0)
+        return false;
+
+    if (!em.TryGetComponent&lt;MeshData&gt;(subMesh[0].m_SubMesh, out var meshData))
+        return false;
+
+    return meshData.m_State == MeshFlags.Decal;
+}</code></pre>
+
+  <table>
+    <thead><tr><th>MeshFlags</th><th>Value</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>Decal</code></td><td>1</td><td>Flat surface overlay object</td></tr>
+      <tr><td><code>StackX</code></td><td>2</td><td>Stacks along X axis</td></tr>
+      <tr><td><code>StackZ</code></td><td>4</td><td>Stacks along Z axis</td></tr>
+    </tbody>
+  </table>
 
   <h2>Warnings &amp; Pitfalls</h2>
 

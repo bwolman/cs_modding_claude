@@ -117,9 +117,12 @@ PrefabBase (abstract)
   |     |     +-- BuildingPrefab      // Buildings with lots
   |     |     +-- SignObjectPrefab    // Signs
   |     +-- MovingObjectPrefab        // Vehicles, citizens
-  |           +-- VehiclePrefab
-  |           +-- CreaturePrefab
+  |     |     +-- VehiclePrefab
+  |     |     |     +-- WatercraftPrefab  // Boats, ships
+  |     |     +-- CreaturePrefab
+  |     +-- ObjectGeometryPrefab      // Geometry/LOD data for objects
   +-- NetPrefab                       // Networks (roads, pipes, power lines)
+  |     +-- NetLaneGeometryPrefab     // Lane geometry definitions
   +-- AreaPrefab                      // Zones, districts
   +-- UIAssetMenuPrefab               // UI menu entries
   +-- ClimatePrefab                   // Climate settings
@@ -203,6 +206,116 @@ CS2 uses two kinds of entities for prefabs:
   ...                                 ...
 ```
 
+## Content Source Detection
+
+CS2 prefabs come from different sources (vanilla, PDX Mods, DLC). The `PrefabBase` class provides properties to distinguish content origin.
+
+### How `isBuiltin` Works
+
+```csharp
+// Decompiled from PrefabBase
+public bool isBuiltin
+{
+    get
+    {
+        if (AssetDatabase.global.resources.prefabsMap.TryGetGuid(this, out _))
+            return true;
+        return asset?.database is AssetDatabase<Game>;
+    }
+}
+
+public bool isSubscribedMod => asset?.database is AssetDatabase<ParadoxMods>;
+```
+
+### Content Source Patterns
+
+| Source | Check | Notes |
+|--------|-------|-------|
+| Vanilla (base game) | `prefab.isBuiltin` | True for assets in the Game database or global resources map |
+| PDX Mods (subscribed) | `prefab.asset?.database == AssetDatabase<ParadoxMods>.instance` | Also available via `prefab.isSubscribedMod` |
+| PDX Mods platform ID | `prefab.asset.GetMeta().platformID` | Unique per-mod identifier; > 0 for published mods |
+| DLC content | ContentPrerequisite -> DlcRequirement chain | Requires checking unlock prerequisite components |
+| Mod-generated (runtime) | Custom tag component | Prefabs created at runtime by mods have no asset database entry |
+
+### Complete Content Source Example (FindIt Pattern)
+
+```csharp
+bool isVanilla = prefab.isBuiltin;
+bool isFromPdxMods = false;
+int pdxModsId = 0;
+
+if (prefab.asset?.database == AssetDatabase<ParadoxMods>.instance)
+{
+    isFromPdxMods = true;
+    pdxModsId = prefab.asset.GetMeta().platformID;
+}
+```
+
+## Placeholder Objects (Random Variants)
+
+Some prefabs use `PlaceholderObjectData` and `PlaceholderObjectElement` to randomly select from a set of variant prefabs at placement time.
+
+### `PlaceholderObjectData` (Game.Prefabs, ComponentBase)
+
+Attached to a prefab to mark it as a placeholder that resolves to one of its variant elements.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_RequirementMask` | ObjectRequirementFlags | Flags filtering which variants are eligible |
+| `m_RandomizeGroupIndex` | bool | Whether to randomize the group selection index |
+
+### `PlaceholderObjectElement` (Game.Prefabs, IBufferElementData)
+
+Buffer element on placeholder prefab entities, listing the possible variant prefabs.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Object` | Entity | Reference to a variant prefab entity |
+
+### `PlaceholderBuildingData` (Game.Prefabs, ComponentBase)
+
+Similar placeholder for zone buildings -- used by `ZoneSpawnSystem` to select random building variants.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_ZonePrefab` | Entity | Zone prefab this placeholder belongs to |
+| `m_Type` | BuildingType | Building category (Residential/Commercial/Industrial) |
+
+## Decal Detection via MeshData
+
+Decal objects can be detected by checking the `MeshFlags.Decal` flag on the prefab's first sub-mesh:
+
+```csharp
+public static bool IsDecal(EntityManager em, Entity prefabEntity)
+{
+    if (!em.TryGetBuffer<SubMesh>(prefabEntity, true, out var subMesh)
+        || subMesh.Length == 0)
+        return false;
+
+    if (!em.TryGetComponent<MeshData>(subMesh[0].m_SubMesh, out var meshData))
+        return false;
+
+    return meshData.m_State == MeshFlags.Decal;
+}
+```
+
+### `MeshFlags` (Game.Prefabs)
+
+| Flag | Value | Description |
+|------|-------|-------------|
+| `Decal` | 1 | Object is a decal (flat surface overlay) |
+| `StackX` | 2 | Stacks along X axis |
+| `StackZ` | 4 | Stacks along Z axis |
+
+### `SubMesh` (Game.Prefabs, IBufferElementData)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_SubMesh` | Entity | Reference to sub-mesh entity with `MeshData` |
+| `m_Position` | float3 | Local position offset |
+| `m_Rotation` | quaternion | Local rotation |
+| `m_Flags` | SubMeshFlags | Rendering flags |
+
 ## Prefab & Configuration
 
 | Value | Source | Location |
@@ -212,6 +325,7 @@ CS2 uses two kinds of entities for prefabs:
 | Asset GUID | PrefabBase.asset.id.guid | Colossal.IO.AssetDatabase |
 | Builtin status | PrefabBase.isBuiltin | Checks database type |
 | Mod status | PrefabBase.isSubscribedMod | Checks ParadoxMods database |
+| PDX Mods platform ID | PrefabBase.asset.GetMeta().platformID | Unique mod identifier |
 | Lot dimensions | BuildingPrefab.m_LotWidth/m_LotDepth | Game.Prefabs |
 
 ## Harmony Patch Points
