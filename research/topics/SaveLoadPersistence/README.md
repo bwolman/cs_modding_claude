@@ -923,6 +923,67 @@ This pattern ensures that:
 - Future mod versions can add fields without breaking older saves
 - The system tracks whether initialization work has been done on this save
 
+## ObsoleteIdentifiers for Prefab Rename Backward Compatibility
+
+When a mod renames or restructures its prefab assets between versions, existing save files still reference the old prefab names. The game provides the `ObsoleteIdentifiers` component (`Game.Prefabs.ComponentBase`) to maintain backward compatibility by mapping old prefab names to the current prefab.
+
+### `ObsoleteIdentifiers` (Game.Prefabs)
+
+A `ComponentBase` that is added to a prefab and holds an array of old identifiers:
+
+```csharp
+// Decompiled from Game.dll
+[ComponentMenu("Prefabs/", new System.Type[] { })]
+public class ObsoleteIdentifiers : ComponentBase
+{
+    public PrefabIdentifierInfo[] m_PrefabIdentifiers;
+}
+```
+
+### `PrefabIdentifierInfo` (Game.Prefabs)
+
+Each entry describes one old identifier:
+
+```csharp
+[Serializable]
+public class PrefabIdentifierInfo
+{
+    public string m_Name;  // Old prefab name
+    public string m_Type;  // Old type name (e.g., "StaticObjectPrefab")
+    public string m_Hash;  // Optional hash for additional matching
+}
+```
+
+### How It Works
+
+When the game loads a save file that references a prefab by name, the serialization system first looks up the name in the current prefab registry. If it is not found, it checks all `ObsoleteIdentifiers` components on registered prefabs to see if any old identifier matches the saved name. If a match is found, the old reference is resolved to the current prefab.
+
+### Mod Usage Pattern
+
+The FindIt mod (JadHajjar/FindIt-CSII) demonstrates this pattern for generated vehicle prop prefabs. When a mod creates or renames prefabs, it attaches `ObsoleteIdentifiers` so that saves referencing old names still load correctly:
+
+```csharp
+// From FindIt mod: AutoVehiclePropGeneratorSystem.cs
+if (_obsoleteIdentifiers.TryGetValue(newPrefab.name, out var identifiers))
+{
+    var obsoleteIdentifier = newPrefab.AddComponent<ObsoleteIdentifiers>();
+    obsoleteIdentifier.m_PrefabIdentifiers = identifiers
+        .Select(x => new PrefabIdentifierInfo
+        {
+            m_Type = nameof(StaticObjectPrefab),
+            m_Name = x
+        }).ToArray();
+}
+```
+
+### When to Use
+
+- **Renaming mod prefabs**: If you rename a custom prefab asset between mod versions, add `ObsoleteIdentifiers` with the old name so existing saves can resolve the reference.
+- **Restructuring prefab types**: If you change a prefab's type (e.g., from `StaticObjectPrefab` to a different type), include both the old type and old name.
+- **Difference from FormerlySerializedAs**: `FormerlySerializedAs` is for renaming ECS component/system **types** (C# structs/classes). `ObsoleteIdentifiers` is for renaming **prefab assets** (game objects defined in the prefab database). Use both if you rename both the type and the prefab.
+
+*Source: Decompiled from `Game.dll` -- `Game.Prefabs.ObsoleteIdentifiers`, `Game.Prefabs.PrefabIdentifierInfo`. Community usage: [FindIt-CSII by JadHajjar](https://github.com/JadHajjar/FindIt-CSII).*
+
 ## Open Questions
 
 - [ ] How does the serialization handle entity references in custom components when the referenced entity doesn't exist in an older save? (Likely remapped to Entity.Null)

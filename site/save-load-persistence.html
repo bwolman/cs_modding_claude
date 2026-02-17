@@ -912,6 +912,77 @@ public partial class ModStateTracker : GameSystemBase, IDefaultSerializable
   </p>
 
   <!-- ============================================================ -->
+  <!-- ============================================================ -->
+  <h2>ObsoleteIdentifiers for Prefab Rename Backward Compatibility</h2>
+
+  <p>
+    When a mod renames or restructures its prefab assets between versions, existing save files still
+    reference the old prefab names. The game provides the <code>ObsoleteIdentifiers</code> component
+    (<code>Game.Prefabs.ComponentBase</code>) to maintain backward compatibility by mapping old prefab
+    names to the current prefab.
+  </p>
+
+  <h3><code>ObsoleteIdentifiers</code> (Game.Prefabs)</h3>
+
+  <p>
+    A <code>ComponentBase</code> added to a prefab that holds an array of old identifiers. Each
+    <code>PrefabIdentifierInfo</code> entry has an old name (<code>m_Name</code>), old type
+    (<code>m_Type</code>, e.g., <code>"StaticObjectPrefab"</code>), and optional hash (<code>m_Hash</code>).
+  </p>
+
+  <pre><code class="language-csharp">// Decompiled from Game.dll
+public class ObsoleteIdentifiers : ComponentBase
+{
+    public PrefabIdentifierInfo[] m_PrefabIdentifiers;
+}
+
+public class PrefabIdentifierInfo
+{
+    public string m_Name;  // Old prefab name
+    public string m_Type;  // Old type name
+    public string m_Hash;  // Optional hash
+}</code></pre>
+
+  <h3>How It Works</h3>
+
+  <p>
+    When loading a save that references a prefab by name, the serialization system first checks the
+    current prefab registry. If the name is not found, it checks all <code>ObsoleteIdentifiers</code>
+    on registered prefabs. If an old identifier matches, the reference resolves to the current prefab.
+  </p>
+
+  <h3>Mod Usage Example</h3>
+
+  <p>
+    The <a href="https://github.com/JadHajjar/FindIt-CSII">FindIt mod</a> uses this pattern when
+    generating vehicle prop prefabs. When a prefab is renamed, it attaches <code>ObsoleteIdentifiers</code>
+    so saves referencing old names still load:
+  </p>
+
+  <pre><code class="language-csharp">// From FindIt: AutoVehiclePropGeneratorSystem.cs
+if (_obsoleteIdentifiers.TryGetValue(newPrefab.name, out var identifiers))
+{
+    var obsoleteIdentifier = newPrefab.AddComponent&lt;ObsoleteIdentifiers&gt;();
+    obsoleteIdentifier.m_PrefabIdentifiers = identifiers
+        .Select(x =&gt; new PrefabIdentifierInfo
+        {
+            m_Type = nameof(StaticObjectPrefab),
+            m_Name = x
+        }).ToArray();
+}</code></pre>
+
+  <h3>When to Use</h3>
+
+  <ul>
+    <li><strong>Renaming mod prefabs</strong> -- add <code>ObsoleteIdentifiers</code> with the old name
+    so existing saves resolve the reference.</li>
+    <li><strong>Restructuring prefab types</strong> -- include both the old type and old name.</li>
+    <li><strong>Difference from FormerlySerializedAs</strong> -- <code>FormerlySerializedAs</code> is
+    for renaming ECS component/system <em>types</em> (C# structs/classes). <code>ObsoleteIdentifiers</code>
+    is for renaming <em>prefab assets</em> (game objects in the prefab database). Use both if you rename
+    both the type and the prefab.</li>
+  </ul>
+
   <h2>Open Questions</h2>
 
   <ul>
