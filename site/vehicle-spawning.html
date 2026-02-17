@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vehicle Spawning &amp; Despawning</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="localization.html">Localization</a>
+
+      <h3>Vehicles &amp; Transport</h3>
+      <a href="vehicle-spawning.html" class="active">Vehicle Spawning</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Vehicle Spawning &amp; Despawning</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How do private cars appear in CS2, find routes, park, and
+      get recycled? What is the full vehicle lifecycle from creation to deletion?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Vehicles go through a five-stage lifecycle: <strong>owned (parked)</strong>
+      in a household, <strong>awaiting spawn</strong> with a countdown timer, <strong>driving</strong>
+      on the road network, <strong>parking</strong> at the destination, and finally
+      <strong>deleted</strong> when ownership is lost. The <code>VehicleSpawnSystem</code> manages
+      a priority queue of vehicles waiting to enter the road, decrementing a timer every 16 frames.
+      <code>PersonalCarAISystem</code> handles frame-by-frame driving, and
+      <code>PersonalCarOwnerSystem</code> garbage-collects orphaned vehicles every 1024 frames.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Public transit vehicles are covered in
+      <a href="public-transit.html">Public Transit</a>. Emergency dispatch is covered in
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>. Vehicle accidents are covered in
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <h3>The Five-Stage Lifecycle</h3>
+
+  <ol>
+    <li><strong>Owned (parked)</strong>: When a household is created or buys a car, a vehicle entity
+    is created with <code>PersonalCar</code>, <code>ParkedCar</code>, and <code>Vehicle</code> components.
+    The household gets an <code>OwnedVehicle</code> buffer element pointing to the vehicle.</li>
+
+    <li><strong>Awaiting spawn</strong>: When a citizen needs to drive, a <code>TripSource</code> component
+    is added to the vehicle. Its <code>m_Timer</code> field creates a delay before the vehicle enters
+    the road. <code>VehicleSpawnSystem</code> decrements this timer by 16 each update (every 16 frames).</li>
+
+    <li><strong>Driving</strong>: Once <code>TripSource</code> is removed, the vehicle is on the road.
+    <code>PersonalCarAISystem</code> ticks it every frame -- following paths, changing lanes, handling
+    intersections, boarding/disembarking passengers, and paying tolls.</li>
+
+    <li><strong>Parking</strong>: At the destination, the vehicle searches for a parking lane or garage.
+    <code>ParkedCar</code> is added with the lane entity and curve position. Passengers disembark.</li>
+
+    <li><strong>Deleted</strong>: <code>PersonalCarOwnerSystem</code> checks every 1024 frames whether
+    each vehicle is still in its household's <code>OwnedVehicle</code> buffer. Orphaned vehicles are
+    deleted via <code>VehicleUtils.DeleteVehicle</code>.</li>
+  </ol>
+
+  <h3>Spawn Queue Priority</h3>
+
+  <p>
+    <code>VehicleSpawnSystem</code> groups vehicles by spawn source (building/connection), sorts
+    them by priority (lower timer = waited longer = higher priority), then checks each spawn point
+    for available space. For trains, it verifies no parked trains block the spawn lane. For cars,
+    the spawn typically succeeds immediately.
+  </p>
+
+  <h3>Dummy Traffic</h3>
+
+  <p>
+    Vehicles from outside connections carry the <code>PersonalCarFlags.DummyTraffic</code> flag.
+    These represent through-traffic that enters the city, drives across, and leaves. They follow
+    the same AI systems but are not associated with any household.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Namespace</th><th>Key Fields</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>PersonalCar</code></td>
+        <td>Game.Vehicles</td>
+        <td>m_Keeper (Entity), m_State (PersonalCarFlags)</td>
+        <td>Identifies a personal car and its driver/keeper</td>
+      </tr>
+      <tr>
+        <td><code>Car</code></td>
+        <td>Game.Vehicles</td>
+        <td>m_Flags (CarFlags)</td>
+        <td>Generic car component shared by all car types</td>
+      </tr>
+      <tr>
+        <td><code>ParkedCar</code></td>
+        <td>Game.Vehicles</td>
+        <td>m_Lane (Entity), m_CurvePosition (float)</td>
+        <td>Marks a vehicle as parked in a lane</td>
+      </tr>
+      <tr>
+        <td><code>OwnedVehicle</code></td>
+        <td>Game.Vehicles</td>
+        <td>m_Vehicle (Entity)</td>
+        <td>Buffer element on household listing its owned vehicles</td>
+      </tr>
+      <tr>
+        <td><code>Vehicle</code></td>
+        <td>Game.Vehicles</td>
+        <td>(empty marker)</td>
+        <td>Present on all vehicle entities</td>
+      </tr>
+      <tr>
+        <td><code>TripSource</code></td>
+        <td>Game.Objects</td>
+        <td>m_Source (Entity), m_Timer (int)</td>
+        <td>Vehicle waiting to spawn; timer counts down to 0</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>PersonalCarFlags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Transporting</td><td>1</td><td>Currently carrying passengers</td></tr>
+      <tr><td>Boarding</td><td>2</td><td>Passengers are getting in</td></tr>
+      <tr><td>Disembarking</td><td>4</td><td>Passengers are getting out</td></tr>
+      <tr><td>DummyTraffic</td><td>8</td><td>Through-traffic from outside connections</td></tr>
+      <tr><td>HomeTarget</td><td>16</td><td>Heading home</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CarFlags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Emergency</td><td>1</td><td>Emergency vehicle mode (sirens)</td></tr>
+      <tr><td>StayOnRoad</td><td>2</td><td>Cannot leave road</td></tr>
+      <tr><td>AnyLaneTarget</td><td>4</td><td>Can target any lane</td></tr>
+      <tr><td>Warning</td><td>8</td><td>Warning lights active</td></tr>
+      <tr><td>Queueing</td><td>16</td><td>In traffic queue</td></tr>
+      <tr><td>UsePublicTransportLanes</td><td>32</td><td>Allowed in bus lanes</td></tr>
+      <tr><td>Interior</td><td>256</td><td>In garage/interior space</td></tr>
+      <tr><td>Working</td><td>512</td><td>Service vehicle working mode</td></tr>
+      <tr><td>CannotReverse</td><td>4096</td><td>Cannot reverse direction</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram"><pre>
+VEHICLE CREATION
+  Household created (immigration / game start)
+      |
+      v
+  OwnedVehicle buffer gets vehicle entity reference
+  Vehicle entity created: PersonalCar + ParkedCar + Vehicle
+  (parked at home building's garage or parking lane)
+
+TRIP INITIATION
+  Citizen decides to travel (work, shop, leisure)
+      |
+      v
+  TripSource added to parked vehicle
+  TripSource.m_Timer set with initial delay
+      |
+      v
+  VehicleSpawnSystem (every 16 frames):
+    - Decrements m_Timer by 16
+    - When timer &lt;= 0: enters spawn queue
+    - Groups by source, sorts by priority
+    - Checks space, removes TripSource
+      |
+      v
+  Vehicle appears on road network
+
+DRIVING
+  PersonalCarAISystem (every frame):
+    - Follow path via CarNavigationLane buffer
+    - Handle lane changes, intersections
+    - Board/disembark passengers
+    - Pay tolls via MoneyTransfer queue
+
+PARKING
+  Vehicle reaches destination
+    - Search for ParkingLane or GarageLane
+    - Add ParkedCar (lane + curve position)
+    - Passengers disembark
+
+DELETION
+  PersonalCarOwnerSystem (every 1024 frames):
+    - Check: is vehicle in household's OwnedVehicle buffer?
+    - If not: VehicleUtils.DeleteVehicle
+  Also deleted by:
+    - Household moving away (MovingAway)
+    - Building demolition
+    - Vehicle destruction (disaster/accident)
+  </pre></div>
+
+  <!-- ============================================================ -->
+  <h2>Key Systems</h2>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Namespace</th><th>Update Interval</th><th>Responsibility</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>VehicleSpawnSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>16 frames</td>
+        <td>Manages spawn queue: decrements timers, groups by source, spawns vehicles</td>
+      </tr>
+      <tr>
+        <td><code>PersonalCarAISystem</code></td>
+        <td>Game.Simulation</td>
+        <td>Every frame</td>
+        <td>Tick-by-tick driving: pathfinding, lane navigation, boarding, fees</td>
+      </tr>
+      <tr>
+        <td><code>PersonalCarOwnerSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>1024 frames</td>
+        <td>Garbage-collects orphaned vehicles not in any household</td>
+      </tr>
+      <tr>
+        <td><code>CountVehicleDataSystem</code></td>
+        <td>Game.Simulation</td>
+        <td>Varies</td>
+        <td>Counts vehicles by type for statistics and achievements</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Count Vehicles by State</h3>
+
+  <p>
+    Query all personal cars and categorize them as parked, driving, or awaiting spawn.
+  </p>
+
+  <pre><code>using Game;
+using Game.Vehicles;
+using Game.Objects;
+using Unity.Collections;
+using Unity.Entities;
+using Colossal.Logging;
+
+public class VehicleCounterSystem : GameSystemBase
+{
+    private static readonly ILog Log = LogManager.GetLogger(nameof(VehicleCounterSystem));
+
+    private EntityQuery _parkedQuery;
+    private EntityQuery _drivingQuery;
+    private EntityQuery _awaitingSpawnQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _parkedQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;PersonalCar&gt;(),
+            ComponentType.ReadOnly&lt;ParkedCar&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+        _drivingQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;PersonalCar&gt;(),
+            ComponentType.ReadOnly&lt;Car&gt;(),
+            ComponentType.Exclude&lt;ParkedCar&gt;(),
+            ComponentType.Exclude&lt;TripSource&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+        _awaitingSpawnQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;PersonalCar&gt;(),
+            ComponentType.ReadOnly&lt;TripSource&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        int parked = _parkedQuery.CalculateEntityCount();
+        int driving = _drivingQuery.CalculateEntityCount();
+        int awaiting = _awaitingSpawnQuery.CalculateEntityCount();
+
+        Log.Info($"Vehicles -- Parked: {parked}, Driving: {driving}, " +
+                 $"Awaiting spawn: {awaiting}");
+    }
+}</code></pre>
+
+  <h3>Example 2: Find a Household's Vehicles</h3>
+
+  <p>
+    Look up the <code>OwnedVehicle</code> buffer on a household entity to find all its cars.
+  </p>
+
+  <pre><code>using Game.Vehicles;
+using Unity.Entities;
+using System.Collections.Generic;
+
+public static class HouseholdVehicleUtils
+{
+    public static List&lt;Entity&gt; GetHouseholdVehicles(
+        EntityManager em, Entity household)
+    {
+        var vehicles = new List&lt;Entity&gt;();
+
+        if (!em.HasBuffer&lt;OwnedVehicle&gt;(household))
+            return vehicles;
+
+        var buffer = em.GetBuffer&lt;OwnedVehicle&gt;(household);
+        for (int i = 0; i &lt; buffer.Length; i++)
+        {
+            vehicles.Add(buffer[i].m_Vehicle);
+        }
+        return vehicles;
+    }
+
+    public static bool IsVehicleParked(EntityManager em, Entity vehicle)
+    {
+        return em.HasComponent&lt;ParkedCar&gt;(vehicle);
+    }
+
+    public static bool IsVehicleDriving(EntityManager em, Entity vehicle)
+    {
+        return em.HasComponent&lt;Car&gt;(vehicle)
+            &amp;&amp; !em.HasComponent&lt;ParkedCar&gt;(vehicle)
+            &amp;&amp; !em.HasComponent&lt;TripSource&gt;(vehicle);
+    }
+}</code></pre>
+
+  <h3>Example 3: Query Vehicles by Energy Type</h3>
+
+  <p>
+    Find all electric personal cars currently driving on the road.
+  </p>
+
+  <pre><code>using Game;
+using Game.Vehicles;
+using Game.Prefabs;
+using Game.Objects;
+using Unity.Collections;
+using Unity.Entities;
+
+public class ElectricVehicleCounter : GameSystemBase
+{
+    private EntityQuery _personalCarQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _personalCarQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;PersonalCar&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;ParkedCar&gt;(),
+            ComponentType.Exclude&lt;TripSource&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        var prefabRefs = _personalCarQuery.ToComponentDataArray&lt;PrefabRef&gt;(Allocator.Temp);
+
+        int electricCount = 0;
+        for (int i = 0; i &lt; prefabRefs.Length; i++)
+        {
+            if (EntityManager.TryGetComponentData&lt;CarData&gt;(
+                prefabRefs[i].m_Prefab, out var carData))
+            {
+                if ((carData.m_EnergyType &amp; EnergyTypes.Electricity) != 0)
+                    electricCount++;
+            }
+        }
+
+        prefabRefs.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 4: Track Vehicle Spawn Rate</h3>
+
+  <p>
+    Monitor how many vehicles enter the road each tick by tracking the
+    <code>TripSource</code> query count over time.
+  </p>
+
+  <pre><code>using Game;
+using Game.Vehicles;
+using Game.Objects;
+using Unity.Entities;
+using Colossal.Logging;
+
+public class SpawnTrackerSystem : GameSystemBase
+{
+    private static readonly ILog Log = LogManager.GetLogger(nameof(SpawnTrackerSystem));
+
+    private EntityQuery _waitingQuery;
+    private int _previousWaitingCount;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _waitingQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;PersonalCar&gt;(),
+            ComponentType.ReadOnly&lt;TripSource&gt;(),
+            ComponentType.ReadOnly&lt;Vehicle&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        int currentWaiting = _waitingQuery.CalculateEntityCount();
+        int spawned = _previousWaitingCount - currentWaiting;
+
+        if (spawned &gt; 0)
+        {
+            Log.Info($"Vehicles spawned this tick: {spawned}");
+        }
+
+        _previousWaitingCount = currentWaiting;
+    }
+}</code></pre>
+
+  <h3>Example 5: Inspect Parked Car Locations</h3>
+
+  <p>
+    Find where vehicles are parked by reading the <code>ParkedCar</code> lane reference
+    and checking if it is a street parking lane or a garage.
+  </p>
+
+  <pre><code>using Game;
+using Game.Vehicles;
+using Game.Net;
+using Game.Objects;
+using Unity.Collections;
+using Unity.Entities;
+
+public class ParkingInspectorSystem : GameSystemBase
+{
+    private EntityQuery _parkedQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _parkedQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;PersonalCar&gt;(),
+            ComponentType.ReadOnly&lt;ParkedCar&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        var parkedCars = _parkedQuery.ToComponentDataArray&lt;ParkedCar&gt;(Allocator.Temp);
+
+        int garageCount = 0;
+        int streetCount = 0;
+        for (int i = 0; i &lt; parkedCars.Length; i++)
+        {
+            if (EntityManager.HasComponent&lt;GarageLane&gt;(parkedCars[i].m_Lane))
+                garageCount++;
+            else if (EntityManager.HasComponent&lt;ParkingLane&gt;(parkedCars[i].m_Lane))
+                streetCount++;
+        }
+
+        parkedCars.Dispose();
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>CarData (Prefab)</h3>
+
+  <p>Physics and classification data for each car prefab type:</p>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_SizeClass</code></td><td>SizeClass</td><td>Small, Medium, Large, or Undefined</td></tr>
+      <tr><td><code>m_EnergyType</code></td><td>EnergyTypes</td><td>Fuel, Electricity, FuelAndElectricity, or None</td></tr>
+      <tr><td><code>m_MaxSpeed</code></td><td>float</td><td>Maximum speed (m/s)</td></tr>
+      <tr><td><code>m_Acceleration</code></td><td>float</td><td>Acceleration rate</td></tr>
+      <tr><td><code>m_Braking</code></td><td>float</td><td>Braking deceleration rate</td></tr>
+      <tr><td><code>m_PivotOffset</code></td><td>float</td><td>Pivot point offset for turning</td></tr>
+      <tr><td><code>m_Turning</code></td><td>float2</td><td>Turning radius parameters</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PersonalCarData (Prefab)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_PassengerCapacity</code></td><td>int</td><td>Maximum passengers</td></tr>
+      <tr><td><code>m_BaggageCapacity</code></td><td>int</td><td>Baggage/cargo capacity</td></tr>
+      <tr><td><code>m_CostToDrive</code></td><td>int</td><td>Economic cost per trip</td></tr>
+      <tr><td><code>m_Probability</code></td><td>int</td><td>Selection probability weight</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Patch Type</th><th>What It Enables</th><th>Risk</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>VehicleSpawnSystem+GroupSpawnSourcesJob.Execute</code></td>
+        <td>Transpiler only</td>
+        <td>Modify spawn timer rate, filter spawn queue, change priority</td>
+        <td>High -- Burst-compiled, core spawn pipeline</td>
+      </tr>
+      <tr>
+        <td><code>PersonalCarOwnerSystem+PersonalCarOwnerJob.Execute</code></td>
+        <td>Transpiler only</td>
+        <td>Prevent vehicle deletion, modify ownership validation</td>
+        <td>Medium -- Burst-compiled</td>
+      </tr>
+      <tr>
+        <td><code>VehicleUtils.DeleteVehicle</code></td>
+        <td>Prefix / Postfix (if not Burst)</td>
+        <td>Intercept vehicle deletion, log lifecycle events</td>
+        <td>Medium -- used by many systems</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Note:</strong> Most vehicle systems use Burst-compiled jobs, limiting patching to
+    transpilers. <code>VehicleUtils</code> static methods may be patchable with Prefix/Postfix
+    if they are not called from Burst contexts.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li><strong>Outside connection spawning</strong>: Vehicles from outside connections use
+    <code>DummyTraffic</code> flag. The exact arrival rate mechanism and vehicle selection from
+    outside connections was not fully traced.</li>
+    <li><strong>Parking search algorithm</strong>: The parking search within
+    <code>PersonalCarAISystem</code> scans nearby parking and garage lanes. The search radius
+    and fallback behavior need further investigation.</li>
+    <li><strong>Vehicle model selection</strong>: <code>PersonalCarSelectData</code> controls which
+    car prefab is chosen based on household wealth. The selection algorithm was not fully decompiled.</li>
+    <li><strong>ParkedVehiclesSystem</strong>: This system handles spawning service vehicles
+    (police, fire, garbage) from depots. It was identified but not decompiled in this scope.</li>
+    <li><strong>Bicycle lifecycle</strong>: Bicycles share <code>PersonalCar</code> but use
+    <code>BicycleOwner</code> for separate ownership. Full bicycle lifecycle needs separate research.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: <code>Game.dll</code> -- Game.Vehicles (PersonalCar, Car, ParkedCar, OwnedVehicle, Vehicle, CarFlags, PersonalCarFlags, SizeClass, EnergyTypes)</li>
+    <li>Decompiled from: <code>Game.dll</code> -- Game.Simulation (VehicleSpawnSystem, PersonalCarAISystem, PersonalCarOwnerSystem)</li>
+    <li>Decompiled from: <code>Game.dll</code> -- Game.Objects (TripSource)</li>
+    <li>Decompiled from: <code>Game.dll</code> -- Game.Prefabs (CarData, PersonalCarData)</li>
+  </ul>
+
+  </main>
+</div>
+
+<footer>
+  <p>CS2 Modding Research -- <a href="index.html">Home</a></p>
+</footer>
+
+</body>
+</html>
