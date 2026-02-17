@@ -1283,6 +1283,27 @@ Key techniques:
 | `--menuText1Normal` | Standard menu text color |
 | `--normalTextColorLocked` | Greyed-out text for disabled controls |
 
+## ToolbarUISystem Integration
+
+### m_LastSelectedAssets (Reflection)
+
+`ToolbarUISystem` has a private `m_LastSelectedAssets` field (`Dictionary<Entity, Entity>`) tracking the last selected prefab per toolbar group. When mods replace prefab entities (e.g., RoadBuilder regenerating a road prefab), stale references in this dictionary can cause toolbar issues:
+
+```csharp
+var toolbarUI = World.GetOrCreateSystemManaged<ToolbarUISystem>();
+var lastSelected = typeof(ToolbarUISystem)
+    .GetField("m_LastSelectedAssets", BindingFlags.NonPublic | BindingFlags.Instance)
+    .GetValue(toolbarUI) as Dictionary<Entity, Entity>;
+// Remove stale entries when replacing prefab entities
+lastSelected.Remove(oldGroupEntity);
+```
+
+### UIGroupElement Manipulation
+
+To add/remove prefabs from toolbar groups, modify the `UIGroupElement` buffer on group entities:
+
+**Known UI group names**: `"RoadsSmallRoads"`, `"RoadsMediumRoads"`, `"RoadsLargeRoads"`, `"RoadsHighways"`, `"TransportationTrain"`, `"TransportationTram"`, `"TransportationSubway"`, `"TransportationRoad"`, `"Pathways"`.
+
 ## Open Questions
 
 - [ ] Whether `CallBinding` results are serialized automatically by cohtml or require manual `IJsonWritable`

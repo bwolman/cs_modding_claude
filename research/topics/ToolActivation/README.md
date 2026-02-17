@@ -507,6 +507,89 @@ protected override JobHandle OnUpdate(JobHandle inputDeps)
 
 For parallel jobs, use `CreateCommandBuffer().AsParallelWriter()` and call `barrier.AddJobHandleForProducer(jobHandle)`.
 
+## ModificationBarrier Pattern
+
+Barrier systems synchronize `EntityCommandBuffer` playback at update phase boundaries. Different barriers correspond to different phases:
+
+| Barrier | Phase | Use When |
+|---------|-------|----------|
+| `ModificationBarrier4B` | Modification4B | Systems modifying entities during Modification4 |
+| `ModificationBarrier5` | Modification5 | Systems running in Modification5 |
+| `ToolOutputBarrier` | After tool phases | Tool systems creating/modifying entities |
+| `EndFrameBarrier` | End of frame | General-purpose deferred commands |
+
+**Pattern**:
+```csharp
+private ModificationBarrier4B m_Barrier;
+
+protected override void OnCreate()
+{
+    base.OnCreate();
+    m_Barrier = World.GetOrCreateSystemManaged<ModificationBarrier4B>();
+}
+
+protected override void OnUpdate()
+{
+    var ecb = m_Barrier.CreateCommandBuffer().AsParallelWriter();
+    // Schedule job using ecb...
+    m_Barrier.AddJobHandleForProducer(Dependency);
+}
+```
+
+**Key rule**: Use the barrier matching your system's update phase. If your system runs in Modification4, use `ModificationBarrier4B` (or `ModificationBarrier5` if you need commands to execute after Modification4B). For tool systems, use `ToolOutputBarrier`.
+
+## Custom ToolBaseSystem (Picker/Eyedropper)
+
+Complete pattern for a custom `ToolBaseSystem` with raycast configuration:
+
+```csharp
+public partial class PickerToolSystem : ToolBaseSystem
+{
+    public override string toolID => "Picker Tool";
+
+    private ToolOutputBarrier m_ToolOutputBarrier;
+    private ProxyAction m_ApplyAction;
+    private Entity m_HighlightedEntity;
+
+    public override void InitializeRaycast()
+    {
+        base.InitializeRaycast();
+        m_ToolRaycastSystem.collisionMask = CollisionMask.Overground
+            | CollisionMask.OnGround | CollisionMask.Underground;
+        m_ToolRaycastSystem.typeMask |= TypeMask.StaticObjects | TypeMask.Net;
+        m_ToolRaycastSystem.netLayerMask = Layer.All;
+        m_ToolRaycastSystem.raycastFlags |= RaycastFlags.SubElements;
+    }
+
+    protected override void OnUpdate()
+    {
+        // Get raycast hit
+        if (GetRaycastResult(out Entity hit, out RaycastHit _))
+        {
+            // Traverse Owner hierarchy to get root entity
+            while (EntityManager.TryGetComponent<Owner>(hit, out var owner))
+                hit = owner.m_Owner;
+
+            // Highlight via EntityCommandBuffer
+            if (hit != m_HighlightedEntity)
+            {
+                var buffer = m_ToolOutputBarrier.CreateCommandBuffer();
+                if (m_HighlightedEntity != Entity.Null)
+                {
+                    buffer.RemoveComponent<Highlighted>(m_HighlightedEntity);
+                    buffer.AddComponent<BatchesUpdated>(m_HighlightedEntity);
+                }
+                buffer.AddComponent<Highlighted>(hit);
+                buffer.AddComponent<BatchesUpdated>(hit);
+                m_HighlightedEntity = hit;
+            }
+        }
+    }
+}
+```
+
+**Key elements**: Custom `toolID` string, `InitializeRaycast()` override for configuring collision/type/layer masks, `Owner` traversal for root entity, `Highlighted + BatchesUpdated` for visual feedback, `ToolOutputBarrier` for deferred commands, `ProxyAction` for custom input binding.
+
 ## Open Questions
 
 - [x] Is `activeTool` safe to set from TriggerBinding callbacks? — Yes, fully safe

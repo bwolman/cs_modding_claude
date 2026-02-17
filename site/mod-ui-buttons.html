@@ -851,6 +851,26 @@ private async Task DelayedSearch()
 </ul>
 
 <!-- ============================================================ -->
+<h2>ToolbarUISystem Integration</h2>
+
+<p>
+  <code>ToolbarUISystem</code> has a private <code>m_LastSelectedAssets</code> field
+  (<code>Dictionary&lt;Entity, Entity&gt;</code>) tracking the last selected prefab per group.
+  Clean up stale references via reflection when replacing prefab entities:
+</p>
+
+<pre><code class="language-csharp">var lastSelected = typeof(ToolbarUISystem)
+    .GetField("m_LastSelectedAssets", BindingFlags.NonPublic | BindingFlags.Instance)
+    .GetValue(toolbarUI) as Dictionary&lt;Entity, Entity&gt;;
+lastSelected.Remove(oldGroupEntity);</code></pre>
+
+<p>
+  Known UI group names: <code>"RoadsSmallRoads"</code>, <code>"RoadsMediumRoads"</code>,
+  <code>"RoadsLargeRoads"</code>, <code>"RoadsHighways"</code>, <code>"TransportationTrain"</code>,
+  <code>"TransportationTram"</code>, <code>"Pathways"</code>.
+</p>
+
+<!-- ============================================================ -->
 <h2>Sources</h2>
 
 <ul>

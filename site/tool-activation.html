@@ -517,6 +517,41 @@ public static class ToolbarApplyPatch
   </ul>
 
   <!-- ============================================================ -->
+  <h2>ModificationBarrier Pattern</h2>
+
+  <table>
+    <thead><tr><th>Barrier</th><th>Phase</th><th>Use When</th></tr></thead>
+    <tbody>
+      <tr><td><code>ModificationBarrier4B</code></td><td>Modification4B</td><td>Systems in Modification4</td></tr>
+      <tr><td><code>ModificationBarrier5</code></td><td>Modification5</td><td>Systems in Modification5</td></tr>
+      <tr><td><code>ToolOutputBarrier</code></td><td>After tool phases</td><td>Tool systems</td></tr>
+      <tr><td><code>EndFrameBarrier</code></td><td>End of frame</td><td>General-purpose</td></tr>
+    </tbody>
+  </table>
+
+  <pre><code class="language-csharp">m_Barrier = World.GetOrCreateSystemManaged&lt;ModificationBarrier4B&gt;();
+var ecb = m_Barrier.CreateCommandBuffer().AsParallelWriter();
+// Schedule job using ecb...
+m_Barrier.AddJobHandleForProducer(Dependency);</code></pre>
+
+  <h2>Custom ToolBaseSystem (Picker)</h2>
+
+  <pre><code class="language-csharp">public partial class PickerToolSystem : ToolBaseSystem
+{
+    public override string toolID =&gt; "Picker Tool";
+
+    public override void InitializeRaycast()
+    {
+        base.InitializeRaycast();
+        m_ToolRaycastSystem.collisionMask = CollisionMask.Overground
+            | CollisionMask.OnGround | CollisionMask.Underground;
+        m_ToolRaycastSystem.typeMask |= TypeMask.StaticObjects | TypeMask.Net;
+        m_ToolRaycastSystem.netLayerMask = Layer.All;
+    }
+    // Highlight via Highlighted + BatchesUpdated, traverse Owner for root
+}</code></pre>
+
+  <!-- ============================================================ -->
   <h2>Sources</h2>
 
   <ul>
