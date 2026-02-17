@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Info Views &amp; Data Overlays</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html" class="active">Info Views &amp; Overlays</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Info Views &amp; Data Overlays</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How do CS2's info views (pollution overlay, land value, electricity
+      coverage, etc.) work? How does the game select, activate, and render data overlays, and how
+      can mods add custom overlays?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Info views are built on a <strong>two-layer prefab system</strong>.
+      An <code>InfoviewPrefab</code> (e.g., "Pollution") groups multiple <code>InfomodePrefab</code>
+      instances (e.g., AirPollution heatmap, GroundPollution heatmap, NoisePollution heatmap).
+      When the player activates a view, <code>ToolSystem</code> adds <code>InfomodeActive</code>
+      components to each infomode entity, which triggers the rendering pipeline.
+      Heatmap overlays are written as <strong>RGBA texture data</strong> from CellMapData grids via
+      Burst jobs, while building/vehicle/road colors are applied through <strong>shader global
+      variables</strong> (<code>colossal_InfomodeColors</code>).
+    </p>
+    <p>
+      <strong>Out of scope:</strong> The individual simulation systems that produce underlying data
+      (GroundPollutionSystem, LandValueSystem, etc.) are covered in their respective research pages.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <h3>The Two-Layer Prefab Architecture</h3>
+
+  <p>
+    Every info view in CS2 is defined by two levels of prefabs:
+  </p>
+
+  <ul>
+    <li><strong>InfoviewPrefab</strong> -- the top-level view (e.g., "Pollution", "Electricity",
+    "Land Value"). Defines the icon, priority, notification categories, and a list of infomodes.</li>
+    <li><strong>InfomodePrefab</strong> -- individual data layers within a view. Each infomode
+    controls one visual element: a heatmap on terrain, building coloring, vehicle tinting,
+    road network gradients, or effect range circles.</li>
+  </ul>
+
+  <p>
+    An info view can contain multiple infomodes. For example, the Pollution view includes separate
+    heatmap infomodes for air pollution, ground pollution, and noise pollution. The player can
+    toggle individual infomodes on or off within the active view.
+  </p>
+
+  <h3>Activation Flow</h3>
+
+  <p>
+    When the player clicks an info view button, this chain executes:
+  </p>
+
+  <ol>
+    <li><code>InfoviewsUISystem.SetActiveInfoview(entity)</code> -- UI trigger binding</li>
+    <li><code>ToolSystem.SetInfoview(InfoviewPrefab)</code> -- clears previous infomodes, reads
+    the <code>InfoviewMode</code> buffer from the prefab entity</li>
+    <li>For each non-optional, non-supplemental infomode: adds <code>InfomodeActive</code>
+    component to the infomode entity with an assigned color group index</li>
+    <li><code>ToolSystem.UpdateInfoviewColors()</code> -- reads color configuration from each
+    active infomode prefab, writes to shader global arrays</li>
+    <li>Rendering systems detect <code>InfomodeActive</code> components and apply visuals</li>
+  </ol>
+
+  <h3>Color Group System</h3>
+
+  <p>
+    Infomodes are organized into <strong>3 color groups</strong> with 4 slots each (12 total).
+    The color group determines which RGBA channel the infomode writes to:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Group</th><th>Indices</th><th>Used For</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0 (Terrain primary)</td><td>1-4</td><td>Most heatmaps (pollution, resources, land value)</td></tr>
+      <tr><td>1 (Water surface)</td><td>5-8</td><td>Water-specific overlays (fish, water flow, water pollution)</td></tr>
+      <tr><td>2 (Secondary)</td><td>9-12</td><td>Building/vehicle/network coloring</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Each infomode writes its value into a specific RGBA channel of the overlay texture. The shader
+    reads these channels and applies the corresponding gradient colors from
+    <code>colossal_InfomodeColors</code>.
+  </p>
+
+  <h3>Heatmap Rendering Pipeline</h3>
+
+  <p>
+    <code>OverlayInfomodeSystem</code> handles terrain and water heatmap overlays. Each frame it:
+  </p>
+
+  <ol>
+    <li>Resets overlay textures to null</li>
+    <li>Queries all entities with <code>InfomodeActive</code> + <code>InfoviewHeatmapData</code></li>
+    <li>For each active heatmap, schedules a Burst-compiled job that reads the relevant
+    <code>CellMapData&lt;T&gt;</code> (e.g., GroundPollution grid, LandValueCell grid)</li>
+    <li>Each job writes a byte value (0-255) into the appropriate RGBA channel of a Texture2D</li>
+    <li>The texture is assigned to <code>TerrainRenderSystem.overrideOverlaymap</code> or
+    <code>WaterRenderSystem.overrideOverlaymap</code></li>
+  </ol>
+
+  <p>
+    Two special texture formats exist: the Wind overlay uses <code>R16G16B16A16_SFloat</code>
+    for direction vectors, and WaterFlow/WaterPollution use GPU-native masks rather than
+    CPU-written textures.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>InfoviewPrefab, InfomodePrefab (+ all subtypes), InfoviewInitializeSystem, InfomodeActive, InfoviewData, InfoviewMode, InfomodeData, InfoviewHeatmapData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Rendering</td>
+        <td>OverlayInfomodeSystem, OverlayRenderSystem, HeatmapData enum</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.UI.InGame</td>
+        <td>InfoviewsUISystem, InfoviewUISystemBase, per-view UI systems (PollutionInfoviewUISystem, etc.)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Tools</td>
+        <td>ToolSystem (infoview activation, shader globals), InfoviewUtils (color helpers)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>InfoviewPrefab (Game.Prefabs)</h3>
+
+  <p>Top-level info view definition. Each view appears as a button in the info view menu.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Infomodes</td><td>InfomodeInfo[]</td><td>Array of infomodes belonging to this view</td></tr>
+      <tr><td>m_DefaultColor</td><td>Color</td><td>Default color for uncolored entities (0.7, 0.7, 0.7)</td></tr>
+      <tr><td>m_SecondaryColor</td><td>Color</td><td>Secondary default color (0.6, 0.6, 0.6)</td></tr>
+      <tr><td>m_IconPath</td><td>string</td><td>Icon asset path for the UI button</td></tr>
+      <tr><td>m_Priority</td><td>int</td><td>Sort order within its group</td></tr>
+      <tr><td>m_Group</td><td>int</td><td>Grouping category for menu layout</td></tr>
+      <tr><td>m_WarningCategories</td><td>IconCategory[]</td><td>Notification types shown when this view is active</td></tr>
+      <tr><td>m_EnableNotificationIcon</td><td>NotificationIconPrefab</td><td>Notification icon to enable when view is active</td></tr>
+      <tr><td>m_Editor</td><td>bool</td><td>Whether this view is only available in the editor</td></tr>
+    </tbody>
+  </table>
+
+  <h3>InfomodeInfo (Game.Prefabs)</h3>
+
+  <p>Serializable entry linking an InfoviewPrefab to one of its InfomodePrefab layers.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Mode</td><td>InfomodePrefab</td><td>Reference to the infomode prefab</td></tr>
+      <tr><td>m_Priority</td><td>int</td><td>Priority for activation ordering</td></tr>
+      <tr><td>m_Supplemental</td><td>bool</td><td>Only shown when tool explicitly requests it</td></tr>
+      <tr><td>m_Optional</td><td>bool</td><td>Only shown when user toggles it on in the UI</td></tr>
+    </tbody>
+  </table>
+
+  <h3>InfomodeActive (Game.Prefabs)</h3>
+
+  <p>Runtime-only component added to infomode entities when they are currently displayed.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Priority</td><td>int</td><td>Display priority</td></tr>
+      <tr><td>m_Index</td><td>int</td><td>Shader channel index (1-based, into terrain overlay RGBA)</td></tr>
+      <tr><td>m_SecondaryIndex</td><td>int</td><td>Secondary channel for water surface (-1 if none)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>InfoviewHeatmapData (Game.Prefabs)</h3>
+
+  <p>Attached to HeatmapInfomodePrefab entities. Selects which CellMapData source to render.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Type</td><td>HeatmapData</td><td>Enum value selecting the data source (19 options)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>HeatmapData Enum</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th><th>Data Source System</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>None</td><td>--</td></tr>
+      <tr><td>1</td><td>GroundWater</td><td>GroundWaterSystem</td></tr>
+      <tr><td>2</td><td>GroundPollution</td><td>GroundPollutionSystem</td></tr>
+      <tr><td>3</td><td>AirPollution</td><td>AirPollutionSystem</td></tr>
+      <tr><td>4</td><td>Wind</td><td>WindSystem (vector texture)</td></tr>
+      <tr><td>5</td><td>WaterFlow</td><td>WaterRenderSystem (GPU arrows)</td></tr>
+      <tr><td>6</td><td>TelecomCoverage</td><td>TelecomPreviewSystem</td></tr>
+      <tr><td>7</td><td>Fertility</td><td>NaturalResourceSystem</td></tr>
+      <tr><td>8</td><td>Ore</td><td>NaturalResourceSystem</td></tr>
+      <tr><td>9</td><td>Oil</td><td>NaturalResourceSystem</td></tr>
+      <tr><td>10</td><td>LandValue</td><td>LandValueSystem</td></tr>
+      <tr><td>11</td><td>Attraction</td><td>AvailabilityInfoToGridSystem</td></tr>
+      <tr><td>12</td><td>Customers</td><td>AvailabilityInfoToGridSystem</td></tr>
+      <tr><td>13</td><td>Workplaces</td><td>AvailabilityInfoToGridSystem</td></tr>
+      <tr><td>14</td><td>Services</td><td>AvailabilityInfoToGridSystem</td></tr>
+      <tr><td>15</td><td>Noise</td><td>NoisePollutionSystem</td></tr>
+      <tr><td>16</td><td>WaterPollution</td><td>WaterRenderSystem (GPU mask)</td></tr>
+      <tr><td>17</td><td>Population</td><td>PopulationToGridSystem</td></tr>
+      <tr><td>18</td><td>GroundWaterPollution</td><td>GroundWaterSystem</td></tr>
+      <tr><td>19</td><td>Fish</td><td>NaturalResourceSystem</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Infomode Prefab Type Hierarchy</h3>
+
+  <p>
+    All visual layer types inherit from <code>InfomodePrefab</code>. Two main branches control
+    coloring behavior:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Prefab Type</th><th>Base Class</th><th>Visual Style</th><th>ECS Data</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>HeatmapInfomodePrefab</td><td>GradientInfomodeBasePrefab</td><td>Terrain/water texture overlay</td><td>InfoviewHeatmapData</td></tr>
+      <tr><td>BuildingInfomodePrefab</td><td>ColorInfomodeBasePrefab</td><td>Solid building color</td><td>InfoviewBuildingData</td></tr>
+      <tr><td>BuildingStatusInfomodePrefab</td><td>GradientInfomodeBasePrefab</td><td>Gradient building color</td><td>InfoviewBuildingStatusData</td></tr>
+      <tr><td>VehicleInfomodePrefab</td><td>ColorInfomodeBasePrefab</td><td>Vehicle tint</td><td>InfoviewVehicleData</td></tr>
+      <tr><td>ServiceCoverageInfomodePrefab</td><td>GradientInfomodeBasePrefab</td><td>Road network gradient</td><td>InfoviewCoverageData</td></tr>
+      <tr><td>NetStatusInfomodePrefab</td><td>GradientInfomodeBasePrefab</td><td>Road gradient + flow animation</td><td>InfoviewNetStatusData</td></tr>
+      <tr><td>EffectRangeInfomodePrefab</td><td>ColorInfomodeBasePrefab</td><td>Building radius circles</td><td>InfoviewLocalEffectData</td></tr>
+      <tr><td>RouteInfomodePrefab</td><td>ColorInfomodeBasePrefab</td><td>Transit route color</td><td>InfoviewRouteData</td></tr>
+      <tr><td>ZoneSuitabilityInfomodePrefab</td><td>GradientInfomodeBasePrefab</td><td>Zone suitability gradient</td><td>InfoviewAvailabilityData</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+PLAYER ACTIVATES INFO VIEW (UI click)
+  InfoviewsUISystem.SetActiveInfoview(entity)
+        |
+        v
+  ToolSystem.SetInfoview(InfoviewPrefab)
+    Removes InfomodeActive from all previous infomode entities
+    Reads InfoviewMode buffer from prefab entity
+    For each infomode (non-optional, non-supplemental):
+      Assigns color group index (group * 4 + count)
+      Adds InfomodeActive { m_Index, m_SecondaryIndex } to entity
+        |
+        v
+  ToolSystem.UpdateInfoviewColors()
+    For each active infomode entity:
+      Calls prefab.GetColors() -&gt; low, medium, high colors
+      Writes to m_InfomodeColors[index * 3 + 0/1/2]
+      Writes to m_InfomodeParams[index] = (steps, speed, tiling, fill)
+    Sets shader globals:
+      colossal_InfoviewOn = 1
+      colossal_InfomodeColors = Vector4[303]
+      colossal_InfomodeParams = Vector4[101]
+        |
+        +-----------------------------------+
+        |                                   |
+        v                                   v
+  OverlayInfomodeSystem              Game Shaders
+  (Heatmap overlays)                 (Entity coloring)
+    Queries: InfomodeActive +          Read colossal_InfomodeColors
+             InfoviewHeatmapData       Apply gradient to buildings,
+    For each heatmap type:             roads, vehicles based on
+      Read CellMapData&lt;T&gt;             per-entity status data
+      Schedule Burst job               (coverage, building type,
+      Write bytes to Texture2D         vehicle type, etc.)
+      Assign to TerrainRender
+        .overrideOverlaymap
+        |
+        v
+  TerrainRenderSystem                InfoviewUISystemBase
+  WaterRenderSystem                  subclasses (every 256 frames)
+    Render with overlay                Compute aggregate stats
+    texture applied                    Update ValueBindings
+    Shader reads RGBA channels         for UI info panels
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Activate an Info View Programmatically</h3>
+
+  <p>Set the active info view by name from mod code.</p>
+
+  <pre><code class="language-csharp">public partial class CustomInfoviewActivator : GameSystemBase
+{
+    private ToolSystem _toolSystem;
+    private InfoviewInitializeSystem _infoviewInit;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+        _infoviewInit = World.GetOrCreateSystemManaged&lt;InfoviewInitializeSystem&gt;();
+    }
+
+    public void ActivateInfoview(string viewName)
+    {
+        foreach (InfoviewPrefab prefab in _infoviewInit.infoviews)
+        {
+            if (prefab.name == viewName &amp;&amp; prefab.isValid)
+            {
+                _toolSystem.infoview = prefab;
+                return;
+            }
+        }
+        Log.Warn($"Info view '{viewName}' not found");
+    }
+
+    public void DeactivateInfoview()
+    {
+        _toolSystem.infoview = null;
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <h3>Toggle an Individual Infomode</h3>
+
+  <p>Enable or disable a specific infomode layer within the active info view.</p>
+
+  <pre><code class="language-csharp">public void ToggleInfomode(ToolSystem toolSystem, PrefabSystem prefabSystem,
+    string infomodeName, bool active)
+{
+    InfoviewPrefab activeView = toolSystem.activeInfoview;
+    if (activeView == null) return;
+
+    List&lt;InfomodeInfo&gt; infomodes = toolSystem.GetInfoviewInfomodes();
+    if (infomodes == null) return;
+
+    foreach (InfomodeInfo info in infomodes)
+    {
+        if (info.m_Mode.name == infomodeName)
+        {
+            Entity entity = prefabSystem.GetEntity(info.m_Mode);
+            toolSystem.SetInfomodeActive(entity, active, info.m_Priority);
+            return;
+        }
+    }
+}</code></pre>
+
+  <h3>Read Active Overlay Color Configuration</h3>
+
+  <p>Inspect which shader colors the current info view is using for debugging or UI sync.</p>
+
+  <pre><code class="language-csharp">public void LogActiveInfoviewColors(ToolSystem toolSystem)
+{
+    NativeArray&lt;Vector4&gt; colors = toolSystem.GetActiveInfoviewColors();
+    if (colors.Length == 0) return;
+
+    // Index 0 = default color, indices 1+ = infomode colors
+    // Each infomode uses 3 consecutive entries: low, mid, high
+    Log.Info($"Default color: {colors[0]}");
+
+    for (int i = 1; i &lt; Math.Min(colors.Length / 3, 13); i++)
+    {
+        Vector4 low = colors[i * 3];
+        Vector4 mid = colors[i * 3 + 1];
+        Vector4 high = colors[i * 3 + 2];
+
+        if (low != default || mid != default || high != default)
+        {
+            Log.Info($"Infomode {i}: Low={low}, Mid={mid}, High={high}");
+        }
+    }
+}</code></pre>
+
+  <h3>Listen for Info View Change Events</h3>
+
+  <p>Register a callback that fires whenever the player switches info views. Useful for
+  syncing mod UI panels or triggering custom behavior.</p>
+
+  <pre><code class="language-csharp">public partial class InfoviewChangeListener : GameSystemBase
+{
+    private ToolSystem _toolSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+        _toolSystem.EventInfoviewChanged += OnInfoviewChanged;
+        _toolSystem.EventInfomodesChanged += OnInfomodesChanged;
+    }
+
+    protected override void OnDestroy()
+    {
+        _toolSystem.EventInfoviewChanged -= OnInfoviewChanged;
+        _toolSystem.EventInfomodesChanged -= OnInfomodesChanged;
+        base.OnDestroy();
+    }
+
+    private void OnInfoviewChanged(InfoviewPrefab newView, InfoviewPrefab oldView)
+    {
+        string oldName = oldView?.name ?? "None";
+        string newName = newView?.name ?? "None";
+        Log.Info($"Info view changed: {oldName} -&gt; {newName}");
+
+        if (newView != null &amp;&amp; newView.name == "Pollution")
+        {
+            // Enable custom mod panel for pollution analysis
+        }
+    }
+
+    private void OnInfomodesChanged()
+    {
+        Log.Info("Infomodes toggled within active view");
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <h3>Custom Heatmap Data via Harmony Patch</h3>
+
+  <p>Patch OverlayInfomodeSystem to inject custom data into the terrain overlay texture.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(OverlayInfomodeSystem), "OnUpdate")]
+public static class CustomHeatmapPatch
+{
+    static void Postfix(OverlayInfomodeSystem __instance)
+    {
+        var terrainSystem = World.DefaultGameObjectInjectionWorld
+            .GetOrCreateSystemManaged&lt;TerrainRenderSystem&gt;();
+
+        Texture2D overlayTex = terrainSystem.overrideOverlaymap as Texture2D;
+        if (overlayTex == null) return;
+
+        NativeArray&lt;byte&gt; texData = overlayTex.GetRawTextureData&lt;byte&gt;();
+        int width = overlayTex.width;
+        int height = overlayTex.height;
+
+        // Write to an unused RGBA channel (e.g., channel 3 = alpha)
+        int channel = 3;
+        for (int y = 0; y &lt; height; y++)
+        {
+            for (int x = 0; x &lt; width; x++)
+            {
+                int idx = (x + y * width) * 4 + channel;
+                float cx = (float)x / width - 0.5f;
+                float cy = (float)y / height - 0.5f;
+                float dist = Mathf.Sqrt(cx * cx + cy * cy) * 2f;
+                texData[idx] = (byte)Mathf.Clamp(
+                    Mathf.RoundToInt((1f - dist) * 255f), 0, 255);
+            }
+        }
+        overlayTex.Apply();
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Shader Global Variables</h3>
+
+  <p>
+    <code>ToolSystem.UpdateInfoviewColors()</code> sets these shader globals every time the info
+    view or infomodes change:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Shader Variable</th><th>Type</th><th>Size</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>colossal_InfoviewOn</td>
+        <td>int</td>
+        <td>1</td>
+        <td>1 if any info view is active, 0 otherwise</td>
+      </tr>
+      <tr>
+        <td>colossal_InfomodeColors</td>
+        <td>Vector4[]</td>
+        <td>303</td>
+        <td>101 infomodes x 3 colors each (low, medium, high) in linear color space</td>
+      </tr>
+      <tr>
+        <td>colossal_InfomodeParams</td>
+        <td>Vector4[]</td>
+        <td>101</td>
+        <td>Per-infomode: (steps, speed, tiling, fill)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Gradient Configuration (GradientInfomodeBasePrefab)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Low</td><td>Color</td><td>Red</td><td>Color at minimum value</td></tr>
+      <tr><td>m_Medium</td><td>Color</td><td>Yellow</td><td>Color at midpoint</td></tr>
+      <tr><td>m_High</td><td>Color</td><td>Green</td><td>Color at maximum value</td></tr>
+      <tr><td>m_Steps</td><td>int</td><td>11</td><td>Number of discrete gradient bands</td></tr>
+      <tr><td>m_LegendType</td><td>GradientLegendType</td><td>--</td><td>Gradient (continuous) or Fields (discrete categories)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Flow Animation (NetStatusInfomodePrefab)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_FlowSpeed</td><td>float</td><td>Animation speed for directional flow</td></tr>
+      <tr><td>m_FlowTiling</td><td>float</td><td>Texture tiling for flow pattern (stored as 1/tiling)</td></tr>
+      <tr><td>m_MinFlow</td><td>float</td><td>Minimum threshold to display flow (stored as 1/minFlow)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Custom InfoviewPrefab registration:</strong> Creating entirely new InfoviewPrefab
+      instances at runtime (rather than patching existing ones) may require hooking into the
+      PrefabSystem initialization pipeline. The exact registration API for mod-created prefabs
+      needs in-game testing.
+    </li>
+    <li>
+      <strong>Shader channel limits:</strong> The system supports 3 color groups x 4 infomodes
+      = 12 simultaneous infomodes. Adding beyond this requires shader modifications or a custom
+      rendering path.
+    </li>
+    <li>
+      <strong>Water overlay dual-write:</strong> Some heatmaps (AirPollution, Noise, TelecomCoverage,
+      Oil) write to both terrain and water textures using the secondary index. Custom overlays
+      that need water surface display must handle both surfaces explicitly.
+    </li>
+    <li>
+      <strong>UI panel extensibility:</strong> Whether <code>InfoviewUISystemBase</code> subclasses
+      can be registered by mods without patching, or if Harmony injection is required to display
+      custom statistics panels alongside existing ones.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Prefabs.InfoviewPrefab, Game.Prefabs.InfomodePrefab, Game.Prefabs.InfoviewInitializeSystem, Game.Prefabs.HeatmapInfomodePrefab, Game.Prefabs.GradientInfomodeBasePrefab, Game.Prefabs.ColorInfomodeBasePrefab, Game.Prefabs.BuildingInfomodePrefab, Game.Prefabs.ServiceCoverageInfomodePrefab, Game.Prefabs.NetStatusInfomodePrefab, Game.Prefabs.VehicleInfomodePrefab, Game.Prefabs.EffectRangeInfomodePrefab</li>
+    <li>Runtime components: Game.Prefabs.InfomodeActive, Game.Prefabs.InfoviewData, Game.Prefabs.InfoviewMode, Game.Prefabs.InfoviewHeatmapData</li>
+    <li>Rendering: Game.Rendering.OverlayInfomodeSystem, Game.Rendering.HeatmapData</li>
+    <li>UI: Game.UI.InGame.InfoviewsUISystem, Game.UI.InGame.InfoviewUISystemBase, Game.UI.InGame.PollutionInfoviewUISystem</li>
+    <li>Tools: Game.Tools.ToolSystem (infoview/infomode activation, shader globals), Game.Tools.InfoviewUtils</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- InfoviewPrefab, InfomodePrefab, OverlayInfomodeSystem, ToolSystem, InfoviewsUISystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
