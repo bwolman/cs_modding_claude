@@ -735,6 +735,75 @@ namespace MyMod.Systems
 }
 ```
 
+## Concrete Versioning Pattern: DeciduousData (Tree_Controller)
+
+The Tree_Controller mod by yenyang demonstrates a production-ready versioning pattern for ISerializable with several key techniques:
+
+1. **Version byte as first field**: The version number is always the first byte written, enabling future migration.
+2. **Enum-to-byte casting**: Enums are cast to `byte` before serialization, reducing save file size and decoupling the serialized format from the enum's underlying type.
+3. **IQueryTypeParameter alongside IComponentData**: Adding `IQueryTypeParameter` lets the component be used with `SystemAPI.QueryBuilder` and source-generated queries, not just manual `EntityQuery` construction.
+
+### DeciduousData Component
+
+```csharp
+using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// <summary>
+/// Stores per-tree deciduous state that persists across save/load.
+/// Implements IQueryTypeParameter for SystemAPI.QueryBuilder compatibility.
+/// Source: Tree_Controller mod by yenyang.
+/// </summary>
+public struct DeciduousData : IComponentData, ISerializable, IQueryTypeParameter
+{
+    public TreeState m_PreviousTreeState;
+    public bool m_TechnicolorTreeRandomly;
+
+    // Version byte enables future field additions without breaking saves
+    private const byte kCurrentVersion = 1;
+
+    public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        // Cast enum to byte to minimize save size and decouple from enum type
+        writer.Write((byte)m_PreviousTreeState);
+        writer.Write(m_TechnicolorTreeRandomly);
+    }
+
+    public void Deserialize<TReader>(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out byte previousTreeState);
+        m_PreviousTreeState = (TreeState)previousTreeState;
+        reader.Read(out m_TechnicolorTreeRandomly);
+    }
+}
+```
+
+### Evergreen Tag Component
+
+The same mod uses `IEmptySerializable` for a zero-data marker that also implements `IQueryTypeParameter`:
+
+```csharp
+using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// <summary>
+/// Marks a tree as evergreen (never loses leaves). Persists across save/load.
+/// Source: Tree_Controller mod by yenyang.
+/// </summary>
+public struct Evergreen : IComponentData, IEmptySerializable, IQueryTypeParameter { }
+```
+
+### Key Takeaways
+
+- **Always write version first**: Even if you only have one version, writing the version byte from the start means you can add fields later without breaking existing saves.
+- **Cast enums to byte**: `writer.Write((byte)m_PreviousTreeState)` is smaller than writing the enum's default underlying type (int) and safer against enum definition changes.
+- **Add IQueryTypeParameter**: If your component will be used with `SystemAPI.QueryBuilder` (the source-generated ECS query API), add this interface. It is a marker interface with no methods.
+- **IEmptySerializable + IQueryTypeParameter**: Tag components can combine both interfaces for zero-data persistence with query compatibility.
+
+*Source: [Tree_Controller mod by yenyang](https://github.com/yenyang/Tree_Controller) -- DeciduousData.cs and Evergreen.cs*
+
 ## Community Mod ISerializable Pattern
 
 Community mods like RealisticWorkplacesAndHouseholds demonstrate a robust pattern for persisting custom per-entity data across save/load. The key elements are:
