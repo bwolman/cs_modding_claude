@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Districts &amp; Policies</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+      <h3>Events &amp; Simulation</h3>
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+
+      <h3>Infrastructure</h3>
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+
+      <h3>Economy &amp; Population</h3>
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+
+      <h3>City Services</h3>
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+
+      <h3>Governance</h3>
+      <a href="districts-policies.html" class="active">Districts &amp; Policies</a>
+
+      <h3>Environment</h3>
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+      <h3>Tools &amp; Input</h3>
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+
+      <h3>UI &amp; Settings</h3>
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+
+      <h3>Modding Framework</h3>
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="prefab-system.html">Prefab System</a>
+    </aside>
+
+  <main class="content">
+
+  <h1>Districts &amp; Policies</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 define district areas, apply policies (toggles and sliders)
+      to districts, and translate those policies into simulation modifiers that affect speed limits,
+      parking fees, garbage production, and traffic restrictions?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Districts are <strong>area entities</strong> defined by painted polygon
+      boundaries with triangle meshes. Each district carries a <code>Policy</code> buffer listing
+      active policies and a <code>DistrictModifier</code> buffer of computed modifier values indexed
+      by <code>DistrictModifierType</code>. Policies come in two forms: <strong>toggles</strong>
+      (on/off, set option flags) and <strong>sliders</strong> (continuous value, interpolate modifier
+      ranges). When a policy changes, <code>ModifiedSystem</code> processes the event and
+      recalculates all modifier values. Objects and buildings track their containing district via
+      <code>CurrentDistrict</code>, while road edges track the districts on either side via
+      <code>BorderDistrict</code>.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Building-level modifiers, route (transit line) modifiers, and
+      city-wide modifiers share a similar architecture but are not deeply covered here.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The district and policy system has four layers: <strong>area geometry</strong> (where the
+    district is), <strong>entity-to-district mapping</strong> (which entities are inside it),
+    <strong>policy storage</strong> (which policies are active), and <strong>modifier computation</strong>
+    (what simulation effects result).
+  </p>
+
+  <h3>District Entities</h3>
+
+  <p>
+    When a player paints a district, the game creates an area entity from <code>DistrictPrefab</code>
+    with these key runtime components:
+  </p>
+
+  <ul>
+    <li><strong>District</strong> -- contains <code>m_OptionMask</code>, a bitmask of active <code>DistrictOption</code> flags</li>
+    <li><strong>Policy</strong> (buffer) -- list of active policies with their flags and slider adjustments</li>
+    <li><strong>DistrictModifier</strong> (buffer) -- computed modifier values indexed by <code>DistrictModifierType</code></li>
+    <li><strong>Geometry</strong>, <strong>Node</strong>, <strong>Triangle</strong> -- polygon geometry for point-in-area tests</li>
+  </ul>
+
+  <h3>Two Policy Types</h3>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Prefab Class</th><th>How It Works</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Toggle</td>
+        <td>PolicyTogglePrefab</td>
+        <td>On/off. Sets option flags in <code>District.m_OptionMask</code> via <code>DistrictOptionData</code></td>
+        <td>Forbid Heavy Traffic</td>
+      </tr>
+      <tr>
+        <td>Slider</td>
+        <td>PolicySliderPrefab</td>
+        <td>Continuous value. Interpolates between <code>DistrictModifierData.m_Range.min</code> and <code>m_Range.max</code> based on slider position</td>
+        <td>Speed Limit, Parking Fee</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Entity-to-District Mapping</h3>
+
+  <p>
+    <code>CurrentDistrictSystem</code> maintains the link between objects/buildings and their
+    containing district. It uses the area search quad tree to perform <strong>point-in-triangle
+    tests</strong> against district polygon geometry.
+  </p>
+
+  <ul>
+    <li><strong>Buildings/Objects</strong> get a <code>CurrentDistrict</code> component with
+    <code>m_District</code> pointing to their containing district entity (or <code>Entity.Null</code>
+    if outside all districts)</li>
+    <li><strong>Road edges</strong> get a <code>BorderDistrict</code> component with <code>m_Left</code>
+    and <code>m_Right</code> -- the districts on each side of the road. This is critical for policies
+    that affect lane pathfinding (speed limits, traffic bans)</li>
+  </ul>
+
+  <p>
+    When district boundaries change (player edits), the system re-queries all entities in the
+    affected bounding boxes using the object and net search trees.
+  </p>
+
+  <h3>The Modifier Math</h3>
+
+  <p>
+    The <code>DistrictModifier</code> buffer is indexed by <code>DistrictModifierType</code> enum
+    value (0 through 12). Each entry has a <code>float2 m_Delta</code> where:
+  </p>
+
+  <ul>
+    <li><code>m_Delta.x</code> -- absolute offset (added directly to base value)</li>
+    <li><code>m_Delta.y</code> -- relative multiplier delta (base value is multiplied by <code>1 + m_Delta.y</code>)</li>
+  </ul>
+
+  <p>Three modifier value modes determine how policy values are applied:</p>
+
+  <table>
+    <thead>
+      <tr><th>Mode</th><th>Formula</th><th>Use Case</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Relative</td>
+        <td><code>delta.y = delta.y * (1 + value) + value</code></td>
+        <td>Percentage-based scaling (e.g. +20% garbage)</td>
+      </tr>
+      <tr>
+        <td>Absolute</td>
+        <td><code>delta.x += value</code></td>
+        <td>Fixed offset (e.g. parking fee amount)</td>
+      </tr>
+      <tr>
+        <td>InverseRelative</td>
+        <td><code>value = 1/max(0.001, 1+value) - 1</code>, then Relative</td>
+        <td>Diminishing returns scaling</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    For slider policies, the slider position is normalized to [0, 1] within the slider range,
+    then <code>math.lerp(modifierData.m_Range.min, modifierData.m_Range.max, normalizedPosition)</code>
+    produces the modifier value. For toggle policies, <code>modifierData.m_Range.min</code> is used directly.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Areas</td>
+        <td>District, DistrictModifier, CurrentDistrict, BorderDistrict, ServiceDistrict, DistrictModifierType, DistrictOption, CurrentDistrictSystem, ServiceDistrictSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Policies</td>
+        <td>Policy, PolicyFlags, Modify, ModifiedSystem, DistrictModifierInitializeSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>DistrictPrefab, PolicyPrefab, PolicyTogglePrefab, PolicySliderPrefab, PolicyData, PolicySliderData, DistrictOptionData, DistrictModifierData, DistrictModifiers, DistrictOptions, DefaultPolicyData, PolicyCategory</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Pathfind</td>
+        <td>LanePoliciesSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>District (Game.Areas)</h3>
+
+  <p>Core component on every district entity. Stores the bitmask of active option flags.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_OptionMask</td><td>uint</td><td>Bitmask of active DistrictOption flags (PaidParking=bit 0, ForbidCombustionEngines=bit 1, etc.)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>DistrictModifier (Game.Areas) -- Buffer</h3>
+
+  <p>Buffer of computed modifier values. Index matches <code>DistrictModifierType</code> enum ordinal.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Delta</td><td>float2</td><td>x = absolute delta, y = relative multiplier delta</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Policy (Game.Policies) -- Buffer</h3>
+
+  <p>Buffer on district/building/route/city entities listing active policies.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Policy</td><td>Entity</td><td>Reference to the policy prefab entity</td></tr>
+      <tr><td>m_Flags</td><td>PolicyFlags</td><td>Active (1) or inactive</td></tr>
+      <tr><td>m_Adjustment</td><td>float</td><td>Slider value (unused for toggles)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Modify (Game.Policies) -- Event Component</h3>
+
+  <p>Placed on event entities to request a policy change. Consumed by <code>ModifiedSystem</code>.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Entity</td><td>Entity</td><td>Target entity (district, building, city, or route)</td></tr>
+      <tr><td>m_Policy</td><td>Entity</td><td>Policy prefab entity</td></tr>
+      <tr><td>m_Flags</td><td>PolicyFlags</td><td>Desired active state</td></tr>
+      <tr><td>m_Adjustment</td><td>float</td><td>Desired slider value</td></tr>
+    </tbody>
+  </table>
+
+  <h3>DistrictModifierType Enum</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th><th>What It Affects</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>GarbageProduction</td><td>Building garbage output</td></tr>
+      <tr><td>1</td><td>ProductConsumption</td><td>Commercial product consumption</td></tr>
+      <tr><td>2</td><td>ParkingFee</td><td>Parking costs</td></tr>
+      <tr><td>3</td><td>BuildingFireHazard</td><td>Fire risk</td></tr>
+      <tr><td>4</td><td>BuildingFireResponseTime</td><td>Fire response time</td></tr>
+      <tr><td>5</td><td>BuildingUpkeep</td><td>Building maintenance costs</td></tr>
+      <tr><td>6</td><td>LowCommercialTax</td><td>Commercial tax rate</td></tr>
+      <tr><td>7</td><td>Wellbeing</td><td>Citizen wellbeing</td></tr>
+      <tr><td>8</td><td>CrimeAccumulation</td><td>Crime rate</td></tr>
+      <tr><td>9</td><td>StreetSpeedLimit</td><td>Road speed limits</td></tr>
+      <tr><td>10</td><td>StreetTrafficSafety</td><td>Traffic safety</td></tr>
+      <tr><td>11</td><td>EnergyConsumptionAwareness</td><td>Energy usage</td></tr>
+      <tr><td>12</td><td>CarReserveProbability</td><td>Chance citizens reserve cars</td></tr>
+    </tbody>
+  </table>
+
+  <h3>DistrictOption Enum</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>PaidParking</td><td>Enables paid parking in district</td></tr>
+      <tr><td>1</td><td>ForbidCombustionEngines</td><td>Bans combustion vehicles</td></tr>
+      <tr><td>2</td><td>ForbidTransitTraffic</td><td>Bans through-traffic</td></tr>
+      <tr><td>3</td><td>ForbidHeavyTraffic</td><td>Bans heavy vehicles</td></tr>
+      <tr><td>4</td><td>ForbidBicycles</td><td>Bans bicycles</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+DISTRICT CREATION (Player paints area)
+  DistrictPrefab.GetArchetypeComponents creates entity with:
+    District, Geometry, DistrictModifier (buffer), Policy (buffer)
+  DistrictModifierInitializeSystem processes Created entities
+    Applies default policies to District.m_OptionMask
+    Populates DistrictModifier buffer
+          |
+          v
+ENTITY-TO-DISTRICT MAPPING (Continuous)
+  CurrentDistrictSystem
+    For objects/buildings: point-in-triangle test -&gt; CurrentDistrict.m_District
+    For road edges: tests left/right side -&gt; BorderDistrict.m_Left / m_Right
+    When district bounds change: re-queries all objects in affected area
+          |
+          v
+POLICY CHANGE (User toggles or adjusts slider)
+  UI creates Event entity with Modify component
+    m_Entity = target district
+    m_Policy = policy prefab
+    m_Flags  = Active or 0
+    m_Adjustment = slider value
+          |
+          v
+  ModifiedSystem.ModifyPolicyJob
+    Adds/updates/removes Policy entry in buffer
+    Calls RefreshEffects:
+      RefreshDistrictOptions -&gt; rebuilds District.m_OptionMask
+      RefreshDistrictModifiers -&gt; rebuilds DistrictModifier buffer
+          |
+          v
+  LanePoliciesSystem
+    Detects lane-affecting policy changes
+    Marks affected lanes with PathfindUpdated:
+      PaidParking -&gt; parking lanes
+      ForbidCombustionEngines -&gt; car lanes
+      ForbidTransitTraffic -&gt; car + pedestrian lanes
+      ForbidHeavyTraffic -&gt; car lanes
+      StreetSpeedLimit -&gt; car lanes
+          |
+          v
+MODIFIER CONSUMPTION (Simulation systems)
+  Read DistrictModifier buffer for numeric effects
+  Read District.m_OptionMask for boolean restrictions
+  Read BorderDistrict for lane-level district awareness
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Read a Building's Current District and Modifiers</h3>
+
+  <p>Check which district a building belongs to and read the active modifiers.</p>
+
+  <pre><code class="language-csharp">public void LogBuildingDistrict(EntityManager em, Entity building)
+{
+    if (!em.HasComponent&lt;CurrentDistrict&gt;(building)) return;
+
+    CurrentDistrict cd = em.GetComponentData&lt;CurrentDistrict&gt;(building);
+    if (cd.m_District == Entity.Null)
+    {
+        Log.Info($"Building {building} is not in any district.");
+        return;
+    }
+
+    Log.Info($"Building {building} is in district {cd.m_District}");
+
+    // Read the district's option flags
+    if (em.HasComponent&lt;District&gt;(cd.m_District))
+    {
+        District district = em.GetComponentData&lt;District&gt;(cd.m_District);
+        bool paidParking = (district.m_OptionMask &amp; (1u &lt;&lt; (int)DistrictOption.PaidParking)) != 0;
+        bool noCombustion = (district.m_OptionMask &amp; (1u &lt;&lt; (int)DistrictOption.ForbidCombustionEngines)) != 0;
+        Log.Info($"  Paid parking: {paidParking}");
+        Log.Info($"  No combustion: {noCombustion}");
+    }
+
+    // Read modifier values
+    if (em.HasBuffer&lt;DistrictModifier&gt;(cd.m_District))
+    {
+        DynamicBuffer&lt;DistrictModifier&gt; mods = em.GetBuffer&lt;DistrictModifier&gt;(cd.m_District);
+        if (mods.Length &gt; (int)DistrictModifierType.StreetSpeedLimit)
+        {
+            DistrictModifier speedMod = mods[(int)DistrictModifierType.StreetSpeedLimit];
+            Log.Info($"  Speed limit modifier: absolute={speedMod.m_Delta.x}, relative={speedMod.m_Delta.y}");
+        }
+    }
+}</code></pre>
+
+  <h3>Programmatically Toggle a District Policy</h3>
+
+  <p>Create a Modify event entity to activate or deactivate a policy on a district.</p>
+
+  <pre><code class="language-csharp">public void ToggleDistrictPolicy(
+    EntityManager em,
+    Entity districtEntity,
+    Entity policyPrefab,
+    bool activate)
+{
+    Entity eventEntity = em.CreateEntity();
+    em.AddComponent&lt;Game.Common.Event&gt;(eventEntity);
+    em.AddComponentData(eventEntity, new Modify(
+        entity: districtEntity,
+        policy: policyPrefab,
+        active: activate,
+        adjustment: 0f
+    ));
+    // ModifiedSystem will process this event next frame
+}</code></pre>
+
+  <h3>Adjust a Slider Policy Value</h3>
+
+  <p>Set a slider policy like speed limit to a specific value.</p>
+
+  <pre><code class="language-csharp">public void SetSliderPolicy(
+    EntityManager em,
+    Entity districtEntity,
+    Entity sliderPolicyPrefab,
+    float sliderValue)
+{
+    Entity eventEntity = em.CreateEntity();
+    em.AddComponent&lt;Game.Common.Event&gt;(eventEntity);
+    em.AddComponentData(eventEntity, new Modify(
+        entity: districtEntity,
+        policy: sliderPolicyPrefab,
+        active: true,
+        adjustment: sliderValue  // Must be within PolicySliderData.m_Range
+    ));
+}</code></pre>
+
+  <h3>Monitor Garbage Modifiers Across All Districts</h3>
+
+  <p>A system that reads DistrictModifier buffers to track garbage production changes.</p>
+
+  <pre><code class="language-csharp">public partial class DistrictGarbageMonitorSystem : GameSystemBase
+{
+    private EntityQuery _districtQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _districtQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;District&gt;(),
+            ComponentType.ReadOnly&lt;DistrictModifier&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        NativeArray&lt;Entity&gt; entities =
+            _districtQuery.ToEntityArray(Allocator.Temp);
+        BufferLookup&lt;DistrictModifier&gt; modLookup =
+            GetBufferLookup&lt;DistrictModifier&gt;(true);
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            Entity district = entities[i];
+            DynamicBuffer&lt;DistrictModifier&gt; mods = modLookup[district];
+            if (mods.Length &gt; (int)DistrictModifierType.GarbageProduction)
+            {
+                DistrictModifier garbageMod = mods[(int)DistrictModifierType.GarbageProduction];
+                float multiplier = 1f + garbageMod.m_Delta.y;
+                if (multiplier != 1f)
+                {
+                    Log.Info($"District {district}: garbage x{multiplier:F2}");
+                }
+            }
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>List All Active Policies on a District</h3>
+
+  <pre><code class="language-csharp">public void ListDistrictPolicies(
+    EntityManager em,
+    PrefabSystem prefabSystem,
+    Entity districtEntity)
+{
+    if (!em.HasBuffer&lt;Policy&gt;(districtEntity)) return;
+
+    DynamicBuffer&lt;Policy&gt; policies = em.GetBuffer&lt;Policy&gt;(districtEntity);
+    Log.Info($"District {districtEntity} has {policies.Length} policies:");
+
+    for (int i = 0; i &lt; policies.Length; i++)
+    {
+        Policy policy = policies[i];
+        bool active = (policy.m_Flags &amp; PolicyFlags.Active) != 0;
+        string name = prefabSystem.GetPrefab&lt;PolicyPrefab&gt;(policy.m_Policy)?.name ?? "Unknown";
+        bool isSlider = em.HasComponent&lt;PolicySliderData&gt;(policy.m_Policy);
+
+        if (isSlider)
+        {
+            PolicySliderData sd = em.GetComponentData&lt;PolicySliderData&gt;(policy.m_Policy);
+            Log.Info($"  {name}: active={active}, value={policy.m_Adjustment} " +
+                     $"(range {sd.m_Range.min}-{sd.m_Range.max})");
+        }
+        else
+        {
+            Log.Info($"  {name}: active={active}");
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <h3>Policy Prefab Hierarchy</h3>
+
+  <table>
+    <thead>
+      <tr><th>Prefab Class</th><th>Key Fields</th><th>ECS Data</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>PolicyPrefab (abstract)</td>
+        <td>m_Visibility, m_Category</td>
+        <td>PolicyData</td>
+      </tr>
+      <tr>
+        <td>PolicyTogglePrefab</td>
+        <td>(none extra)</td>
+        <td>PolicyData</td>
+      </tr>
+      <tr>
+        <td>PolicySliderPrefab</td>
+        <td>m_SliderRange, m_SliderDefault, m_SliderStep, m_Unit</td>
+        <td>PolicyData + PolicySliderData</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Policy Component Attachments</h3>
+
+  <p>
+    Policy prefabs can have additional components that define their effects:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Prefab Type</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>DistrictOptions</td>
+        <td>DistrictOption[] m_Options</td>
+        <td>Sets boolean flags in District.m_OptionMask</td>
+      </tr>
+      <tr>
+        <td>DistrictModifiers</td>
+        <td>DistrictModifierInfo[] m_Modifiers</td>
+        <td>Adds numeric modifiers to DistrictModifier buffer</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Policy Categories</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>None</td></tr>
+      <tr><td>1</td><td>CityPlanning</td></tr>
+      <tr><td>2</td><td>Budget</td></tr>
+      <tr><td>3</td><td>Traffic</td></tr>
+      <tr><td>4</td><td>Culture</td></tr>
+      <tr><td>5</td><td>Services</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Default policy initialization:</strong> The <code>DefaultPolicyData</code> buffer
+      exists on some prefab but the exact path that assigns default policies to newly painted
+      districts was not fully traced.
+    </li>
+    <li>
+      <strong>Custom modifier types:</strong> The <code>DistrictModifier</code> buffer is indexed
+      by <code>DistrictModifierType</code> enum ordinal. Adding new modifier types beyond the
+      existing 13 requires extending the buffer and ensuring all consumer systems know about
+      the new indices.
+    </li>
+    <li>
+      <strong>Policy scope overlap:</strong> The same policy architecture (Policy buffer +
+      Modify events + ModifiedSystem) is used for districts, buildings, routes, and cities.
+      A single policy prefab's effect components determine which scope it applies to.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled from: Game.dll -- Game.Areas.CurrentDistrictSystem, Game.Areas.ServiceDistrictSystem, Game.Areas.District, Game.Areas.DistrictModifier, Game.Areas.CurrentDistrict, Game.Areas.BorderDistrict</li>
+    <li>Policy types: Game.Policies.Policy, Game.Policies.Modify, Game.Policies.ModifiedSystem, Game.Policies.DistrictModifierInitializeSystem</li>
+    <li>Prefab types: Game.Prefabs.DistrictPrefab, Game.Prefabs.PolicyPrefab, Game.Prefabs.PolicySliderPrefab, Game.Prefabs.PolicyTogglePrefab, Game.Prefabs.DistrictModifierData, Game.Prefabs.DistrictOptionData</li>
+    <li>Pathfinding: Game.Pathfind.LanePoliciesSystem</li>
+    <li>Enums: Game.Areas.DistrictModifierType, Game.Areas.DistrictOption, Game.Policies.PolicyFlags, Game.Prefabs.PolicyCategory, Game.Prefabs.ModifierValueMode</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- DistrictPrefab, CurrentDistrictSystem, ModifiedSystem, DistrictModifierInitializeSystem, LanePoliciesSystem.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
