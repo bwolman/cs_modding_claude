@@ -685,10 +685,92 @@ public bool HasTrafficLights(Entity nodeEntity)
 }
 ```
 
+## Lane Hierarchy Components
+
+### `MasterLane` / `SlaveLane` (Game.Net)
+
+Define master-slave relationships between parallel lanes (lane groups). When modifying a lane connection, changes to one lane in a group can affect the entire group.
+
+| Component | Field | Type | Description |
+|-----------|-------|------|-------------|
+| `MasterLane` | `m_Group` | int | Lane group identifier |
+| `SlaveLane` | `m_Group` | int | Must match master's group |
+| `SlaveLane` | `m_MinIndex` / `m_MaxIndex` | int | Lane index range within the group |
+
+### `EdgeLane` (Game.Net)
+
+Links a lane back to its parent edge entity.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Edge` | Entity | Parent edge entity |
+| `m_EdgeDelta` | float2 | Normalized start/end position along the edge (0-1 range) |
+
+## NetSubObjects (Network Prefab Attachments)
+
+`NetSubObjects` (ComponentBase) attaches objects to network prefabs at specific positions. Uses `NetSubObjectInfo` structs:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Object` | ObjectPrefab | Object prefab to attach |
+| `m_Position` | float3 | Local position offset |
+| `m_Rotation` | quaternion | Local rotation |
+| `m_Placement` | NetObjectPlacement | Where to place (Node, Edge, etc.) |
+| `m_RequireElevated` | bool | Only place on elevated segments |
+| `m_RequireOutsideConnection` | bool | Only at map-edge connections |
+
+**Known outside connection prefabs**: `"Road Outside Connection - Oneway"`, `"Road Outside Connection - Twoway"`, `"Train Outside Connection - Oneway"`, `"Train Outside Connection - Twoway"`.
+
+**PillarObject** (ComponentBase): Specialized attachment for bridge/elevated pillars.
+
+## PlaceableNet Component
+
+`PlaceableNet` (ComponentBase) controls how a network prefab behaves in the placement tool:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_AllowParallelMode` | bool | Whether parallel placement is allowed |
+| `m_XPReward` | int | XP granted per segment placed |
+| `m_ElevationRange` | Bounds1 | Allowed elevation range (min/max in meters) |
+
+Corresponds to the ECS `PlaceableNetData` component on the prefab entity.
+
+## CityConfigurationSystem
+
+`Game.City.CityConfigurationSystem` provides city-level configuration that affects road behavior:
+
+```csharp
+var cityConfig = World.GetOrCreateSystemManaged<CityConfigurationSystem>();
+bool leftHandTraffic = cityConfig.leftHandTraffic; // UK/Japan style
+```
+
+**`leftHandTraffic`**: Controls lane direction, turn priority, and intersection behavior. Essential for lane connection mods.
+
+**`defaultTheme`**: References the city's `ThemePrefab`. The theme's `assetPrefix` determines lane divider style:
+```csharp
+prefabSystem.TryGetSpecificPrefab<ThemePrefab>(cityConfig.defaultTheme, out var theme);
+bool yellowDivider = theme.assetPrefix is not "EU"; // NA=yellow, EU=white
+```
+
+Affects `CompositionInvertMode` for lane ordering and direction inversion.
+
+## Temp Entity Lifecycle
+
+Temp entities follow a multi-phase lifecycle in the tool pipeline:
+
+1. **ToolUpdate phase**: Tool systems create `CreationDefinition` / `ConnectionDefinition` entities
+2. **Modification phase**: `GenerateEdgesSystem` generates `Temp` entities from definitions
+3. **ApplyTool phase**: `ApplyNetSystem` promotes Temp entities to permanent (or discards on cancel)
+4. **ClearTool phase**: Cleanup of remaining Temp state
+
+`TempFlags` control behavior: `Delete` (remove existing), `Replace` (swap with new), `Combine` (merge), `Cancel` (undo).
+
+Custom mods can register apply systems at `SystemUpdatePhase.ApplyTool` **before** `ApplyNetSystem` using `UpdateBefore<CustomApplySystem, ApplyNetSystem>` to process custom definition types (e.g., `TempLaneConnection`, `TempLanePriority`) during the promotion step.
+
 ## Open Questions
 
 - How does `NetToolSystem` handle the Grid mode internally? The control point collection differs from curve modes but the exact grid generation logic was not fully traced.
-- What is the full lifecycle of `Temp` entities? They appear to use `TempFlags` (Delete, Replace, Combine, Cancel) but the state machine transitions need more investigation.
+- [x] What is the full lifecycle of `Temp` entities? — Documented above: ToolUpdate creates definitions → Modification generates Temp entities → ApplyTool promotes to permanent → ClearTool cleans up. Uses `TempFlags` (Delete, Replace, Combine, Cancel).
 - How does edge splitting work when a new node is placed on an existing edge mid-segment? `GenerateEdgesSystem` handles this but the exact split logic is complex.
 - ~~How are `Aggregate` entities used?~~ **Resolved**: `Aggregate` entities group contiguous edges that share the same network prefab (e.g., all connected segments of the same road type). `AggregateSystem` merges edges into aggregates when they share a node and have the same prefab, and splits aggregates when edges are deleted or change type. The `Aggregated` component on each edge stores a reference to its parent aggregate entity. Aggregates are used by the naming system (road name labels span the entire aggregate), by the Traffic mod for road-level statistics, and by the UI to display aggregate-level info (e.g., total road length, average condition). Each aggregate carries a `DynamicBuffer<AggregateElement>` listing its member edges.
 - What triggers `CompositionSelectSystem` to choose different compositions? The selection logic based on connected edges, upgrade flags, and context is complex.

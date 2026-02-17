@@ -549,11 +549,57 @@ public bool HasTrafficLights(Entity nodeEntity)
 EntityManager.AddComponent&lt;Updated&gt;(edgeEntity);</code></pre>
 
     <!-- ============================================================ -->
+    <h2>Lane Hierarchy Components</h2>
+
+    <table>
+      <thead><tr><th>Component</th><th>Key Fields</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td><code>MasterLane</code></td><td><code>m_Group</code> (int)</td><td>Defines lane group leader</td></tr>
+        <tr><td><code>SlaveLane</code></td><td><code>m_Group</code>, <code>m_MinIndex</code>, <code>m_MaxIndex</code></td><td>Parallel lanes in the group</td></tr>
+        <tr><td><code>EdgeLane</code></td><td><code>m_Edge</code> (Entity), <code>m_EdgeDelta</code> (float2)</td><td>Links lane to parent edge</td></tr>
+      </tbody>
+    </table>
+
+    <h2>NetSubObjects &amp; PlaceableNet</h2>
+
+    <p>
+      <code>NetSubObjects</code> (ComponentBase) attaches objects to network prefabs.
+      <code>NetSubObjectInfo</code> fields: <code>m_Object</code>, <code>m_Position</code>,
+      <code>m_Rotation</code>, <code>m_Placement</code> (NetObjectPlacement), <code>m_RequireElevated</code>,
+      <code>m_RequireOutsideConnection</code>.
+    </p>
+
+    <p>
+      <code>PlaceableNet</code> (ComponentBase) controls placement tool behavior:
+      <code>m_AllowParallelMode</code> (bool), <code>m_XPReward</code> (int),
+      <code>m_ElevationRange</code> (Bounds1 with min/max in meters).
+    </p>
+
+    <h2>CityConfigurationSystem</h2>
+
+    <pre><code class="language-csharp">var cityConfig = World.GetOrCreateSystemManaged&lt;CityConfigurationSystem&gt;();
+bool leftHandTraffic = cityConfig.leftHandTraffic; // UK/Japan style
+// Theme detection for lane divider colors:
+prefabSystem.TryGetSpecificPrefab&lt;ThemePrefab&gt;(cityConfig.defaultTheme, out var theme);
+bool yellowDivider = theme.assetPrefix is not "EU";</code></pre>
+
+    <h2>Temp Entity Lifecycle</h2>
+
+    <ol>
+      <li><strong>ToolUpdate</strong>: Tool creates <code>CreationDefinition</code> / <code>ConnectionDefinition</code></li>
+      <li><strong>Modification</strong>: <code>GenerateEdgesSystem</code> creates <code>Temp</code> entities</li>
+      <li><strong>ApplyTool</strong>: <code>ApplyNetSystem</code> promotes Temp to permanent (or discards on cancel)</li>
+      <li><strong>ClearTool</strong>: Cleanup of remaining Temp state</li>
+    </ol>
+
+    <p><code>TempFlags</code>: Delete, Replace, Combine, Cancel. Custom apply systems register before <code>ApplyNetSystem</code>.</p>
+
+    <!-- ============================================================ -->
     <h2>Open Questions</h2>
 
     <ul>
       <li>How does <code>NetToolSystem</code> handle Grid mode internally? The grid generation from 3 control points was not fully traced.</li>
-      <li>What is the full lifecycle of <code>Temp</code> entities? The <code>TempFlags</code> (Delete, Replace, Combine, Cancel) state machine needs more investigation.</li>
+      <li><strong>[Answered]</strong> Temp entity lifecycle documented above: ToolUpdate &rarr; Modification &rarr; ApplyTool &rarr; ClearTool.</li>
       <li>How does edge splitting work when a new node is placed on an existing edge mid-segment? The split logic in <code>GenerateEdgesSystem</code> is complex.</li>
       <li><strong>Resolved:</strong> <code>Aggregate</code> entities group contiguous edges sharing the same network prefab. <code>AggregateSystem</code> merges edges into aggregates when they share a node and have the same prefab, and splits them when edges are deleted or change type. Each edge has an <code>Aggregated</code> component referencing its parent aggregate. Aggregates carry a <code>DynamicBuffer&lt;AggregateElement&gt;</code> listing member edges. Used by the naming system (road name labels span the aggregate), by the Traffic mod for road-level statistics, and by the UI for aggregate-level info such as total road length.</li>
       <li>How do parallel roads (from <code>parallelCount</code>) interact with the generation pipeline?</li>

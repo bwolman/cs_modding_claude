@@ -610,6 +610,30 @@ POLLUTION PROPAGATION (Every 64 frames)
   </ul>
 
   <!-- ============================================================ -->
+  <h2>Underground Network Sections in Roads</h2>
+
+  <p>
+    Roads embed underground utility pipes/cables via <code>UndergroundNetSections</code> (ComponentBase).
+    Each <code>NetSectionInfo</code> specifies the utility section and its depth offset:
+  </p>
+
+  <table>
+    <thead><tr><th>Section Prefab</th><th>Offset (y)</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>"Sewage Pipe Section 1.5"</code></td><td>-1.25</td><td>Sewage pipe</td></tr>
+      <tr><td><code>"Water Pipe Section 1"</code></td><td>-1.0</td><td>Fresh water</td></tr>
+      <tr><td><code>"Stormwater Pipe Section 1.5"</code></td><td>-1.5</td><td>Storm drainage</td></tr>
+      <tr><td><code>"Ground Cable Section 1"</code></td><td>varies</td><td>Electrical cables</td></tr>
+      <tr><td><code>"Pipeline Spacing Section 1"</code></td><td>varies</td><td>Spacing between utilities</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Roads also carry <code>WaterPipeConnection</code> and <code>ElectricityConnection</code>
+    components, which is why buildings adjacent to roads automatically get utilities.
+  </p>
+
+  <!-- ============================================================ -->
   <h2>Sources</h2>
 
   <ul>

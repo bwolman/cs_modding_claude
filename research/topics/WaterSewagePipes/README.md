@@ -703,6 +703,26 @@ public void CheckGroundwater(GroundWaterSystem gwSystem, float3 worldPosition)
 }
 ```
 
+## Underground Network Sections in Roads
+
+Roads embed underground utility pipes/cables via the `UndergroundNetSections` ComponentBase. Each section is a `NetSectionInfo` specifying the embedded utility:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Section` | NetSectionPrefab | Reference to utility section prefab |
+| `m_Offset` | float3 | Depth offset (negative y for underground) |
+| `m_RequireAll` | NetPieceRequirements | Flags that must be present |
+| `m_RequireNone` | NetPieceRequirements | Flags that must be absent |
+
+**Known section prefab names**:
+- `"Sewage Pipe Section 1.5"` — offset: `(0, -1.25, 0)`
+- `"Water Pipe Section 1"` — offset: `(0, -1.0, 0)`
+- `"Stormwater Pipe Section 1.5"` — offset: `(0, -1.5, 0)`
+- `"Pipeline Spacing Section 1"` — spacing between utilities
+- `"Ground Cable Section 1"` — electrical cables
+
+**Connection components on road prefabs**: Roads also carry `WaterPipeConnection` and `ElectricityConnection` components to enable automatic utility connections when buildings are placed adjacent to roads. This is why buildings next to roads automatically get water/power without visible pipes.
+
 ## Open Questions
 
 - [ ] How does the flow solver handle pipe upgrades that change edge capacity mid-cycle? The solver rebuilds the graph each cycle, so capacity changes take effect next cycle.

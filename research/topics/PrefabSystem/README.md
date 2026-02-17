@@ -183,6 +183,47 @@ Controls toolbar presentation for prefabs.
 | `m_Priority` | int | Sort order in toolbar (lower = appears first) |
 | `m_Group` | UIAssetMenuPrefab | Toolbar group/category |
 
+### `Unlockable` (ComponentBase)
+
+Gates prefab availability behind milestone requirements.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_RequireAll` | PrefabBase[] | All prerequisites must be met |
+| `m_RequireAny` | PrefabBase[] | At least one prerequisite must be met |
+
+**Known unlock requirement names**: Roads: `"RoadsSmallRoads"`, `"RoadsMediumRoads"`, `"RoadsLargeRoads"`, `"RoadsHighways"`. Transport: `"TransportationTrain"`, `"TransportationTram"`, `"TransportationSubway"`. The `Locked` enabled component on the ECS entity controls runtime lock state.
+
+### `UnlockOnBuild` (ComponentBase)
+
+Defines what gets unlocked when this prefab is built.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Unlocks` | ObjectBuiltRequirementPrefab[] | Requirements satisfied by building this |
+
+### `ServiceObject` (ComponentBase)
+
+Associates a prefab with a city service for toolbar categorization.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Service` | ServicePrefab | Reference to service prefab (e.g., "Roads", "Transportation") |
+
+The service determines the top-level toolbar tab. Combined with `UIObject.m_Group` for full placement: `Service → UIGroup → Prefab`. Known service names: `"Roads"`, `"Transportation"`, `"Landscaping"`, `"Electricity"`, `"WaterAndSewage"`.
+
+### `PlaceableInfoviewItem` (ECS Component)
+
+Auto-added by the prefab initialization pipeline for certain prefab types (e.g., `RoadPrefab`). Must be explicitly removed from dynamically created prefabs to prevent infoview rendering issues:
+
+```csharp
+// In a system at SystemUpdatePhase.PrefabUpdate:
+EntityQuery customPrefabs = SystemAPI.QueryBuilder()
+    .WithAll<MyCustomPrefabTag, PlaceableInfoviewItem>()
+    .Build();
+EntityManager.RemoveComponent<PlaceableInfoviewItem>(customPrefabs);
+```
+
 ## Prefab Type Hierarchy
 
 ```
