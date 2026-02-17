@@ -400,6 +400,54 @@ public class MyModSettings : ModSetting
     public void OnDispose() { }
 }</code></pre>
 
+  <h3>Find Mod Assembly Path via SearchFilter (Alternative)</h3>
+
+  <p>
+    An alternative to <code>TryGetExecutableAsset</code> for finding the mod's assembly path. Uses
+    <code>SearchFilter&lt;ExecutableAsset&gt;</code> to query the asset database directly. This is
+    useful when you don't have a reference to the <code>ModManager</code> or need to search for
+    other mods' assets.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.IO.AssetDatabase;
+using Game;
+using Game.Modding;
+
+public class MyMod : IMod
+{
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // SearchFilter&lt;ExecutableAsset&gt; queries the AssetDatabase for
+        // mod DLLs. Each result is an ExecutableAsset with path, name,
+        // and metadata.
+        foreach (var asset in AssetDatabase.global.GetAsset&lt;ExecutableAsset&gt;(
+            SearchFilter&lt;ExecutableAsset&gt;.ByCondition(
+                a =&gt; a.isLoaded &amp;&amp; a.isMod)))
+        {
+            if (asset.assembly == typeof(MyMod).Assembly)
+            {
+                string modPath = asset.path;
+                string modDir = System.IO.Path.GetDirectoryName(modPath);
+                Log.Info($"Mod directory: {modDir}");
+                break;
+            }
+        }
+    }
+
+    public void OnDispose() { }
+}</code></pre>
+
+  <p><strong>When to use which approach:</strong></p>
+
+  <ul>
+    <li><strong><code>TryGetExecutableAsset</code></strong> -- simplest way to find your own mod's
+    asset. Requires access to <code>GameManager.instance.modManager</code> and passes <code>this</code>
+    (the IMod instance).</li>
+    <li><strong><code>SearchFilter&lt;ExecutableAsset&gt;</code></strong> -- more flexible. Can search
+    for any mod's assets by arbitrary conditions. Useful for inter-mod discovery or enumerating all
+    loaded mods.</li>
+  </ul>
+
   <!-- ============================================================ -->
   <h2>System Replacement Pattern</h2>
 
