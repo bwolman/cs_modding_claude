@@ -362,6 +362,57 @@ None required -- overrides work on existing system properties.
 - Disable natural disasters toggle
 - Force specific weather phenomenon
 
+## Seasonal Detection via ClimateSystem
+
+To determine the current discrete season (Spring/Summer/Autumn/Winter), use the `ClimateSystem.currentClimate` entity to get the `ClimatePrefab`, then call `FindSeasonByTime()` with the normalized date:
+
+```csharp
+var climateSystem = World.GetOrCreateSystemManaged<ClimateSystem>();
+var prefabSystem = World.GetOrCreateSystemManaged<PrefabSystem>();
+
+Entity climateEntity = climateSystem.currentClimate;
+ClimatePrefab climatePrefab = prefabSystem.GetPrefab<ClimatePrefab>(climateEntity);
+var seasonInfo = climatePrefab.FindSeasonByTime(climateSystem.currentDate);
+string seasonName = seasonInfo.Item1.name; // "SeasonSpring", "SeasonSummer", etc.
+float seasonProgress = seasonInfo.Item2;   // 0-1 progress within season
+```
+
+**Season name constants**: `"SeasonSpring"`, `"SeasonSummer"`, `"SeasonAutumn"`, `"SeasonWinter"`.
+
+**Converting to enum**: Use `FoliageUtils.GetSeasonFromSeasonID(seasonName)` to get a typed season value.
+
+**`ClimateSystem.currentDate`**: Normalized 0-1 float representing position in the year (0 = year start, 1 = year end).
+
+## Wind Rendering Control
+
+`Game.Rendering.WindControl` manages rendering-side wind effects (tree sway, vegetation movement), separate from the simulation-side `WindSystem`. The key data structure is `WindVolumeComponent`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `windGlobalStrengthScale` | OverridableProperty\<float\> | Primary wind strength multiplier |
+| `windGlobalStrengthScale2` | OverridableProperty\<float\> | Secondary wind strength multiplier |
+| `windDirection` | OverridableProperty\<float\> | Wind direction angle |
+| `windDirectionVariance` | OverridableProperty\<float\> | Direction variance range |
+| `windDirectionVariancePeriod` | OverridableProperty\<float\> | Variance oscillation period |
+| `windParameterInterpolationDuration` | OverridableProperty\<float\> | Blend speed for changes |
+
+**Disabling tree sway**: Set both strength scales to 0 via a Harmony prefix on `WindControl.SetGlobalProperties`:
+
+```csharp
+[HarmonyPatch(typeof(Game.Rendering.WindControl), "SetGlobalProperties")]
+public static class WindDisablePatch
+{
+    public static bool Prefix(ref WindVolumeComponent wind)
+    {
+        wind.windGlobalStrengthScale.Override(0f);
+        wind.windGlobalStrengthScale2.Override(0f);
+        return true; // Continue to original method
+    }
+}
+```
+
+**Pause-aware**: Check `SimulationSystem.selectedSpeed == 0` to detect pause state and conditionally disable wind during pause.
+
 ## Open Questions
 
 - [x] How are climate values computed? Via animation curves in ClimatePrefab, evaluated at normalizedDate

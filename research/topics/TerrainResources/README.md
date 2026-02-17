@@ -318,6 +318,62 @@ This replaces the vanilla query so TreeGrowthSystem skips trees with the custom 
 
 5. **Terrain attractiveness**: Read via `TerrainAttractivenessSystem.GetData()` or use the static `EvaluateAttractiveness()` method. This feeds into land value and building desirability.
 
+## ColorVariation Buffer (Seasonal Foliage)
+
+`ColorVariation` is a buffer element on `SubMesh` entities that controls seasonal foliage colors for vegetation. Each element maps a season to a color set:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_GroupID` | ColorGroupID | Season index: (0)=Spring, (1)=Summer, (2)=Autumn, (3)=Winter |
+| `m_ColorSet` | ColorSet | Three color channels: `m_Channel0`, `m_Channel1`, `m_Channel2` (UnityEngine.Color) |
+
+Trees typically have 4 or 8 `ColorVariation` entries (one per season, optionally doubled for variation). To modify foliage colors at runtime:
+
+```csharp
+// Get SubMesh buffer from tree prefab entity
+DynamicBuffer<SubMesh> subMeshes = EntityManager.GetBuffer<SubMesh>(treePrefabEntity);
+foreach (SubMesh subMesh in subMeshes)
+{
+    DynamicBuffer<ColorVariation> colors = EntityManager.GetBuffer<ColorVariation>(subMesh.m_SubMesh);
+    for (int i = 0; i < colors.Length; i++)
+    {
+        var cv = colors[i];
+        if (cv.m_GroupID == new ColorGroupID(2)) // Autumn
+        {
+            cv.m_ColorSet.m_Channel0 = new Color(0.8f, 0.2f, 0.1f); // Custom autumn red
+            colors[i] = cv;
+        }
+    }
+}
+// Trigger visual refresh:
+EntityManager.AddComponent<BatchesUpdated>(treeEntity);
+```
+
+**Evergreen detection**: Trees with `ColorVariation` buffer length ≤ 4 are typically evergreen (no seasonal color change), while length > 4 indicates deciduous with distinct seasonal palettes.
+
+## WoodResource Buffer & Extractor Areas
+
+`WoodResource` (Game.Areas) is a buffer element that links area extractor entities to individual tree entities in lumber industry zones:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Tree` | Entity | Reference to a tree entity within the extraction area |
+
+The `Extractor` component on area entities marks resource extraction zones. When an area entity has both `Extractor` and a `WoodResource` buffer, each buffer element references a tree that contributes to wood production.
+
+```csharp
+// Tag lumber trees (trees used by wood industry)
+DynamicBuffer<WoodResource> woodResources = EntityManager.GetBuffer<WoodResource>(extractorAreaEntity);
+foreach (WoodResource wr in woodResources)
+{
+    EntityManager.AddComponent<Lumber>(wr.m_Tree);
+}
+```
+
+**Key insight for tree mods**: Lumber industry trees need special handling -- they must keep growing for wood production. Mods that freeze tree growth should check for the `Lumber` tag (or check if trees are referenced by an extractor area) before applying growth freezes.
+
+**Detecting area changes**: Query for `Updated + Extractor` to detect when area boundaries change, then refresh `WoodResource` connections.
+
 ## Decompiled Snippets
 
 | File | Type | Lines |

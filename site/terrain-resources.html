@@ -556,6 +556,44 @@ m_TreeGrowthSystem.RequireForUpdate(modifiedQuery);</code></pre>
 
   <!-- ============================================================ -->
 
+  <h2>ColorVariation Buffer (Seasonal Foliage)</h2>
+
+  <p>
+    <code>ColorVariation</code> is a buffer element on <code>SubMesh</code> entities controlling
+    seasonal foliage colors. Each element maps a season to a color set:
+  </p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_GroupID</code></td><td>ColorGroupID</td><td>Season index: (0)=Spring, (1)=Summer, (2)=Autumn, (3)=Winter</td></tr>
+      <tr><td><code>m_ColorSet</code></td><td>ColorSet</td><td>m_Channel0/1/2 (UnityEngine.Color)</td></tr>
+    </tbody>
+  </table>
+
+  <pre><code class="language-csharp">DynamicBuffer&lt;ColorVariation&gt; colors = EntityManager.GetBuffer&lt;ColorVariation&gt;(subMeshEntity);
+// Modify autumn colors: colors[i].m_GroupID == new ColorGroupID(2)
+// After modifying: EntityManager.AddComponent&lt;BatchesUpdated&gt;(entity);</code></pre>
+
+  <p>
+    <strong>Evergreen detection</strong>: <code>ColorVariation</code> buffer length &le; 4 = evergreen,
+    &gt; 4 = deciduous with seasonal palettes.
+  </p>
+
+  <h2>WoodResource Buffer &amp; Extractor Areas</h2>
+
+  <p>
+    <code>WoodResource</code> (Game.Areas) links area extractor entities to individual tree entities
+    in lumber industry zones. Each buffer element has <code>m_Tree</code> (Entity reference).
+  </p>
+
+  <p>
+    <strong>Key insight</strong>: Lumber trees must keep growing for wood production. Mods that freeze
+    tree growth should check for lumber industry references before applying growth freezes.
+  </p>
+
+  <!-- ============================================================ -->
+
   <footer>
     <div class="attribution-footer">
       <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>

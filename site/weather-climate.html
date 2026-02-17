@@ -684,6 +684,45 @@ public static class DisableWeatherDamage
   </ul>
 
   <!-- ============================================================ -->
+  <h2>Seasonal Detection</h2>
+
+  <p>
+    Determine the current discrete season via <code>ClimateSystem</code> and <code>ClimatePrefab</code>:
+  </p>
+
+  <pre><code class="language-csharp">Entity climateEntity = climateSystem.currentClimate;
+ClimatePrefab climatePrefab = prefabSystem.GetPrefab&lt;ClimatePrefab&gt;(climateEntity);
+var seasonInfo = climatePrefab.FindSeasonByTime(climateSystem.currentDate);
+string seasonName = seasonInfo.Item1.name; // "SeasonSpring", "SeasonSummer", etc.
+float progress = seasonInfo.Item2;         // 0-1 progress within season</code></pre>
+
+  <p>
+    <code>ClimateSystem.currentDate</code> is a normalized 0&ndash;1 float (year position).
+    Convert season name to enum via <code>FoliageUtils.GetSeasonFromSeasonID(seasonName)</code>.
+  </p>
+
+  <h2>Wind Rendering Control</h2>
+
+  <p>
+    <code>Game.Rendering.WindControl</code> manages rendering-side wind effects (tree sway),
+    separate from simulation-side <code>WindSystem</code>. Disable tree sway via Harmony prefix:
+  </p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Rendering.WindControl), "SetGlobalProperties")]
+public static bool Prefix(ref WindVolumeComponent wind)
+{
+    wind.windGlobalStrengthScale.Override(0f);
+    wind.windGlobalStrengthScale2.Override(0f);
+    return true;
+}</code></pre>
+
+  <p>
+    Key <code>WindVolumeComponent</code> fields: <code>windGlobalStrengthScale</code>,
+    <code>windGlobalStrengthScale2</code>, <code>windDirection</code>,
+    <code>windDirectionVariance</code>. All are <code>OverridableProperty&lt;float&gt;</code>.
+  </p>
+
+  <!-- ============================================================ -->
   <h2>Sources</h2>
 
   <ul>
