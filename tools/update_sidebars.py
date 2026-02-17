@@ -27,6 +27,7 @@ SIDEBAR = [
         ("road-network.html", "Road &amp; Network Building"),
         ("zoning.html", "Zoning"),
         ("pathfinding.html", "Pathfinding"),
+        ("traffic-flow.html", "Traffic Flow"),
     ]),
     ("Economy &amp; Population", [
         ("citizens-households.html", "Citizens &amp; Households"),
