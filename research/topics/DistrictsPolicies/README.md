@@ -10,7 +10,7 @@
 
 **Why**: Mods need to create custom policies, apply modifiers to districts, read which district an entity belongs to, and react to policy changes.
 
-**Boundaries**: Building-level modifiers and city-wide modifiers are referenced but not deeply documented here. Route modifiers (transit lines) are out of scope.
+**Boundaries**: This research covers all four policy scopes handled by `ModifiedSystem`: District, Building, Route (transit lines), and City. Building-level and city-wide modifiers share the same architecture but their specific modifier types are not exhaustively listed here.
 
 ## Relevant Assemblies & Namespaces
 
@@ -239,6 +239,19 @@
   - `ModifyPolicyJob.Execute()` -- Processes Modify events: adds/removes/updates Policy entries in the target entity's Policy buffer, then calls RefreshEffects
   - `RefreshEffects()` -- Delegates to the appropriate refresh system (district, building, route, or city) to recalculate modifiers
   - `GetPolicyRange()` -- Determines scope: District, Building, Route, or City
+
+### Policy Scope: All Four Targets
+
+`ModifiedSystem.GetPolicyRange()` determines which scope a policy targets. The same `Policy` buffer and `Modify` event pattern is used for all four:
+
+| Scope | Target Entity | Modifier Buffer | Example Policies |
+|-------|---------------|-----------------|------------------|
+| District | Area entity with `District` component | `DistrictModifier` | Speed limits, parking fees, traffic bans |
+| Building | Building entity with service upgrades | `BuildingModifier` | Service building efficiency adjustments |
+| Route | Transit route entity (bus/tram/train line) | `RouteModifier` | Ticket price, vehicle frequency adjustments |
+| City | City-wide singleton entity | `CityModifier` | City-wide tax rates, global service adjustments |
+
+Route modifiers work identically to district modifiers: `ModifiedSystem` processes the `Modify` event, updates the `Policy` buffer on the route entity, and calls `RefreshEffects()` which delegates to the route-specific refresh logic to rebuild the `RouteModifier` buffer.
 
 ### `LanePoliciesSystem` (Game.Pathfind)
 
