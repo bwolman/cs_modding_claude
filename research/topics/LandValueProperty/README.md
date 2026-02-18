@@ -246,6 +246,42 @@ Global singleton controlling land value computation factors.
     8. Adds `Abandoned` component with `m_AbandonmentTime = currentSimulationFrame`
   - `UpkeepPaymentJob`: Actually deducts money from renters
 
+### BuildingUpkeepSystem Deep Dive
+
+`Game.Simulation.BuildingUpkeepSystem` is a large system (~103KB decompiled) handling building condition, level-up/level-down, resource consumption, and upkeep payments. It operates as a scheduled update:
+
+**Responsibilities**:
+1. **Building upkeep payments** -- deducting maintenance costs from building resources
+2. **Level-up logic** -- buildings upgrade when conditions are met (land value, services, etc.)
+3. **Level-down logic** -- buildings downgrade when conditions deteriorate
+4. **Resource delivery** -- requesting electricity, water, and material deliveries
+5. **Level-up material tracking** -- buildings need specific resources to level up
+
+**Key System Dependencies**:
+| System | Role |
+|--------|------|
+| `SimulationSystem` | Frame timing |
+| `ClimateSystem` | Heating multiplier for resource consumption |
+| `ResourceSystem` | Resource availability |
+| `CitySystem` | City-level state |
+| `IconCommandSystem` | Level-up/down notification icons |
+| `TriggerSystem` | Event triggers |
+| `ZoneBuiltRequirementSystem` | Zone completion checks |
+| `ZoneSearchSystem` | Zone lookup |
+| `ElectricityRoadConnectionGraphSystem` | Power grid connectivity |
+| `WaterPipeRoadConnectionGraphSystem` | Water network connectivity |
+| `CityProductionStatisticSystem` | Production stats |
+
+**Key Components Read/Written**:
+- `BuildingCondition` (Game.Buildings) -- read/write for condition tracking
+- `Efficiency` (Game.Buildings, IBufferElementData) -- read/write for building efficiency factors
+- `ResourceNeeding` (Game.Buildings) -- write to request level-up materials
+- `GoodsDeliveryRequest` (Game.Simulation) -- write to trigger material delivery trucks
+
+**Modding Note**: The tight coupling of BuildingUpkeepSystem means it cannot be easily patched with Harmony -- community mods (RealisticWorkplacesAndHouseholds, UrbanInequality) fully replace it with `Enabled = false` and a custom system.
+
+*Source: RealisticWorkplacesAndHouseholds mod*
+
 ### `PropertyRenterRemoveSystem` (Game.Simulation)
 
 - **Base class**: GameSystemBase

@@ -189,6 +189,31 @@ ECS singleton with thresholds and weights for all 26 happiness factors. Initiali
 | m_UnemployedWellbeingPenaltyAccumulatePerDay | float | 0.0 | Wellbeing penalty per day of unemployment |
 | m_MaxAccumulatedUnemployedWellbeingPenalty | int | 20 | Max cumulative unemployment penalty |
 
+### GroupAmbienceData — Residential Building Classification
+
+`GroupAmbienceData` (Game.Prefabs) is a prefab component on residential buildings that classifies their housing type:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_AmbienceType` | `GroupAmbienceType` | Building classification enum |
+
+**Known GroupAmbienceType Values**:
+- `GroupAmbienceType.ResidentialLowRent` — subsidized/affordable housing (low-rent rowhouses, etc.)
+- Other values include standard residential types at various densities
+
+**Usage Pattern**: This component is present on building prefabs alongside `SpawnableBuildingData` and `BuildingPropertyData`. It can be used to differentiate between affordable/subsidized housing and market-rate housing:
+
+```csharp
+if (groupAmbienceData.m_AmbienceType != GroupAmbienceType.ResidentialLowRent)
+{
+    // Market-rate housing — apply luxury apartment adjustments at higher levels
+    if (spawnBuildingData.m_Level == 4) apartmentArea *= (1 + level4Increase);
+    if (spawnBuildingData.m_Level == 5) apartmentArea *= (1 + level5Increase);
+}
+```
+
+Source: RealisticWorkplacesAndHouseholds mod
+
 ## Key Systems
 
 ### AgingSystem (Game.Simulation)

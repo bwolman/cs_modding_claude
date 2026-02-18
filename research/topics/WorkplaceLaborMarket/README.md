@@ -389,6 +389,41 @@ Higher education levels produce exponentially more "workforce units" per worker.
 - **Risk level**: Low -- pure function, no side effects
 - **Side effects**: Affects building efficiency calculations and company production
 
+### Dynamic WorkProvider.m_MaxWorkers Modification
+
+When modifying workplace counts at runtime, multiple components must be kept in sync. The entity relationship chain for workplace modification:
+
+```
+Company Entity → PropertyRenter.m_Property → Building Entity
+Building Entity → PrefabRef.m_Prefab → Building Prefab Entity
+Building Prefab Entity → SubMesh buffer → MeshData → dimensions
+Company Entity → PrefabRef.m_Prefab → Company Prefab Entity
+Company Prefab Entity → WorkplaceData / ServiceCompanyData / IndustrialProcessData
+```
+
+**Modification Pattern**:
+1. Query company entities with `[PrefabRef, CompanyData, PropertyRenter, WorkProvider]`
+2. Look up the building prefab via `PropertyRenter.m_Property` → building entity → `PrefabRef.m_Prefab`
+3. Get mesh dimensions from building prefab to calculate realistic worker counts
+4. Write new values to `WorkProvider.m_MaxWorkers` on the company entity
+5. Also scale `WorkplaceData.m_MaxWorkers` on the company prefab entity
+6. Also scale `ServiceCompanyData.m_WorkPerUnit` and `IndustrialProcessData.m_WorkPerUnit`
+
+**Critical Sync Requirement**: When modifying `m_MaxWorkers`, the `m_WorkPerUnit` on the company prefab must also be scaled proportionally, or production per worker becomes unbalanced. For example:
+
+```csharp
+// Scale worker count
+float scaleFactor = newMaxWorkers / (float)originalMaxWorkers;
+workProvider.m_MaxWorkers = newMaxWorkers;
+
+// MUST also scale production rate to maintain balance
+workplaceData.m_MaxWorkers = newMaxWorkers;
+serviceCompanyData.m_WorkPerUnit = (int)(originalWorkPerUnit * scaleFactor);
+industrialProcessData.m_WorkPerUnit = (int)(originalWorkPerUnit * scaleFactor);
+```
+
+Source: RealisticWorkplacesAndHouseholds mod
+
 ## Mod Blueprint
 
 - **Systems to create**:

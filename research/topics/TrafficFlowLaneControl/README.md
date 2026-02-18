@@ -557,6 +557,70 @@ Manages parking lane data updates, including street parking availability, garage
 
 The system ensures pathfinding has up-to-date parking availability and cost data, which the pathfinder uses when evaluating `PathMethod.Parking` edges.
 
+### SearchSystem Spatial Queries (Game.Objects.SearchSystem)
+
+`Game.Objects.SearchSystem` provides spatial search trees for querying nearby objects using `NativeQuadTree<Entity, QuadTreeBoundsXZ>`:
+
+**Getting a Search Tree**:
+```csharp
+Game.Objects.SearchSystem m_ObjectSearchSystem = World.GetOrCreateSystemManaged<Game.Objects.SearchSystem>();
+
+// In OnUpdate:
+NativeQuadTree<Entity, QuadTreeBoundsXZ> tree = m_ObjectSearchSystem.GetMovingSearchTree(
+    readOnly: true,
+    out JobHandle dependencies
+);
+// After job:
+m_ObjectSearchSystem.AddMovingSearchTreeReader(jobHandle);
+```
+
+**Iterating the Tree** -- implement `INativeQuadTreeIterator<Entity, QuadTreeBoundsXZ>`:
+```csharp
+private struct CountVehiclesIterator : INativeQuadTreeIterator<Entity, QuadTreeBoundsXZ>,
+                                        IUnsafeQuadTreeIterator<Entity, QuadTreeBoundsXZ>
+{
+    public Entity m_Lane;
+    public Bounds3 m_Bounds;
+    public int m_Result;
+    public ComponentLookup<ParkedCar> m_ParkedCarData;
+    public ComponentLookup<Controller> m_ControllerData;
+
+    public bool Intersect(QuadTreeBoundsXZ bounds)
+    {
+        return MathUtils.Intersect(bounds.m_Bounds, m_Bounds);
+    }
+
+    public void Iterate(QuadTreeBoundsXZ bounds, Entity entity)
+    {
+        if (MathUtils.Intersect(bounds.m_Bounds, m_Bounds)
+            && (!m_ControllerData.TryGetComponent(entity, out var ctrl) || ctrl.m_Controller == entity)
+            && m_ParkedCarData.TryGetComponent(entity, out var parked) && parked.m_Lane == m_Lane)
+        {
+            m_Result++;
+        }
+    }
+}
+```
+
+**Garage Spot Detection with ActivityLocationElement**:
+```csharp
+ActivityMask activityMask = new ActivityMask(ActivityType.GarageSpot);
+if (m_ActivityLocations.TryGetBuffer(prefabRef.m_Prefab, out var bufferData))
+{
+    for (int i = 0; i < bufferData.Length; i++)
+    {
+        ActivityLocationElement element = bufferData[i];
+        if ((element.m_ActivityMask.m_Mask & activityMask.m_Mask) != 0)
+        {
+            float3 worldPos = ObjectUtils.LocalToWorld(transform, element.m_Position);
+            // Expand bounds to include garage spot location
+        }
+    }
+}
+```
+
+*Source: RealisticParking mod (https://github.com/MasatoTakedai/RealisticParking)*
+
 ### `TrafficFlowSystem` -- flow offset calculation
 
 The `UpdateRoadFlowJob` computes a flow speed from duration/distance data, then writes it as a `m_FlowOffset` byte on each `CarLane`. The pathfinder reads this offset to route vehicles away from congested lanes.

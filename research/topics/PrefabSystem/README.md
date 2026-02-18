@@ -212,6 +212,75 @@ Associates a prefab with a city service for toolbar categorization.
 
 The service determines the top-level toolbar tab. Combined with `UIObject.m_Group` for full placement: `Service → UIGroup → Prefab`. Known service names: `"Roads"`, `"Transportation"`, `"Landscaping"`, `"Electricity"`, `"WaterAndSewage"`.
 
+### City Service Building Prefab Components
+
+City service buildings carry type-specific prefab data components that define their capacities and behaviors. These are `IComponentData` on the prefab entity:
+
+| Component | Namespace | Key Fields | Used By |
+|-----------|-----------|------------|---------|
+| `SchoolData` | Game.Prefabs | `m_StudentCapacity` (int), `m_EducationLevel` (int) | Education system |
+| `HospitalData` | Game.Prefabs | `m_PatientCapacity` (int), `m_TreatmentBonus` (float) -- bonus distinguishes clinics from hospitals | Healthcare system |
+| `PrisonData` | Game.Prefabs | `m_PrisonerCapacity` (int) | Police system |
+| `PowerPlantData` | Game.Prefabs | `m_ElectricityProduction` (int) | Electricity system |
+| `FireStationData` | Game.Prefabs | (capacity fields) | Fire response |
+| `PoliceStationData` | Game.Prefabs | (capacity fields) | Police dispatch |
+| `PostFacilityData` | Game.Prefabs | (capacity fields) | Mail system |
+| `GarbageFacilityData` | Game.Prefabs | (capacity fields) | Garbage collection |
+| `MaintenanceDepotData` | Game.Prefabs | (capacity fields) | Road maintenance |
+| `TransportDepotData` | Game.Prefabs | (capacity fields) | Public transport |
+| `TransportStationData` | Game.Prefabs | `m_WatercraftRefuelTypes`, `m_AircraftRefuelTypes`, `m_ComfortFactor` -- used to distinguish ports, airports, cargo stations, and passenger stations | Transport system |
+| `CargoTransportStationData` | Game.Prefabs | (cargo-specific fields) | Cargo transport |
+| `AdminBuildingData` | Game.Prefabs | (capacity fields) | City administration |
+| `WelfareOfficeData` | Game.Prefabs | (capacity fields) | Welfare services |
+| `ResearchFacilityData` | Game.Prefabs | (capacity fields) | Research |
+| `TelecomFacilityData` | Game.Prefabs | (capacity fields) | Telecom service |
+| `ParkData` | Game.Prefabs | (capacity fields) | Parks & recreation |
+| `SolarPoweredData` | Game.Prefabs | Identifies solar power plants (used for worker reduction) | Power system |
+
+**Station Subtype Detection Pattern**: `TransportStationData` can be classified by checking refuel types and comfort factor:
+- Port: `m_WatercraftRefuelTypes != 0`
+- Airport: `m_AircraftRefuelTypes != 0`
+- Passenger station: `m_ComfortFactor > 0` (without watercraft/aircraft refuel)
+- Cargo station: has `CargoTransportStationData`
+
+*Source: RealisticWorkplacesAndHouseholds mod*
+
+### DLC Asset Pack Detection
+
+Buildings can be linked to DLC content packs via the `AssetPackData` and `AssetPackElement` components:
+
+- `AssetPackData` (Game.Prefabs) -- marks an entity as an asset pack definition
+- `AssetPackElement` (Game.Prefabs, IBufferElementData) -- buffer element linking a building prefab to its asset pack(s). Field: `m_Pack` (Entity)
+
+**Querying asset packs**:
+```csharp
+EntityQuery m_AssetPackQuery = GetEntityQuery(new EntityQueryDesc
+{
+    All = new[] {
+        ComponentType.ReadOnly<AssetPackData>(),
+        ComponentType.ReadOnly<PrefabData>(),
+    }
+});
+```
+
+**Detecting DLC membership on a building**:
+```csharp
+if (AssetPackElementBufferLookup.TryGetBuffer(buildingEntity, out var assetPackElements))
+{
+    for (int index = 0; index < assetPackElements.Length; ++index)
+    {
+        Entity pack = assetPackElements[index].m_Pack;
+        string packName = PrefabSystem.GetPrefabName(pack);
+        // Known pack names: "uk", "de", "nl", "fr", "jp", "cn", "ee",
+        //   "ussw", "usne", "mediterraneanheritage", "dragongate", "skyscrapers"
+    }
+}
+```
+
+This is useful for mods that need per-DLC behavior adjustments (e.g., region-specific density factors).
+
+*Source: RealisticWorkplacesAndHouseholds mod*
+
 ### `PlaceableInfoviewItem` (ECS Component)
 
 Auto-added by the prefab initialization pipeline for certain prefab types (e.g., `RoadPrefab`). Must be explicitly removed from dynamically created prefabs to prevent infoview rendering issues:

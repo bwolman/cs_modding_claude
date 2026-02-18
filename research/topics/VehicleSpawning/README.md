@@ -243,6 +243,49 @@ Personal car-specific prefab data.
   2. Counts parked vehicles per parking facility
   3. Sends vehicle count triggers for achievements
 
+### PersonalCarAISystem Parking Logic
+
+The `PersonalCarAISystem.PersonalCarTickJob` handles tick-by-tick driving simulation including parking space validation and rerouting:
+
+**Parking Space Validation (`CheckParkingSpace`)**:
+1. Calls `VehicleUtils.ValidateParkingSpace()` to check if current target parking spot is still available
+2. If not available, scans ahead in the path up to `num` nodes (vanilla: 40000)
+3. For each `PathElement`, checks:
+   - If target is a `ParkingLane`: calls `VehicleUtils.FindFreeParkingSpace()` with car size, curve position, and lane objects
+   - If target is a `GarageLane`: checks `garageLane.m_VehicleCount < garageLane.m_VehicleCapacity` and `ConnectionLaneFlags.Disabled` not set
+4. If no parking found, marks path as `PathFlags.Obsolete` to trigger rerouting
+
+**Key VehicleUtils Methods** (Game.Vehicles):
+
+| Method | Purpose |
+|--------|---------|
+| `ValidateParkingSpace(entity, random, currentLane, pathOwner, navLanes, path, ...)` | Validates if a parking space is still available |
+| `FindFreeParkingSpace(random, target, minT, carLength, offset, curvePos, ...)` | Searches for free space on a parking lane |
+| `GetParkingSize(entity, prefabRef, objectGeometry)` | Returns car parking dimensions |
+| `SetParkingCurvePos(entity, random, currentLane, pathOwner, path, ...)` | Sets the curve position for parking |
+| `IsParkingLane(target, parkingLaneData, connectionLaneData)` | Checks if a path element target is a parking lane |
+| `GetParkingSource(entity, currentLane, parkingLaneData, connectionLaneData)` | Gets parking source for pathfinding |
+| `ParkingSpaceReached(currentLane, pathOwner)` | Checks if vehicle reached parking |
+| `PathEndReached(currentLane)` | Checks if vehicle reached path end |
+| `WaypointReached(currentLane)` | Checks if vehicle reached a waypoint |
+| `ResetParkingLaneStatus(...)` | Resets parking lane status after path reset |
+
+**Rerouting Distance**: The vanilla reroute distance is 40000 path nodes ahead. Vehicles can sense parking availability from very far away, causing unrealistic U-turns on highways. Mods like RealisticParking make this configurable (default: 5 nodes).
+
+**Parking Fee Collection**: When a vehicle disembarks at a parking lane or garage, the `StartDisembarking` method:
+1. Reads `ParkingLane.m_ParkingFee` or `GarageLane.m_ParkingFee`
+2. Creates a `MoneyTransfer` from household to city
+3. Creates a `ServiceFeeSystem.FeeEvent` with `PlayerResource.Parking`
+
+**MovingToParked Transition**: When parking, the system removes 11 components (`Moving`, `TransformFrame`, `InterpolatedTransform`, `Swaying`, `CarNavigation`, `CarNavigationLane`, `CarCurrentLane`, `PathOwner`, `Target`, `Blocker`, `PathElement`) and adds 3 (`ParkedCar`, `Stopped`, `Updated`).
+
+**Harmony Patch Points**:
+- `PersonalCarAISystem.OnUpdate` -- replace entire parking logic
+- Target the `CheckParkingSpace` method to adjust reroute scan distance
+- Target `StartDisembarking` to modify parking fee amounts
+
+*Source: RealisticParking mod (https://github.com/MasatoTakedai/RealisticParking)*
+
 ## Data Flow
 
 ```
