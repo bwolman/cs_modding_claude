@@ -1168,6 +1168,79 @@ FLOW &amp; CONGESTION (periodic)
   </ul>
 
   <!-- ============================================================ -->
+  <h2>Mod Blueprint: Custom Intersection Tool (Traffic Mod Pattern)</h2>
+
+  <p>
+    A comprehensive intersection-manipulation tool that provides a full custom <code>ToolBaseSystem</code>
+    with state machine, custom raycast via <code>NativeQuadTree</code>, serializable ECS components for
+    save persistence, custom overlay rendering, TypeScript UI with module registration, keybinding system,
+    and cross-mod compatibility detection. This is the reference architecture for complex network
+    manipulation mods.
+  </p>
+  <p><strong>Reference mod</strong>: <a href="https://github.com/krzychu124/Traffic">Traffic</a></p>
+
+  <h3>Systems to Create</h3>
+  <ol>
+    <li><strong>Custom ToolBaseSystem</strong> (extends <code>ToolBaseSystem</code>) -- the main intersection tool with a full state machine (Default/Selecting/Applying states). Manages raycast configuration, entity selection, and modification application.</li>
+    <li><strong>Custom SearchSystem</strong> (<code>GameSystemBase</code>) -- maintains a <code>NativeQuadTree&lt;Entity, QuadTreeBoundsXZ&gt;</code> spatial index for mod-specific entities. Rebuilds on <code>Created</code>/<code>Deleted</code> queries.</li>
+    <li><strong>Custom RaycastSystem</strong> (<code>GameSystemBase</code>) -- runs parallel raycast jobs against the mod's quad tree using <code>NativeAccumulator&lt;RaycastResult&gt;</code> for result collection.</li>
+    <li><strong>Custom OverlaySystem</strong> (<code>GameSystemBase</code>, registered at <code>SystemUpdatePhase.Rendering</code>) -- renders lane connection overlays and guide indicators using <code>OverlayRenderSystem.Buffer</code>.</li>
+    <li><strong>Data Cleanup System</strong> (<code>GameSystemBase</code>, registered at <code>SystemUpdatePhase.Modification4B</code>) -- cleans up mod data entities when parent vanilla entities are deleted.</li>
+    <li><strong>Deserialization Cleanup System</strong> (<code>GameSystemBase</code>, registered at <code>SystemUpdatePhase.Deserialize</code>) -- clears transient runtime entities on save load. Excludes <code>FakePrefabData</code> entities.</li>
+  </ol>
+
+  <h3>Components to Create</h3>
+  <ol>
+    <li><strong>Custom lane connection data</strong> (<code>IBufferElementData</code>, <code>ISerializable</code>) -- stores mod-specific lane connection overrides on vanilla Node entities. Uses two-level ownership model.</li>
+    <li><strong>Generated connection data</strong> (<code>IBufferElementData</code>, <code>ISerializable</code>) -- full connection data on separate entities referenced by the lane connection buffer.</li>
+    <li><strong>Data owner back-reference</strong> (<code>IComponentData</code>, <code>ISerializable</code>) -- back-reference from data entities to their owning vanilla Node entity.</li>
+    <li><strong>Tag component</strong> (<code>IComponentData</code>, <code>IEmptySerializable</code>) -- zero-data marker on vanilla entities with mod data attached.</li>
+  </ol>
+  <p>All serializable components must implement versioned migration via <code>ISerializable.Read(IReader reader)</code> with version checking for forward compatibility.</p>
+
+  <h3>Harmony Patches Needed</h3>
+  <p>
+    <strong>None</strong>. This pattern demonstrates a complete no-Harmony architecture using full system
+    replacement with <code>Enabled = false</code>, custom <code>ToolBaseSystem</code> subclass,
+    custom <code>ISerializable</code> components, custom rendering via <code>OverlayRenderSystem.Buffer</code>,
+    and the <code>FakePrefab</code> pattern for vanilla validation compatibility.
+  </p>
+
+  <h3>Key Game Components</h3>
+  <table>
+    <thead><tr><th>Component / API</th><th>Namespace</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td><code>ToolBaseSystem</code></td><td>Game.Tools</td><td>Base class for custom tool with <code>InitializeRaycast()</code>, <code>OnUpdate()</code></td></tr>
+      <tr><td><code>ToolSystem</code></td><td>Game.Tools</td><td>Set <code>activeTool</code>, subscribe to <code>EventToolChanged</code></td></tr>
+      <tr><td><code>NativeQuadTree&lt;Entity, QuadTreeBoundsXZ&gt;</code></td><td>Colossal.Collections</td><td>Spatial index for custom entity raycast</td></tr>
+      <tr><td><code>NativeAccumulator&lt;RaycastResult&gt;</code></td><td>Colossal.Collections</td><td>Thread-safe result collection from parallel raycast jobs</td></tr>
+      <tr><td><code>OverlayRenderSystem.Buffer</code></td><td>Game.Rendering</td><td>Custom overlay rendering for lane connections and indicators</td></tr>
+      <tr><td><code>ISerializable</code></td><td>Colossal.Serialization</td><td>Save/load persistence with versioned migration</td></tr>
+      <tr><td><code>FakePrefabData</code></td><td>Game.Prefabs</td><td>Tag for entities that should pass vanilla prefab validation</td></tr>
+      <tr><td><code>ProxyAction</code></td><td>Game.Input</td><td>Mouse and keyboard actions with binding registration</td></tr>
+      <tr><td><code>Node</code> / <code>Edge</code> / <code>SubLane</code></td><td>Game.Net</td><td>Vanilla network entities that the tool modifies</td></tr>
+      <tr><td><code>LaneSignal</code></td><td>Game.Net</td><td>Per-lane signal state for intersection priority modding</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Architecture</h3>
+  <ol>
+    <li><strong>Tool state machine</strong>: Default (waiting) &rarr; Selecting (hovering intersections, highlighting lanes) &rarr; Applying (writing lane connection changes). Each state configures different raycast masks and overlay rendering.</li>
+    <li><strong>Custom raycast</strong>: The mod's SearchSystem builds a <code>NativeQuadTree</code> from custom entities. The RaycastSystem queries this tree in parallel Burst jobs. The tool merges custom and vanilla raycast results, preferring the closest hit.</li>
+    <li><strong>Save persistence</strong>: Custom <code>ISerializable</code> components use versioned readers (<code>reader.version &gt;= N</code>) for forward compatibility. The <code>FakePrefab</code> pattern creates a singleton prefab entity that passes vanilla validation.</li>
+    <li><strong>UI integration</strong>: Full TypeScript UI with module registration via the standard CS2 UI module system. Multi-language localization via JSON files loaded from the mod directory.</li>
+    <li><strong>Keybinding</strong>: <code>ProxyAction</code> for tool activation and mode switching. Mouse actions for intersection selection and lane modification.</li>
+    <li><strong>Cross-mod detection</strong>: Checks <code>GameManager.instance.modManager</code> for known conflicting mods. Adjusts behavior when detected.</li>
+  </ol>
+
+  <h3>Compatibility Concerns</h3>
+  <ul>
+    <li>This pattern uses full system replacement. Only one mod can replace a given vanilla system.</li>
+    <li>Custom serializable components persist in save files. Players who uninstall the mod may see warnings about missing component types.</li>
+    <li>The <code>FakePrefab</code> pattern requires careful entity lifecycle management to avoid leaving orphaned entities.</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
