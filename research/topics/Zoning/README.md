@@ -700,6 +700,98 @@ protected override void OnUpdate()
 - Custom zone type registrations
 - Building filter preferences per zone type
 
+## Mod Blueprint: Ploppable Growable Buildings (PlopTheGrowables Pattern)
+
+A blueprint for mods that allow placing growable/zoned buildings anywhere without requiring correct zoning, with level-locking and abandonment prevention -- based on the PlopTheGrowables mod architecture.
+
+**Mod archetype**: Zoned building behavior modifier. The mod distinguishes player-placed buildings from game-spawned buildings using persistent tag components, replaces the zone compatibility check system to skip plopped buildings, and provides level-locking via transpiler-based partial system modification.
+
+### Systems to Create
+
+| System | Phase | Purpose |
+|--------|-------|---------|
+| PloppedBuildingSystem | ModificationEnd | Tags newly plopped buildings with `PloppedBuilding` component. Query: `Building + (Residential\|Industrial\|Commercial) - Temp - Deleted - Signature - UnderConstruction - SpawnedBuilding - PloppedBuilding - ExtractorProperty` |
+| SpawnedBuildingSystem | GameSimulation (after BuildingConstructionSystem) | Tags naturally spawned buildings (those transitioning from `UnderConstruction`) with `SpawnedBuilding` component |
+| ExistingBuildingSystem | Deserialize | On save load, classifies untagged buildings as spawned (safe default). Also provides bulk operations: LockAll, UnlockAll, RemoveAbandonment |
+| SelectiveZoneCheckSystem | ModificationEnd (after PloppedBuildingSystem) | Reimplementation of vanilla `ZoneCheckSystem` that skips plopped buildings. Uses `FindSpawnableBuildingsJob` + `CollectEntitiesJob` + `CheckBuildingZonesJob` pipeline |
+| HistoricalLevellingSystem | GameSimulation (after BuildingUpkeepSystem) | Replacement level-up/level-down jobs that check `LevelLocked` component. Uses reflected `NativeQueue` fields from `BuildingUpkeepSystem` |
+| PlopTheGrowablesUISystem | UIUpdate | Handles lock-level toggle UI binding for building info panel |
+
+### Components to Create
+
+| Component | Type | Purpose |
+|-----------|------|---------|
+| PloppedBuilding | `IComponentData : IEmptySerializable` | Persistent tag on player-placed growable buildings -- survives save/load |
+| SpawnedBuilding | `IComponentData : IEmptySerializable` | Persistent tag on naturally game-spawned buildings |
+| LevelLocked | `IComponentData : IEmptySerializable` | Persistent tag preventing building from leveling up or down |
+
+### Harmony Patches Needed
+
+| Patch | Target | Type | Purpose |
+|-------|--------|------|---------|
+| BuildingUpkeepSystemPatches | `BuildingUpkeepSystem.OnUpdate` | Transpiler | Removes `LevelupJob` and `LeveldownJob` scheduling from `OnUpdate` while keeping all other jobs intact (upkeep, condition, etc.) |
+
+### System Disabling
+
+- `ZoneCheckSystem.Enabled = false` -- replaced entirely by `SelectiveZoneCheckSystem`
+
+### Key Game Components
+
+- `Building` (`Game.Buildings`) -- base component on all building entities
+- `ResidentialProperty` / `CommercialProperty` / `IndustrialProperty` (`Game.Buildings`) -- zone type tags for efficient building queries
+- `ExtractorProperty` (`Game.Buildings`) -- tag for resource extractor buildings (excluded from plopping logic)
+- `Signature` (`Game.Buildings`) -- tag for signature/unique buildings (excluded from growable queries)
+- `UnderConstruction` (`Game.Buildings`) -- `m_NewPrefab` and `m_Progress` for construction tracking; presence indicates game-spawned building
+- `Condemned` (`Game.Buildings`) -- tag added by `ZoneCheckSystem` when zone mismatch detected
+- `SpawnableBuildingData` (`Game.Prefabs`) -- `m_ZonePrefab` and `m_Level` for building-zone linkage
+- `BuildingConfigurationData` (`Game.Prefabs`) -- singleton providing `m_CondemnedNotification` entity for notification icons
+- `ZoneCheckSystem` (`Game.Buildings`) -- vanilla system disabled and replaced
+- `BuildingUpkeepSystem` (`Game.Simulation`) -- partially modified via transpiler to remove leveling jobs
+
+### Core Patterns
+
+```csharp
+// 1. Distinguish plopped vs spawned buildings
+// PloppedBuildingSystem (ModificationEnd): tag new plopped buildings
+EntityQuery newBuildings = SystemAPI.QueryBuilder()
+    .WithAll<Building>()
+    .WithAny<ResidentialProperty, IndustrialProperty, CommercialProperty>()
+    .WithNone<Temp, Deleted, Signature, UnderConstruction,
+              SpawnedBuilding, PloppedBuilding, ExtractorProperty>()
+    .Build();
+// All entities in this query are plopped (placed without UnderConstruction)
+EntityManager.AddComponent<PloppedBuilding>(newBuildings);
+
+// 2. Disable vanilla ZoneCheckSystem, replace with selective version
+ZoneCheckSystem vanillaSystem = World.GetExistingSystemManaged<ZoneCheckSystem>();
+vanillaSystem.Enabled = false;
+
+// 3. Level-lock via transpiler: remove LevelupJob/LeveldownJob from
+// BuildingUpkeepSystem.OnUpdate, then run custom HistoricalLevellingSystem
+// that checks for LevelLocked before allowing level changes
+
+// 4. Reflect private NativeQueues from BuildingUpkeepSystem
+var levelupQueue = typeof(BuildingUpkeepSystem)
+    .GetField("m_LevelupQueue", BindingFlags.NonPublic | BindingFlags.Instance)
+    .GetValue(buildingUpkeepSystem) as NativeQueue<Entity>;
+
+// 5. UI: extend building info panel
+// TypeScript: selectedInfo.middleSections$ subscription
+// Uses VanillaComponentResolver for InfoSection/InfoRow/ToolButton
+// Lock/unlock toggle with coui://uil/Standard/LockClosed.svg icons
+```
+
+### Key Considerations
+
+- **6 systems** for a focused building behavior mod -- lean architecture compared to network/vegetation mods
+- Use `IEmptySerializable` for all three tag components -- they carry no data, just need save persistence
+- **System replacement** (`Enabled = false`) for `ZoneCheckSystem` is cleaner than patching -- the replacement system reimplements the full three-job pipeline but skips plopped buildings
+- **Transpiler** for `BuildingUpkeepSystem` is necessary because the system runs many jobs (upkeep, condition, abandonment) -- only the leveling jobs should be removed, not the entire `OnUpdate`
+- **Reflecting private `NativeQueue` fields** from vanilla systems enables reading their output without modifying the system
+- On save load (Deserialize phase), classify untagged buildings as spawned -- this is the safe default to avoid incorrectly treating existing buildings as plopped
+- Cross-mod compatibility: detect "RWH" (Realistic Workplaces and Households) via `GameManager.instance.modManager` iteration
+- Known conflict with UrbanInequality (both replace `BuildingUpkeepSystem` leveling logic)
+
 ## Examples
 
 ### Example 1: Query Zone Blocks Along a Road
