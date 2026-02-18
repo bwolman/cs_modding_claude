@@ -1,0 +1,845 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Milestones &amp; Unlocks - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+    <a href="milestones-unlocks.html" class="active">Milestones &amp; Unlocks</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Milestones &amp; Unlocks -- Deep Dive</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 track city XP, trigger milestone level-ups, manage
+      development tree points, and unlock prefabs (services, zones, buildings, policies) through
+      dependency chains?
+    </p>
+    <p>
+      <strong>Verdict:</strong> The progression system has three layers: (1) XP accumulates from
+      population, happiness, building placement, and network construction via a shared
+      <code>NativeQueue&lt;XPGain&gt;</code> processed by <code>XPSystem</code>; (2)
+      <code>MilestoneSystem</code> checks XP against milestone thresholds every frame, awarding
+      money, loan limits, dev tree points, and map tiles; (3) <code>UnlockSystem</code> processes
+      <code>Unlock</code> event entities by disabling the <code>Locked</code> enableable component,
+      then cascading through <code>UnlockRequirement</code> dependency chains until nothing more
+      can be unlocked. The entire unlock state is a single boolean per prefab
+      (<code>Locked</code> enabled/disabled), making it trivial to force-unlock or re-lock items.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Achievement/trophy system, population victory conditions,
+      Chirper milestone notifications. Map tile purchase mechanics are documented in
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The CS2 progression system is built from three interconnected pipelines: <strong>XP
+    accumulation</strong>, <strong>milestone advancement</strong>, and <strong>unlock
+    cascading</strong>. Understanding each pipeline and how they connect is essential for any
+    mod that modifies progression.
+  </p>
+
+  <h3>XP Accumulation</h3>
+
+  <p>
+    XP comes from four independent sources, all feeding into a single
+    <code>NativeQueue&lt;XPGain&gt;</code> managed by <code>XPSystem</code>:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Source</th><th>System</th><th>Trigger</th><th>Formula</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Population growth</td>
+        <td><code>XPAccumulationSystem</code></td>
+        <td>Every 8192 frames (32x/day)</td>
+        <td><code>XPPerPopulation * newPop / updatesPerDay</code></td>
+      </tr>
+      <tr>
+        <td>Citizen happiness</td>
+        <td><code>XPAccumulationSystem</code></td>
+        <td>Every 8192 frames (32x/day)</td>
+        <td><code>XPPerHappiness * avgHappiness / updatesPerDay</code></td>
+      </tr>
+      <tr>
+        <td>Building placement</td>
+        <td><code>XPBuiltSystem</code></td>
+        <td>On entity creation</td>
+        <td><code>PlaceableObjectData.m_XPReward</code> or <code>ServiceUpgradeData.m_XPReward</code></td>
+      </tr>
+      <tr>
+        <td>Network construction</td>
+        <td><code>NetXPSystem</code></td>
+        <td>On edge creation</td>
+        <td><code>(xpReward + elevationBonus) * length / 112</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <code>XPAccumulationSystem</code> requires a population of at least 10 before it begins
+    generating XP. The "new population" value is calculated as <code>currentPop -
+    maxHistoricPop</code>, so XP from population only accrues when you hit new highs.
+    <code>NetXPSystem</code> subtracts XP when segments are deleted, preventing road-spam
+    exploits.
+  </p>
+
+  <p>
+    A one-time bonus of 25 XP is awarded when any <code>ElectricityConsumer</code> first receives
+    fulfilled consumption, tracked by the <code>XPRewardFlags.ElectricityGridBuilt</code> flag on
+    the city's <code>XP</code> component to prevent re-awarding on reload.
+  </p>
+
+  <h3>Milestone Advancement</h3>
+
+  <p>
+    <code>MilestoneSystem</code> runs every frame, comparing the city's total XP
+    (<code>CitySystem.XP</code>) against the next milestone's <code>m_XpRequried</code>
+    threshold. When the threshold is crossed:
+  </p>
+
+  <ol>
+    <li><code>MilestoneLevel.m_AchievedMilestone</code> is incremented</li>
+    <li>A <code>MilestoneReachedEvent</code> entity is created (consumed by <code>DevTreeSystem</code> and UI)</li>
+    <li>An <code>Unlock</code> event entity is created for the milestone prefab</li>
+    <li><code>PlayerMoney</code> is increased by <code>MilestoneData.m_Reward</code></li>
+    <li><code>Creditworthiness</code> is increased by <code>MilestoneData.m_LoanLimit</code></li>
+  </ol>
+
+  <p>
+    The <code>MilestoneReachedEvent</code> feeds into <code>DevTreeSystem</code>, which adds
+    <code>MilestoneData.m_DevTreePoints</code> to the city's <code>DevTreePoints</code> singleton.
+    If the milestone prefab entity is not found, a fallback formula is used:
+    <code>(level+1)/2 + 1</code> for levels 1-18, and 10 for level 19+.
+  </p>
+
+  <h3>The Unlock Cascade</h3>
+
+  <p>
+    The unlock system works through a simple but powerful pattern: every lockable prefab entity has
+    a <code>Locked</code> enableable component (enabled = locked) and an
+    <code>UnlockRequirement</code> buffer listing its dependencies. The cascade works like this:
+  </p>
+
+  <ol>
+    <li>An <code>Unlock</code> event entity is created (by MilestoneSystem, DevTreeSystem, or a mod)</li>
+    <li><code>UnlockSystem.ProcessEvents()</code> disables <code>Locked</code> on the target prefab</li>
+    <li><code>CheckUnlockRequirementsJob</code> scans all still-locked prefabs with <code>UnlockRequirement</code> buffers</li>
+    <li>For each prefab: if all <code>RequireAll</code> deps are unlocked AND at least one <code>RequireAny</code> dep is unlocked (when any exist), queue it for unlock</li>
+    <li>Repeat from step 2 until no more prefabs are unlockable</li>
+  </ol>
+
+  <p>
+    This cascade means unlocking a single milestone can trigger a chain of dependent unlocks --
+    services, zones, buildings, features, and policies all become available in one frame.
+  </p>
+
+  <h3>Development Tree Purchasing</h3>
+
+  <p>
+    Dev tree nodes represent individual upgrades within a service category. Each node has a
+    <code>DevTreeNodeData.m_Cost</code> in dev tree points and belongs to a specific
+    <code>m_Service</code>. Purchasing a node requires:
+  </p>
+
+  <ol>
+    <li>Enough available <code>DevTreePoints.m_Points</code></li>
+    <li>The node's service must be unlocked (not <code>Locked</code>)</li>
+    <li>If <code>DevTreeNodeRequirement</code> buffer exists, at least one prerequisite node must be unlocked</li>
+    <li>The node itself must still be <code>Locked</code></li>
+  </ol>
+
+  <p>
+    Nodes with <code>m_Cost == 0</code> get a <code>DevTreeNodeAutoUnlock</code> tag and
+    auto-unlock when their parent service is unlocked, requiring no manual purchase.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+XP SOURCES
+==========
+[Population + Happiness]      [Buildings Placed]       [Networks Built]
+  XPAccumulationSystem          XPBuiltSystem            NetXPSystem
+  (every 8192 frames)        (on Created tags)        (on Created edges)
+         |                          |                        |
+         +-------&gt; NativeQueue&lt;XPGain&gt; &lt;---------------------+
+                          |
+                          v
+                    XPSystem.OnUpdate()
+                    Drains queue =&gt; XP.m_XP += sum
+                    Queues XPMessage for UI
+                          |
+                          v
+MILESTONE CHECK (every frame)
+=============================
+                    MilestoneSystem.OnUpdate()
+                    If XP &gt;= nextMilestone.m_XpRequried:
+                      m_AchievedMilestone++
+                      Create MilestoneReachedEvent
+                      Create Unlock event
+                      Award money + loan limit
+                          |
+               +----------+-----------+
+               |                      |
+               v                      v
+         DevTreeSystem          UnlockSystem
+         Adds m_DevTreePoints   Disables Locked
+         to DevTreePoints       on milestone prefab
+               |                      |
+               v                      v
+         Player spends        CheckUnlockRequirementsJob
+         points via UI        Scans all Locked prefabs:
+         Purchase(node)       RequireAll satisfied?
+               |              RequireAny satisfied?
+               v                      |
+         Create Unlock                v
+         event for node       Cascade: unlock dependents
+               |              Loop until stable
+               +------&gt; [Prefab available in game]
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.City</td>
+        <td>XP, MilestoneLevel, DevTreePoints, MilestoneReachedEvent, XPRewardFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>MilestoneSystem, XPSystem, XPAccumulationSystem, XPBuiltSystem, NetXPSystem, XPGain, XPMessage, XPReason, IMilestoneSystem, IXPSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>MilestoneData, DevTreeNodeData, DevTreeNodeRequirement, DevTreeNodeAutoUnlock, UnlockRequirement, UnlockFlags, Unlock, Locked, UnlockSystem, UnlockAllSystem, UnlockOnBuildData, UnlockRequirementData, XPParameterData, ObjectBuiltRequirementSystem, PrefabUnlockedRequirementSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.City</td>
+        <td>DevTreeSystem (manages dev tree points and node purchases)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.UI.InGame</td>
+        <td>MilestoneUISystem (UI bindings: "milestone" group), DevTreeUISystem (UI bindings: "devTree" group)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs.Modes</td>
+        <td>MilestonesMode (overrides milestone values per game mode), UnlockAtStartMode (clears unlock requirements)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>XP (Game.City) -- City Singleton</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_XP</td><td>int</td><td>Total accumulated city XP</td></tr>
+      <tr><td>m_MaximumPopulation</td><td>int</td><td>Highest population ever reached (for one-time XP bonuses)</td></tr>
+      <tr><td>m_MaximumIncome</td><td>int</td><td>Highest taxable income ever reached</td></tr>
+      <tr><td>m_XPRewardRecord</td><td>XPRewardFlags</td><td>Bitfield tracking one-time bonuses already awarded</td></tr>
+    </tbody>
+  </table>
+
+  <h3>MilestoneData (Game.Prefabs) -- Per-Milestone Prefab</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Index</td><td>int</td><td>Milestone number (1-20, sequential)</td></tr>
+      <tr><td>m_Reward</td><td>int</td><td>Money awarded when reached</td></tr>
+      <tr><td>m_DevTreePoints</td><td>int</td><td>Dev tree points awarded</td></tr>
+      <tr><td>m_MapTiles</td><td>int</td><td>Map tiles unlocked for purchase</td></tr>
+      <tr><td>m_LoanLimit</td><td>int</td><td>Additional loan capacity</td></tr>
+      <tr><td>m_XpRequried</td><td>int</td><td>Cumulative XP threshold (note: game typo in field name)</td></tr>
+      <tr><td>m_Major</td><td>bool</td><td>Major milestone (UI styling)</td></tr>
+      <tr><td>m_IsVictory</td><td>bool</td><td>Triggers victory condition when reached</td></tr>
+    </tbody>
+  </table>
+
+  <h3>DevTreeNodeData (Game.Prefabs) -- Per-Node</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Cost</td><td>int</td><td>Dev tree points to purchase (0 = auto-unlock)</td></tr>
+      <tr><td>m_Service</td><td>Entity</td><td>Parent service prefab entity</td></tr>
+    </tbody>
+  </table>
+
+  <h3>UnlockRequirement (Game.Prefabs) -- Buffer</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Prefab</td><td>Entity</td><td>Prefab entity that must be unlocked</td></tr>
+      <tr><td>m_Flags</td><td>UnlockFlags</td><td>RequireAll (0x1) = AND logic; RequireAny (0x2) = OR logic</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Locked (Game.Prefabs) -- Enableable Tag</h3>
+
+  <p>
+    The single lock state for all prefabs. This is an <strong>enableable component</strong> --
+    the component always exists on lockable prefabs, but is toggled via
+    <code>SetComponentEnabled&lt;Locked&gt;(entity, false)</code> to unlock. This design allows
+    efficient querying of locked/unlocked sets without structural changes.
+  </p>
+
+  <h3>XPReason (Game.Simulation) -- Enum</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th><th>Source</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>Unknown</td><td>Default</td></tr>
+      <tr><td>1</td><td>ServiceBuilding</td><td>XPBuiltSystem (PlaceableObjectData.m_XPReward)</td></tr>
+      <tr><td>2</td><td>ServiceUpgrade</td><td>XPBuiltSystem (ServiceUpgradeData.m_XPReward)</td></tr>
+      <tr><td>3</td><td>ElectricityNetwork</td><td>XPBuiltSystem (one-time 25 XP)</td></tr>
+      <tr><td>4</td><td>Population</td><td>XPAccumulationSystem</td></tr>
+      <tr><td>5</td><td>Happiness</td><td>XPAccumulationSystem</td></tr>
+      <tr><td>7</td><td>Road</td><td>NetXPSystem</td></tr>
+      <tr><td>8</td><td>TrainTrack</td><td>NetXPSystem</td></tr>
+      <tr><td>9</td><td>TramTrack</td><td>NetXPSystem</td></tr>
+      <tr><td>10</td><td>SubwayTrack</td><td>NetXPSystem</td></tr>
+      <tr><td>11</td><td>Waterway</td><td>NetXPSystem</td></tr>
+      <tr><td>12</td><td>Pipe</td><td>NetXPSystem</td></tr>
+      <tr><td>13</td><td>PowerLine</td><td>NetXPSystem</td></tr>
+    </tbody>
+  </table>
+
+  <h3>UnlockFlags (Game.Prefabs) -- Enum</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th><th>Behavior</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0x1</td><td>RequireAll</td><td>This dependency <strong>must</strong> be unlocked (AND). If any RequireAll dep is still locked, the prefab stays locked.</td></tr>
+      <tr><td>0x2</td><td>RequireAny</td><td>At least <strong>one</strong> RequireAny dep must be unlocked (OR). If all RequireAny deps are locked, the prefab stays locked.</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>The Unlock Requirement Logic</h2>
+
+  <p>
+    The <code>CheckUnlockRequirementsJob</code> evaluates each locked prefab's
+    <code>UnlockRequirement</code> buffer with the following logic:
+  </p>
+
+  <pre><code class="language-csharp">// Pseudocode from CheckUnlockRequirementsJob
+bool anyRequireAllFailed = false;
+bool anyRequireAnyLocked = false;
+bool anyRequireAnyUnlocked = false;
+
+for each requirement in buffer:
+    bool isLocked = Locked.HasEnabled(requirement.m_Prefab);
+    if isLocked AND (flags &amp; RequireAll):   anyRequireAllFailed = true; break;
+    if isLocked AND (flags &amp; RequireAny):   anyRequireAnyLocked = true;
+    if !isLocked AND (flags &amp; RequireAny):  anyRequireAnyUnlocked = true;
+
+// Unlock if: no RequireAll failed AND (any RequireAny unlocked OR no RequireAny existed)
+if !anyRequireAllFailed AND (anyRequireAnyUnlocked OR !anyRequireAnyLocked):
+    queue for unlock</code></pre>
+
+  <p>
+    The <code>ManualUnlockable</code> component adds a self-reference (<code>UnlockRequirement</code>
+    pointing to itself with <code>RequireAll</code>), which prevents automatic cascade unlocking.
+    These prefabs can only be unlocked by an explicit <code>Unlock</code> event -- such as a dev
+    tree purchase or the <code>UnlockAllSystem</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>System Update Rates</h2>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Rate</th><th>Condition</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>XPSystem</code></td><td>Every frame</td><td>Always (when city exists)</td></tr>
+      <tr><td><code>XPAccumulationSystem</code></td><td>Every 8192 frames</td><td>Requires <code>XPParameterData</code> singleton</td></tr>
+      <tr><td><code>XPBuiltSystem</code></td><td>On demand</td><td>When <code>Created</code> + <code>PrefabRef</code> entities exist</td></tr>
+      <tr><td><code>NetXPSystem</code></td><td>On demand</td><td>When <code>Created</code> edges exist</td></tr>
+      <tr><td><code>MilestoneSystem</code></td><td>Every frame</td><td>Requires MilestoneLevel, XP, and MilestoneData singletons</td></tr>
+      <tr><td><code>DevTreeSystem</code></td><td>On demand</td><td>When <code>MilestoneReachedEvent</code> entities exist</td></tr>
+      <tr><td><code>UnlockSystem</code></td><td>On demand</td><td>When <code>Unlock</code> events exist, on game load, or when <code>Updated</code> entities exist</td></tr>
+      <tr><td><code>ObjectBuiltRequirementSystem</code></td><td>On demand</td><td>When buildings are <code>Created</code> or <code>Deleted</code></td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Unlock All Milestones Programmatically</h3>
+
+  <p>
+    The simplest approach: call the built-in <code>MilestoneSystem.UnlockAllMilestones()</code>
+    method. This awards all money, loan limits, and creates Unlock events for every milestone
+    prefab, which cascades through the entire unlock chain.
+  </p>
+
+  <pre><code class="language-csharp">public partial class UnlockAllMilestonesSystem : GameSystemBase
+{
+    private MilestoneSystem m_MilestoneSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_MilestoneSystem = World.GetOrCreateSystemManaged&lt;MilestoneSystem&gt;();
+    }
+
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Call this once to unlock every milestone and award all rewards.
+    /// The UnlockSystem will cascade to unlock all dependent prefabs.
+    /// &lt;/summary&gt;
+    public void UnlockAll()
+    {
+        m_MilestoneSystem.UnlockAllMilestones();
+    }
+}</code></pre>
+
+  <h3>Example 2: Check Whether a Prefab Is Locked</h3>
+
+  <p>
+    Query the <code>Locked</code> enableable component. Because <code>Locked</code> is an
+    enableable component (not a structural tag), the entity always has it -- you check whether
+    it is <strong>enabled</strong>.
+  </p>
+
+  <pre><code class="language-csharp">public partial class UnlockCheckerSystem : GameSystemBase
+{
+    private PrefabSystem m_PrefabSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_PrefabSystem = World.GetOrCreateSystemManaged&lt;PrefabSystem&gt;();
+    }
+
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Returns true if the given prefab entity is currently locked.
+    /// Uses HasEnabledComponent -- Locked is always present but toggled.
+    /// &lt;/summary&gt;
+    public bool IsPrefabLocked(Entity prefabEntity)
+    {
+        return EntityManager.HasEnabledComponent&lt;Locked&gt;(prefabEntity);
+    }
+
+    /// &lt;summary&gt;
+    /// Check lock status by PrefabBase reference.
+    /// &lt;/summary&gt;
+    public bool IsPrefabLocked(PrefabBase prefab)
+    {
+        Entity entity = m_PrefabSystem.GetEntity(prefab);
+        return EntityManager.HasEnabledComponent&lt;Locked&gt;(entity);
+    }
+}</code></pre>
+
+  <h3>Example 3: Award Bonus XP</h3>
+
+  <p>
+    Inject XP directly into the XP queue. This is exactly how the game's own systems add XP.
+    The <code>XPSystem</code> will drain the queue on its next update frame and add the total
+    to <code>XP.m_XP</code>.
+  </p>
+
+  <pre><code class="language-csharp">public partial class BonusXPSystem : GameSystemBase
+{
+    private XPSystem m_XPSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_XPSystem = World.GetOrCreateSystemManaged&lt;XPSystem&gt;();
+    }
+
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Add XP to the city. Processes on the next XPSystem update tick.
+    /// The amount can trigger milestone advancement if it crosses
+    /// a threshold.
+    /// &lt;/summary&gt;
+    public void AwardXP(int amount, XPReason reason = XPReason.Unknown)
+    {
+        JobHandle deps;
+        NativeQueue&lt;XPGain&gt; queue = m_XPSystem.GetQueue(out deps);
+        deps.Complete();
+
+        queue.Enqueue(new XPGain
+        {
+            amount = amount,
+            entity = Entity.Null,
+            reason = reason
+        });
+    }
+}</code></pre>
+
+  <h3>Example 4: Force-Unlock a Specific Prefab</h3>
+
+  <p>
+    Create an <code>Unlock</code> event entity to unlock a specific prefab. The
+    <code>UnlockSystem</code> will process it on its next update and cascade through any
+    downstream <code>UnlockRequirement</code> dependencies.
+  </p>
+
+  <pre><code class="language-csharp">public partial class ForceUnlockSystem : GameSystemBase
+{
+    private PrefabSystem m_PrefabSystem;
+    private EntityArchetype m_UnlockEventArchetype;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_PrefabSystem = World.GetOrCreateSystemManaged&lt;PrefabSystem&gt;();
+        m_UnlockEventArchetype = EntityManager.CreateArchetype(
+            ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+            ComponentType.ReadWrite&lt;Unlock&gt;()
+        );
+    }
+
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Unlock a specific prefab entity. Creates an Unlock event that
+    /// the UnlockSystem processes, cascading to dependents.
+    /// &lt;/summary&gt;
+    public void UnlockPrefab(Entity prefabEntity)
+    {
+        if (!EntityManager.HasEnabledComponent&lt;Locked&gt;(prefabEntity))
+            return; // Already unlocked
+
+        Entity unlockEvent = EntityManager.CreateEntity(m_UnlockEventArchetype);
+        EntityManager.SetComponentData(unlockEvent, new Unlock(prefabEntity));
+    }
+
+    /// &lt;summary&gt;
+    /// Unlock by PrefabBase reference.
+    /// &lt;/summary&gt;
+    public void UnlockPrefab(PrefabBase prefab)
+    {
+        Entity entity = m_PrefabSystem.GetEntity(prefab);
+        UnlockPrefab(entity);
+    }
+}</code></pre>
+
+  <h3>Example 5: XP Multiplier via Harmony Patch</h3>
+
+  <p>
+    Modify the <code>XPParameterData</code> singleton before the accumulation job reads it.
+    This affects ongoing population and happiness XP gains without touching the queue directly.
+  </p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.XPAccumulationSystem), "OnUpdate")]
+public static class XPMultiplierPatch
+{
+    private static float s_Multiplier = 2.0f;
+
+    /// &lt;summary&gt;
+    /// Prefix: scale the XP parameters before the accumulation job
+    /// reads them. The singleton is shared, so this persists until
+    /// the next call.
+    /// &lt;/summary&gt;
+    public static void Prefix(XPAccumulationSystem __instance)
+    {
+        var query = __instance.GetType()
+            .GetField("m_XPSettingsQuery",
+                System.Reflection.BindingFlags.NonPublic
+                | System.Reflection.BindingFlags.Instance)
+            ?.GetValue(__instance);
+
+        if (query is EntityQuery eq &amp;&amp; !eq.IsEmptyIgnoreFilter)
+        {
+            var data = eq.GetSingleton&lt;XPParameterData&gt;();
+            data.m_XPPerPopulation *= s_Multiplier;
+            data.m_XPPerHappiness *= s_Multiplier;
+            eq.SetSingleton(data);
+        }
+    }
+
+    public static void SetMultiplier(float multiplier)
+    {
+        s_Multiplier = multiplier;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>XP per population</td>
+        <td>XPParameterData.m_XPPerPopulation</td>
+        <td>Singleton prefab</td>
+        <td>XP gained per new population milestone per update</td>
+      </tr>
+      <tr>
+        <td>XP per happiness</td>
+        <td>XPParameterData.m_XPPerHappiness</td>
+        <td>Singleton prefab</td>
+        <td>XP gained per happiness unit per update</td>
+      </tr>
+      <tr>
+        <td>Accumulation frequency</td>
+        <td>XPAccumulationSystem.kUpdatesPerDay</td>
+        <td>32 per game day</td>
+        <td>How often population/happiness XP is calculated</td>
+      </tr>
+      <tr>
+        <td>Min population for XP</td>
+        <td>Hardcoded</td>
+        <td>10</td>
+        <td>No accumulation XP until population reaches 10</td>
+      </tr>
+      <tr>
+        <td>Network XP length divisor</td>
+        <td>NetXPSystem.kXPRewardLength</td>
+        <td>112.0</td>
+        <td>Divides curve length to normalize XP per meter</td>
+      </tr>
+      <tr>
+        <td>Electricity grid bonus</td>
+        <td>XPBuiltSystem.kElectricityGridXPBonus</td>
+        <td>25</td>
+        <td>One-time XP for first electricity consumer</td>
+      </tr>
+      <tr>
+        <td>Milestone thresholds</td>
+        <td>MilestoneData.m_XpRequried</td>
+        <td>Per-milestone prefab</td>
+        <td>Cumulative XP needed for each milestone</td>
+      </tr>
+      <tr>
+        <td>Milestone money rewards</td>
+        <td>MilestoneData.m_Reward</td>
+        <td>Per-milestone prefab</td>
+        <td>Money awarded on milestone reach</td>
+      </tr>
+      <tr>
+        <td>Milestone dev tree points</td>
+        <td>MilestoneData.m_DevTreePoints</td>
+        <td>Per-milestone prefab</td>
+        <td>Dev tree points awarded per milestone</td>
+      </tr>
+      <tr>
+        <td>Milestone map tiles</td>
+        <td>MilestoneData.m_MapTiles</td>
+        <td>Per-milestone prefab</td>
+        <td>Map tiles unlocked for purchase</td>
+      </tr>
+      <tr>
+        <td>Milestone loan limit</td>
+        <td>MilestoneData.m_LoanLimit</td>
+        <td>Per-milestone prefab</td>
+        <td>Loan capacity increase</td>
+      </tr>
+      <tr>
+        <td>Dev tree node costs</td>
+        <td>DevTreeNodeData.m_Cost</td>
+        <td>Per-node prefab</td>
+        <td>Points needed to purchase each node</td>
+      </tr>
+      <tr>
+        <td>Building XP rewards</td>
+        <td>PlaceableObjectData.m_XPReward</td>
+        <td>Per-building prefab</td>
+        <td>XP awarded when building is placed</td>
+      </tr>
+      <tr>
+        <td>Network XP rewards</td>
+        <td>PlaceableNetData.m_XPReward</td>
+        <td>Per-network prefab</td>
+        <td>XP per segment (scaled by length)</td>
+      </tr>
+      <tr>
+        <td>Elevated road bonus</td>
+        <td>Hardcoded</td>
+        <td>+1.0 per segment</td>
+        <td>Extra XP for elevated roads</td>
+      </tr>
+      <tr>
+        <td>Default dev tree points</td>
+        <td>Hardcoded formula</td>
+        <td>(level+1)/2 + 1</td>
+        <td>Fallback when milestone prefab is missing</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Actual milestone threshold values:</strong> The default XP thresholds for each of the
+      ~20 milestones are defined in <code>MilestonePrefab</code> asset data, not in code. Only the
+      data structure (<code>MilestoneData</code>) and the comparison logic are in the DLL.
+    </li>
+    <li>
+      <strong>Game mode overrides:</strong> <code>MilestonesMode</code> can override milestone
+      values (thresholds, rewards) for different game modes. The override mechanism is clear from
+      the code but the actual override values are in prefab data.
+    </li>
+    <li>
+      <strong>ForceUIGroupUnlockData:</strong> This buffer appears on some prefabs to force UI
+      groups to appear even when content is locked. The exact prefabs that use it and when
+      it is populated are unclear from code alone.
+    </li>
+    <li>
+      <strong>Cascade completeness:</strong> Whether <code>PrefabUnlockedRequirementSystem</code>
+      handles all edge cases in cascading unlock chains, or if there are scenarios where the
+      cascade stalls.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled (systems): Game.Simulation.MilestoneSystem, Game.Simulation.XPSystem, Game.Simulation.XPAccumulationSystem, Game.Simulation.XPBuiltSystem, Game.Simulation.NetXPSystem, Game.City.DevTreeSystem, Game.Prefabs.UnlockSystem, Game.Prefabs.UnlockAllSystem, Game.Prefabs.ObjectBuiltRequirementSystem, Game.Prefabs.PrefabUnlockedRequirementSystem, Game.Serialization.ResetUnlockRequirementSystem</li>
+    <li>Decompiled (components): Game.City.XP, MilestoneLevel, DevTreePoints, MilestoneReachedEvent; Game.Prefabs.MilestoneData, DevTreeNodeData, DevTreeNodeRequirement, DevTreeNodeAutoUnlock, UnlockRequirement, Unlock, Locked, XPParameterData, UnlockOnBuildData, UnlockRequirementData, ForceUnlockRequirementData, PrefabUnlockedRequirement, UnlockFilterData, ForceUIGroupUnlockData</li>
+    <li>Decompiled (prefabs): MilestonePrefab, DevTreeNodePrefab, XPParametersPrefab, Unlockable, ManualUnlockable, UnlockableBase</li>
+    <li>Decompiled (enums): XPReason, XPRewardFlags, UnlockFlags</li>
+    <li>Decompiled (modes): MilestonesMode, UnlockAtStartMode</li>
+    <li>Decompiled (UI): MilestoneUISystem, DevTreeUISystem</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
