@@ -391,6 +391,22 @@ Static utility class with key calculations:
 - **`GetExtractorFittingWorkers()`**: `ceil(maxWorkersPerCell * area * spaceMultiplier / 2)`
 - **`GetCompanyProfitability()`**: Maps profit to 0-255 byte using `EconomyParameterData.m_ProfitabilityRange`
 
+### `EconomyUtils.GetCompanyTotalWorth` (Game.Economy)
+
+Static utility method with two overloads for computing a company's total worth:
+
+**Full overload (with vehicle data)**:
+- **Signature**: `static int GetCompanyTotalWorth(IndustrialProcessData processData, DynamicBuffer<Resources> resources, DynamicBuffer<OwnedVehicle> ownedVehicles, ComponentLookup<LayoutElement> layoutElements, ComponentLookup<DeliveryTruck> deliveryTrucks, ResourcePrefabs resourcePrefabs, ComponentLookup<ResourceData> resourceDatas)`
+- Sums the value of all resources in the company's `Resources` buffer plus the cargo value of all owned delivery trucks (iterating `OwnedVehicle` -> `LayoutElement` -> `DeliveryTruck.m_Resource` and `m_Amount`)
+- Used by `CompanyProfitabilitySystem` for the full worth calculation
+
+**Simple overload (without vehicle data)**:
+- **Signature**: `static int GetCompanyTotalWorth(DynamicBuffer<Resources> resources, ResourcePrefabs resourcePrefabs, ComponentLookup<ResourceData> resourceDatas)`
+- Sums only the value of resources in the company's `Resources` buffer, ignoring vehicle cargo
+- Used in contexts where vehicle data is unavailable or not relevant
+
+The `isIndustrial` flag that determines which overload to use is computed as `!ServiceAvailable.HasComponent(renter)` -- companies with a `ServiceAvailable` component are commercial/service companies, while those without are industrial/processing companies.
+
 ### `ServiceCompanySystem` (Game.Simulation)
 
 - **Base class**: GameSystemBase

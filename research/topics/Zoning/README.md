@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-15
+> **Last updated**: 2026-02-17
 
 ## Scope
 
@@ -195,6 +195,22 @@ EntityQuery lockedQuery = SystemAPI.QueryBuilder()
 ```
 
 Note: Signature buildings also have these components but are typically excluded with `WithNone<Signature>` since they have unique behavior.
+
+**Efficient zone-category filtering with `EntityQuery.Any`**: `ResidentialProperty` and `CommercialProperty` (from `Game.Buildings`) are particularly useful as `WithAny` filters for efficient zone-category building selection. Because they are tag components present directly on the building entity, querying with them avoids the need to resolve the prefab chain (`PrefabRef` -> `SpawnableBuildingData.m_ZonePrefab` -> `ZoneData.m_AreaType`) for every entity. This is the recommended pattern when a mod only needs to distinguish between residential and commercial buildings:
+
+```csharp
+// Efficient: select all residential OR commercial buildings without prefab resolution
+EntityQuery resCom = SystemAPI.QueryBuilder()
+    .WithAll<Building, PrefabRef>()
+    .WithAny<ResidentialProperty, CommercialProperty>()
+    .WithNone<Temp, Deleted>()
+    .Build();
+
+// Compare to the slow alternative that requires per-entity prefab lookup:
+// foreach entity -> PrefabRef -> EntityManager.GetComponentData<SpawnableBuildingData>(prefab)
+//   -> ZoneData from m_ZonePrefab -> check m_AreaType
+// The tag component approach skips all of this.
+```
 
 *Source: `Game.dll` -> `Game.Buildings.ResidentialProperty`, `CommercialProperty`, `IndustrialProperty`*
 

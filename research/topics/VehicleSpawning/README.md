@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-16
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-17
 
 ## Scope
 
@@ -113,6 +113,34 @@ Buffer element on a household listing its owned vehicles.
 Empty marker component. All vehicles have this.
 
 *Source: `Game.dll` -> `Game.Vehicles.Vehicle`*
+
+### `BicycleOwner` (Game.Citizens)
+
+Implements `IEnableableComponent`, allowing per-entity toggling of bicycle ownership without adding/removing the component.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Bicycle | Entity | Reference to the owned bicycle entity |
+
+**Enable/disable pattern**: Because `BicycleOwner` implements `IEnableableComponent`, ownership is toggled via `EntityCommandBuffer.SetComponentEnabled<BicycleOwner>()` rather than adding/removing the component. This is more efficient and avoids archetype changes:
+
+```csharp
+// Toggle bicycle ownership on a citizen entity
+EntityCommandBuffer ecb = m_EndFrameBarrier.CreateCommandBuffer();
+
+// Grant bicycle ownership
+ecb.SetComponentEnabled<BicycleOwner>(citizenEntity, true);
+ecb.SetComponent(citizenEntity, new BicycleOwner { m_Bicycle = bicycleEntity });
+
+// Revoke bicycle ownership (component stays, but is disabled)
+ecb.SetComponentEnabled<BicycleOwner>(citizenEntity, false);
+```
+
+**Deterministic ownership decisions**: The game uses a deterministic hash based on the citizen entity's index for consistent per-entity decisions about bicycle ownership. This ensures the same citizen always gets the same ownership result for a given game state, avoiding randomness-driven desync.
+
+**Age-based ownership rate**: Bicycle ownership rates are controlled by citizen age. `AgingSystem` enables `BicycleOwner` on citizens transitioning from Child to Teen (day 21+). The ownership rate is age-gated -- children do not own bicycles, while teens and adults can. The `CitizenFlags.BicycleUser` flag (0x2000) on the `Citizen.m_State` field indicates the citizen prefers bicycle transport.
+
+*Source: `Game.dll` -> `Game.Citizens.BicycleOwner`*
 
 ### `TripSource` (Game.Objects)
 
@@ -588,7 +616,7 @@ Three detection methods:
 - [x] **Parking search algorithm**: ~~Previously unclear.~~ Now understood from the RealisticParking mod and further decompilation. `PersonalCarAISystem` uses a two-phase parking search: (1) **Direct search** -- scans `ParkingLane` and `GarageLane` entities near the destination within a configurable radius (default ~100m game units), checking `ParkedCar` occupancy counts against lane capacity. (2) **Fallback search** -- if no spot is found, the vehicle re-pathfinds with `PathMethod.Parking` or `PathMethod.SpecialParking` to find the nearest available parking, expanding the search area. If all parking fails, the vehicle circles (path becomes obsolete and is recalculated). The RealisticParking mod hooks into this by patching the parking cost in `PathfindCarData.ParkingCost` and adjusting the search radius via `PathfindParameters.m_ParkingSize`, demonstrating that the parking system is fully moddable through cost tuning and parameter adjustment.
 - [ ] **Vehicle model selection**: `PersonalCarSelectData` controls which car prefab is chosen for a household based on wealth and other factors. The selection algorithm was not fully decompiled.
 - [ ] **ParkedVehiclesSystem**: This system handles spawning service vehicles (police, fire, garbage, etc.) from their depots. It was identified but not fully decompiled in this research scope.
-- [ ] **Bicycle lifecycle**: Bicycles share the `PersonalCar` component but have a separate ownership model via `BicycleOwner`. The full bicycle lifecycle needs separate investigation.
+- [x] **Bicycle ownership model**: `BicycleOwner` implements `IEnableableComponent` with an `m_Bicycle` (Entity) field. Ownership is toggled per-entity via `ECB.SetComponentEnabled<BicycleOwner>()`. `AgingSystem` enables it on Child->Teen transition. A deterministic hash on the entity index ensures consistent per-entity ownership decisions. Age-based ownership rate control prevents children from owning bicycles. See the `BicycleOwner` component section above for the full pattern. The broader bicycle trip lifecycle (spawning, riding, parking) still shares infrastructure with `PersonalCar` and was not fully traced.
 
 ## Sources
 

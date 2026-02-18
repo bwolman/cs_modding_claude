@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-17
 
 ## Scope
 
@@ -98,7 +98,7 @@ Child = 0, Teen = 1, Adult = 2, Elderly = 3
 | m_ShoppedValueLastDay | uint | Previous day shopping spending |
 | m_SalaryLastDay | int | Income earned last day |
 | m_LastDayFrameIndex | uint | Simulation frame when the last day rollover occurred |
-| m_MoneySpendOnBuildingLevelingLastDay | int | Money spent on building leveling last day (reset each day) |
+| m_MoneySpendOnBuildingLevelingLastDay | int | Money spent on building leveling last day (written by `UpkeepPaymentJob` inside `BuildingUpkeepSystem` after deducting upkeep from household money; reset each day by `HouseholdBehaviorSystem` during daily rollover) |
 
 ### `HouseholdCitizen` (Game.Citizens) -- Buffer
 
@@ -225,10 +225,15 @@ ECS singleton with thresholds and weights for all 26 happiness factors. Initiali
 
 ### HouseholdSpawnSystem (Game.Simulation)
 
-- **Driven by**: ResidentialDemandSystem demand value
-- **Spawn rate**: Inversely proportional to population (slower as city grows)
-- **Prefab selection**: Weighted random from HouseholdPrefab pool, considering study positions
-- **Placement**: At a random outside connection; household then seeks property
+- **Driven by**: `ResidentialDemandSystem` demand value, accessible via `ResidentialDemandSystem.householdDemand` getter. Demand factor breakdown available through `GetLowDensityDemandFactors()`, `GetMediumDensityDemandFactors()`, and `GetHighDensityDemandFactors()` returning `NativeArray<int>` arrays.
+- **Spawn rate**: Inversely proportional to population (slower as city grows). Vacancy-driven: spawn rate scales with the number of free residential properties -- more vacancies means faster spawning.
+- **Prefab selection**: Weighted random from HouseholdPrefab pool via `SpawnHouseholdJob`. Each `HouseholdPrefab` has a `HouseholdData.m_Weight` field used for weighted selection. The job iterates candidate prefabs, multiplies each weight by a random factor, and selects the highest weighted result. Study position availability is also considered during selection.
+- **Placement**: At a random `OutsideConnection` entity; household then seeks property via `HouseholdFindPropertySystem`.
+- **Replacement pattern**: To override household spawning, replace `HouseholdSpawnSystem` with a custom system. Read `ResidentialDemandSystem.householdDemand` to gate spawning, then use the same `SpawnHouseholdJob` internals: demand factor index 6 represents the free residential properties factor, and index 12 represents the household demand factor. These indices into the demand factors array control the vacancy-driven spawn rate.
+- **Key internals** (`SpawnHouseholdJob`):
+  - Reads demand factors array where index 6 = free residential property count factor, index 12 = household demand factor
+  - Selects prefab via weighted random: iterates `HouseholdPrefab` entities, computes `HouseholdData.m_Weight * random.NextFloat()`, picks highest
+  - Spawns household entity at a randomly chosen `OutsideConnection` entity from the available pool
 
 ### HouseholdFindPropertySystem (Game.Simulation)
 
@@ -272,6 +277,18 @@ ECS singleton with thresholds and weights for all 26 happiness factors. Initiali
   - Scales the delta proportionally to capacity with randomization
   - Increments/decrements `m_Presence` byte and resets `m_Delta` to 0
 - **Note**: This runs on **building entities**, not citizen entities. Other systems update `m_Delta` when citizens enter/leave buildings.
+
+### CheckBuildingsSystem Eviction Pattern (Game.Simulation)
+
+- **Trigger**: When `BuildingPropertyData.m_ResidentialProperties` changes at runtime (e.g., a mod like RealisticWorkplacesAndHouseholds modifies building capacity)
+- **Query**: Entities with `[Building, ResidentialProperty, PrefabRef, Renter]`
+- **Logic**:
+  1. Compares the current renter count (length of the `Renter` buffer) to the building's `BuildingPropertyData.m_ResidentialProperties` value
+  2. If the renter count exceeds the property count, excess households are evicted
+  3. Eviction is performed by adding the `Evicted` component to the excess household entities
+  4. A `RentersUpdated` event is fired on the building entity to notify other systems of the change
+- **Grace period**: After a game load, there is a grace period before eviction checks are enforced. This prevents spurious evictions when mods modify `m_ResidentialProperties` during initialization (the system waits for property values to stabilize before comparing against renter counts).
+- **Modding relevance**: Any mod that changes `BuildingPropertyData.m_ResidentialProperties` at runtime must account for this eviction pipeline. Reducing a building's residential capacity below its current renter count will trigger evictions after the grace period expires.
 
 ### LeaveHouseholdSystem (Game.Simulation)
 

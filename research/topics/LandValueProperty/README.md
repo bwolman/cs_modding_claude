@@ -19,7 +19,8 @@
 | Game.dll | Game.Net | LandValue component (per-edge land value) |
 | Game.dll | Game.Buildings | PropertyRenter, Renter, RentAction, RentersUpdated, PropertyOnMarket, BuildingCondition, PropertyUtils |
 | Game.dll | Game.Simulation | LandValueSystem, PropertyRenterSystem, RentAdjustSystem, BuildingUpkeepSystem, PropertyRenterRemoveSystem, LandValueCell |
-| Game.dll | Game.Prefabs | LandValueParameterData, LandValuePrefab, BuildingPropertyData, BuildingConfigurationData, EconomyParameterData |
+| Game.dll | Game.Prefabs | LandValueParameterData, LandValuePrefab, BuildingPropertyData, BuildingConfigurationData, ZoneLevelUpResourceData, SignatureBuildingData, EconomyParameterData, SpawnableBuildingData, ZoneData |
+| Game.dll | Game.Vehicles | DeliveryTruck, DeliveryTruckFlags |
 
 ## Component Map
 
@@ -121,6 +122,31 @@ Prefab component defining what a building can hold.
 | m_SpaceMultiplier | float | Multiplier for rent calculation -- larger buildings have higher multiplier |
 
 *Source: `Game.dll` -> `Game.Prefabs.BuildingPropertyData`*
+
+### `BuildingConfigurationData` (Game.Prefabs)
+
+Global singleton controlling building condition and level-up configuration.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_BuildingConditionDecrement | int | Base condition decrement per tick when building cannot afford upkeep |
+| m_AbandonedNotification | Entity | Notification prefab entity displayed when a building is abandoned |
+| m_HighRentNotification | Entity | Notification prefab entity displayed when >70% of renters overpay |
+
+*Source: `Game.dll` -> `Game.Prefabs.BuildingConfigurationData`*
+
+### `ZoneLevelUpResourceData` (Game.Prefabs, buffer)
+
+Buffer element on zone prefab entities defining per-level resource requirements for building level-ups.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Level | int | The building level this entry applies to |
+| m_LevelUpResource | Resource | The resource type required to level up to this level |
+
+Each zone type prefab (residential, commercial, industrial) has a buffer of these elements specifying which resources must be delivered at each level threshold. The `ResourceNeedingUpkeepJob` reads these entries to populate the `ResourceNeeding` buffer on buildings that have crossed the `levelingCost` condition threshold.
+
+*Source: `Game.dll` -> `Game.Prefabs.ZoneLevelUpResourceData`*
 
 ### `LandValueParameterData` (Game.Prefabs)
 
@@ -347,7 +373,31 @@ BUILDING CONDITION (16x per day)
 - **Risk level**: Medium -- affects all building leveling
 - **Side effects**: Could prevent buildings from ever leveling up or down
 
-### Candidate 4: `Game.Simulation.RentAdjustSystem.OnUpdate`
+### Candidate 4: `Game.Buildings.BuildingUtils.GetLevelingCost`
+
+- **Signature**: `static int GetLevelingCost(AreaType areaType, BuildingPropertyData propertyData, int level, ref CityModifier cityModifier)`
+- **Patch type**: Postfix
+- **What it enables**: Override the condition threshold required for a building to level up. A postfix can scale the cost per zone type or level to make leveling easier or harder.
+- **Risk level**: Low -- static utility method, no side effects
+- **Side effects**: Lowering the cost accelerates leveling city-wide; raising it slows leveling and may cause condition overflow at extreme values
+
+### Candidate 5: `Game.Buildings.BuildingUtils.GetAbandonCost`
+
+- **Signature**: `static int GetAbandonCost(AreaType areaType, BuildingPropertyData propertyData, int level, ref CityModifier cityModifier)`
+- **Patch type**: Postfix
+- **What it enables**: Override the negative condition threshold that triggers building abandonment. Raising the cost makes buildings more resilient to neglect; lowering it makes them abandon faster.
+- **Risk level**: Low -- static utility method, no side effects
+- **Side effects**: Extreme values can prevent abandonment entirely or cause instant abandonment
+
+### Candidate 6: `Game.Buildings.BuildingUtils.GetBuildingConditionChange`
+
+- **Signature**: `static int GetBuildingConditionChange(BuildingConfigurationData configData, ...)`
+- **Patch type**: Postfix
+- **What it enables**: Override the per-tick condition increment/decrement rate. Controls the base speed of building condition accumulation in both positive and negative directions.
+- **Risk level**: Low -- static utility method
+- **Side effects**: Changes affect all buildings uniformly. Combined with the exponential level scaling (`pow(2, level)`), even small changes to the base rate have amplified effects at higher building levels.
+
+### Candidate 7: `Game.Simulation.RentAdjustSystem.OnUpdate`
 
 - **Signature**: `protected override void OnUpdate()`
 - **Patch type**: Prefix or Postfix
@@ -556,18 +606,101 @@ public void RemoveAbandonment(EntityManager em, Entity buildingEntity)
 
 Key components to restore: `GarbageProducer`, `MailProducer`, `ElectricityConsumer`, `WaterConsumer`. The `PropertyToBeOnMarket` tag triggers the property market system to re-list the building. `BuildingCondition.m_Condition = 0` gives the building a neutral starting state.
 
+## Advanced Patterns
+
+### Education/Income-Based Building Leveling Penalty
+
+A mod can compute custom leveling penalty multipliers by reading per-building citizen data. The pattern traverses from building to individual citizen attributes:
+
+1. Read the `Renter` buffer on the building entity to get all renter entities
+2. For each renter (household), read the `HouseholdCitizen` buffer to get citizen entities
+3. For each citizen, call `Citizen.GetEducationLevel()` and `Citizen.GetAge()` to read education and demographics
+4. Read the renter's `Resources` buffer and call `EconomyUtils.GetResources(Resource.Money)` to get household wealth
+5. Aggregate education levels and income across all building occupants to compute a custom penalty multiplier
+
+This enables mods like UrbanInequality that penalize or boost leveling speed based on the actual education profile and income distribution of a building's residents, rather than using the vanilla flat condition scaling.
+
+### Building Level Cap Distribution
+
+Query buildings to enforce level distribution caps or gate level-ups by zone type:
+
+1. Query entities with `BuildingCondition` + `PrefabRef` + `UpdateFrame` (matching the vanilla update frame pattern)
+2. Read `SpawnableBuildingData.m_Level` from the prefab to get the current building level
+3. Read `ZoneData.m_AreaType` from the zone prefab to categorize by residential/commercial/industrial
+4. Count buildings per level per zone type to build a distribution histogram
+5. Gate level-ups by checking if the target level's count exceeds a configured cap before allowing `BuildingCondition` to cross the `levelingCost` threshold
+
+This pattern allows mods to enforce realistic level distributions (e.g., limiting the number of level-5 buildings city-wide) rather than allowing unrestricted leveling.
+
+### BuildingUpkeepSystem as Replacement Target
+
+Both the RealisticWorkplaceHouseholds and UrbanInequality community mods independently replace `BuildingUpkeepSystem` with custom implementations. This confirms `BuildingUpkeepSystem` as a high-value system replacement target for mods that need to alter building condition logic, leveling thresholds, or abandonment behavior. Replacing rather than patching is preferred here because the system's inner jobs (`BuildingUpkeepJob`, `ResourceNeedingUpkeepJob`, `LevelupJob`, `LeveldownJob`) are Burst-compiled and cannot be directly Harmony-patched.
+
+### Level-Up Material Delivery Pipeline
+
+When `BuildingCondition.m_Condition` crosses the `levelingCost` threshold, the system initiates a material delivery request before the actual level-up occurs:
+
+1. **`ResourceNeeding`** (buffer on building entity): Each element defines a required resource delivery.
+   - `m_Resource` (Resource): The resource type needed
+   - `m_Amount` (int): The amount required
+   - `m_Flags` (ResourceNeedingFlags): Tracks delivery state -- `Requested` when a delivery truck has been dispatched, `Delivered` when the resource has arrived
+
+2. **`GoodsDeliveryRequest`** (component): Created to dispatch a delivery truck for the needed resource.
+   - `m_ResourceNeeder` (Entity): The building entity requesting the resource
+   - `m_Amount` (int): The amount to deliver
+   - `m_Resource` (Resource): The resource type to deliver
+
+3. **Delivery-complete check flow**: `ResourceNeedingUpkeepJob` iterates the `ResourceNeeding` buffer and checks if all elements have the `Delivered` flag set. Only when every required resource has been delivered does the system queue the actual `LevelupJob` to select a higher-level prefab and begin construction.
+
+### Signature Building Immunity
+
+`SignatureBuildingData` (Game.Prefabs) acts as an immunity flag for signature and landmark buildings. When `BuildingUpkeepJob` processes a building, it checks for `SignatureBuildingData` on the building's prefab. Buildings with this component skip the level-down and abandonment checks entirely -- they never accumulate negative condition or receive the `Abandoned` component regardless of renter wealth or upkeep shortfalls.
+
+### Delivery Truck Upkeep State
+
+The `Game.Vehicles.DeliveryTruck` component tracks delivery truck state including upkeep deliveries:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_State | DeliveryTruckFlags | Current truck state flags |
+| m_Resource | Resource | Resource being transported |
+| m_Amount | int | Amount being transported |
+
+The `DeliveryTruckFlags.UpkeepDelivery` flag identifies trucks delivering upkeep materials for building level-ups (as opposed to commercial/industrial resource deliveries). When a delivery request becomes stale (e.g., the target building was demolished or abandoned before delivery), the system performs cleanup by removing the `GoodsDeliveryRequest` component and resetting the corresponding `ResourceNeeding` entry's `Requested` flag, freeing the truck for reassignment.
+
+### Zone Type Detection and Tenant WorkProvider Access
+
+`BuildingPropertyData.CountProperties(AreaType)` returns the number of properties (units) for a given zone type. This is the standard method for determining what zone type a building serves -- it checks the residential, commercial, and industrial property counts internally.
+
+To find `WorkProvider` components on building tenants, iterate the `Renter` buffer on the building entity and check each renter for the `WorkProvider` component:
+
+```csharp
+DynamicBuffer<Renter> renters = EntityManager.GetBuffer<Renter>(building, isReadOnly: true);
+for (int i = 0; i < renters.Length; i++)
+{
+    Entity renter = renters[i].m_Renter;
+    if (EntityManager.HasComponent<WorkProvider>(renter))
+    {
+        WorkProvider wp = EntityManager.GetComponentData<WorkProvider>(renter);
+        // Access wp.m_MaxWorkers, etc.
+    }
+}
+```
+
+This pattern is used by systems that need to aggregate employment data across all companies in a building (e.g., for computing building-level efficiency or worker density).
+
 ## Open Questions
 
 - [ ] **Rent formula parameters**: The exact default values of `EconomyParameterData.m_RentPriceBuildingZoneTypeBase` and `m_LandValueModifier` are set by EconomyPrefab, which was not decompiled. These float3 values control the base rate and land value sensitivity per zone type.
 - [ ] **Mixed building rent split**: `EconomyParameterData.m_MixedBuildingCompanyRentPercentage` controls how rent is split between residential and commercial units in mixed-use buildings. The exact default is unknown.
-- [ ] **Level-up material costs**: The specific resources and amounts required for level-up come from `ZoneLevelUpResourceData` buffers on zone prefabs or `BuildingConfigurationData`. The exact values per level were not traced.
-- [ ] **BuildingCondition increment/decrement rates**: `BuildingConfigurationData.m_BuildingConditionDecrement` and `BuildingUtils.GetBuildingConditionChange()` control the actual rate. The default values come from the BuildingConfiguration prefab.
+- [x] **Level-up material costs**: `ZoneLevelUpResourceData` buffer elements on zone prefab entities define per-level resource requirements (m_Level, m_LevelUpResource). `BuildingConfigurationData` provides the global condition decrement and notification prefabs. See Component Map and Advanced Patterns sections.
+- [x] **BuildingCondition increment/decrement rates**: `BuildingConfigurationData.m_BuildingConditionDecrement` provides the base decrement rate. `BuildingUtils.GetBuildingConditionChange()` computes the actual per-tick change and is a Harmony patch target. See Component Map and Harmony Patch Points sections.
 - [ ] **Upkeep level exponents**: `EconomyParameterData.m_ResidentialUpkeepLevelExponent`, `m_CommercialUpkeepLevelExponent`, and `m_IndustrialUpkeepLevelExponent` scale upkeep costs by building level. Defaults not traced.
 
 ## Sources
 
 - Decompiled from: Game.dll
-- Components: Game.Net.LandValue, Game.Simulation.LandValueCell, Game.Buildings.PropertyRenter, Game.Buildings.Renter, Game.Buildings.RentAction, Game.Buildings.RentersUpdated, Game.Buildings.PropertyOnMarket, Game.Buildings.BuildingCondition, Game.Prefabs.BuildingPropertyData, Game.Prefabs.LandValueParameterData
+- Components: Game.Net.LandValue, Game.Simulation.LandValueCell, Game.Buildings.PropertyRenter, Game.Buildings.Renter, Game.Buildings.RentAction, Game.Buildings.RentersUpdated, Game.Buildings.PropertyOnMarket, Game.Buildings.BuildingCondition, Game.Prefabs.BuildingPropertyData, Game.Prefabs.BuildingConfigurationData, Game.Prefabs.ZoneLevelUpResourceData, Game.Prefabs.SignatureBuildingData, Game.Prefabs.SpawnableBuildingData, Game.Prefabs.ZoneData, Game.Prefabs.LandValueParameterData, Game.Vehicles.DeliveryTruck, Game.Buildings.ResourceNeeding, Game.Buildings.GoodsDeliveryRequest
 - Systems: Game.Simulation.LandValueSystem, Game.Simulation.PropertyRenterSystem, Game.Simulation.RentAdjustSystem, Game.Simulation.BuildingUpkeepSystem, Game.Simulation.PropertyRenterRemoveSystem
-- Utility: Game.Buildings.PropertyUtils
+- Utility: Game.Buildings.PropertyUtils, Game.Buildings.BuildingUtils
 - Related research: CompanySimulation (company profitability), ResourceProduction (resource chains), CitizensHouseholds (household income)

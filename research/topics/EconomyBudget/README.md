@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-17
 
 ## Scope
 
@@ -96,6 +96,35 @@ Buffer on the City entity. Indexed by `TaxRate` enum. Index 0 is the main rate; 
 Zero-size tag component (no fields). Marks buildings that collect service fees. Used in `ServiceFeeSystem` query: entities with `ServiceFeeCollector` + (`Patient` or `Student` buffer), excluding `OutsideConnection`.
 
 *Source: `Game.dll` -> `Game.City.ServiceFeeCollector`*
+
+### `ServiceFeeSystem.FeeEvent` (Game.Simulation)
+
+Internal struct representing a single fee collection event within the `ServiceFeeSystem` pipeline.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Resource | PlayerResource | Which service resource (Electricity, Water, Healthcare, Parking, etc.) |
+| m_Amount | float | Fee amount collected (positive = revenue from local/export, negative = import cost) |
+| m_Outside | bool | Whether the fee involves an outside connection |
+
+`FeeEvent` items are queued during the update cycle (by `PayFeeJob` and other fee-producing jobs) and consumed by `FeeToCityJob`, which aggregates them into `CollectedCityServiceFeeData` buffers. The fee event queue is accessible via `ServiceFeeSystem.GetFeeQueue()`, which returns a `NativeQueue<FeeEvent>`. Mods can read this queue to monitor fee events in real time, but must complete the system's `m_Writers` dependency first to avoid race conditions.
+
+**Parking fee tracking**: Parking fees use `PlayerResource.Parking` as the resource identifier. When `PersonalCarAISystem` processes a parking payment (via `MoneyTransfer` queue), a `FeeEvent` with `m_Resource = PlayerResource.Parking` is enqueued into the fee system. This feeds into the `IncomeSource.FeeParking` budget line. To track parking fee revenue specifically:
+
+```csharp
+// Reading parking fee revenue from the budget system
+CityServiceBudgetSystem budgetSys = World.GetOrCreateSystemManaged<CityServiceBudgetSystem>();
+int parkingRevenue = budgetSys.GetIncome(IncomeSource.FeeParking);
+
+// Or read the fee queue for real-time parking events (advanced usage)
+ServiceFeeSystem feeSystem = World.GetOrCreateSystemManaged<ServiceFeeSystem>();
+// Must complete dependencies before accessing the queue
+NativeQueue<ServiceFeeSystem.FeeEvent> feeQueue = feeSystem.GetFeeQueue();
+// Note: the queue is consumed each update by FeeToCityJob,
+// so reading it requires careful synchronization with the system's update cycle.
+```
+
+*Source: `Game.dll` -> `Game.Simulation.ServiceFeeSystem.FeeEvent`*
 
 ### `CollectedCityServiceFeeData` (Game.Simulation)
 
@@ -384,6 +413,47 @@ public partial class EconomyParameterModSystem : GameSystemBase
 - Changes persist only until the next game load unless serialized separately
 - Subscribe to `LoadGameSystem.onOnSaveGameLoaded` to reset the baseline cache after loading
 - Multiple mods modifying the same singleton will conflict -- last writer wins
+
+### Direct Wage Override Pattern
+
+As a simpler alternative to the baseline-caching pattern above, mods can directly overwrite the `m_Wage0` through `m_Wage4` fields on `EconomyParameterData` to set absolute wage values per job level:
+
+```csharp
+public partial class DirectWageOverrideSystem : GameSystemBase
+{
+    private EntityQuery m_EconParamQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_EconParamQuery = GetEntityQuery(
+            ComponentType.ReadWrite<EconomyParameterData>()
+        );
+        RequireForUpdate(m_EconParamQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        var data = m_EconParamQuery.GetSingleton<EconomyParameterData>();
+
+        // Set absolute wage values per job level (0=uneducated through 4=highly educated)
+        data.m_Wage0 = 15;
+        data.m_Wage1 = 20;
+        data.m_Wage2 = 28;
+        data.m_Wage3 = 38;
+        data.m_Wage4 = 50;
+
+        m_EconParamQuery.SetSingleton(data);
+    }
+}
+```
+
+**Tradeoffs vs. baseline-caching**:
+- **Simpler implementation**: No need to track original values or handle game load events -- just set the desired values each frame
+- **Prevents relative adjustments**: Other mods that apply multipliers to wages (e.g., `originalWage * 1.2f`) will have their changes overwritten, since this pattern sets absolute values rather than scaling from a baseline
+- **No mod interop**: In a multi-mod environment, the last writer wins -- baseline-caching at least preserves the ability for mods to apply relative adjustments if they coordinate on read timing
+
+Use the direct override pattern when the mod is the sole authority on wage values. Use the baseline-caching pattern when interoperability with other economy mods is a concern.
 
 ## Harmony Patch Points
 
