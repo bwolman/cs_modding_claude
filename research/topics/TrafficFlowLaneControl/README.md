@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-16
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-17
 
 ## Scope
 
@@ -16,12 +16,12 @@
 
 | Assembly | Namespace | What's there |
 |----------|-----------|-------------|
-| Game.dll | Game.Vehicles | CarCurrentLane, CarNavigation, CarNavigationLane, CarLaneFlags (vehicle state), Blocker, BlockerType |
-| Game.dll | Game.Net | CarLane (network lane data), CarLaneFlags (network lane properties), TrafficLights, LaneSignal, LaneSignalType, LaneSignalFlags, TrafficLightState, TrafficLightFlags, LaneFlow, SecondaryFlow, LaneReservation, LaneOverlap, Bottleneck |
+| Game.dll | Game.Vehicles | CarCurrentLane, CarNavigation, CarNavigationLane, CarLaneFlags (vehicle state), Blocker, BlockerType, FixParkingLocation |
+| Game.dll | Game.Net | CarLane (network lane data), CarLaneFlags (network lane properties), TrafficLights, LaneSignal, LaneSignalType, LaneSignalFlags, TrafficLightState, TrafficLightFlags, LaneFlow, SecondaryFlow, LaneReservation, LaneOverlap, Bottleneck, ParkingLane, ParkingLaneFlags, GarageLane, ParkingFacility, ParkingFacilityFlags |
 | Game.dll | Game.Objects | TrafficLight (visual state per traffic light object) |
-| Game.dll | Game.Simulation | CarNavigationSystem, CarNavigationHelpers, CarLaneSelectIterator, CarLaneSelectBuffer, TrafficLightSystem, TrafficFlowSystem, TrafficBottleneckSystem, TrafficAmbienceSystem, TrafficAmbienceCell, RandomTrafficDispatchSystem |
+| Game.dll | Game.Simulation | CarNavigationSystem, CarNavigationHelpers, CarLaneSelectIterator, CarLaneSelectBuffer, TrafficLightSystem, TrafficFlowSystem, TrafficBottleneckSystem, TrafficAmbienceSystem, TrafficAmbienceCell, RandomTrafficDispatchSystem, ParkingLaneDataSystem |
 | Game.dll | Game.Net | TrafficLightInitializationSystem, LaneOverlapSystem, FlipTrafficHandednessSystem |
-| Game.dll | Game.Prefabs | CarLaneData, TrafficConfigurationData, TrafficConfigurationPrefab, TrafficLightData, TrafficSignData |
+| Game.dll | Game.Prefabs | CarLaneData, TrafficConfigurationData, TrafficConfigurationPrefab, TrafficLightData, TrafficSignData, ParkingLaneData, ParkingFacilityData |
 
 ## Architecture Overview
 
@@ -118,7 +118,7 @@ Per-lane network property flags. These define the traffic rules for each lane.
 | ForbidPassing | 0x2000000 | Passing is forbidden on this lane |
 | RightOfWay | 0x4000000 | Lane has right of way |
 | TrafficLights | 0x8000000 | Lane is controlled by traffic lights |
-| PublicOnly | 0x20000000 | Lane is restricted to public transport vehicles only (bus-only lanes). Vehicles without `CarFlags.UsePublicTransportLanes` are excluded. |
+| PublicOnly | 0x8000 | Lane is restricted to public transport vehicles only (bus-only lanes). Vehicles without `CarFlags.UsePublicTransportLanes` are excluded. |
 | Forbidden | 0x40000000 | Lane is forbidden for general traffic |
 | AllowEnter | 0x80000000 | Lane allows entering from adjacent |
 
@@ -321,6 +321,92 @@ Per-cell traffic intensity on a 64x64 grid. Used for ambient sound and effects.
 
 *Source: `Game.dll` -> `Game.Simulation.TrafficAmbienceCell`*
 
+### `ParkingLane` (Game.Net)
+
+Attached to lane entities that serve as on-street parking spaces.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_FreeSpace | float | Available parking space on the lane (in game units) |
+| m_Flags | ParkingLaneFlags | Parking lane behavior flags |
+| m_ParkingFee | float | Parking fee charged per unit time |
+| m_TaxiFee | float | Fee charged specifically for taxi parking/pickup |
+| m_ComfortFactor | float | Comfort multiplier affecting pathfind cost (lower = less desirable) |
+| m_AccessRestriction | Entity | Entity defining access restrictions for this parking lane |
+
+*Source: `Game.dll` -> `Game.Net.ParkingLane`*
+
+### `ParkingLaneFlags`
+
+```
+VirtualLane = 1         // Not a physical lane (used for abstract parking)
+StartingLane = 2        // First lane segment of a parking area
+EndingLane = 4          // Last lane segment of a parking area
+ParkingDisabled = 8     // Parking is disabled on this lane
+RightSide = 0x10       // Parking on the right side of the road
+LeftSide = 0x20        // Parking on the left side of the road
+```
+
+### `GarageLane` (Game.Net)
+
+Attached to lane entities that represent parking garage access points.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_VehicleCount | int | Current number of vehicles parked in the garage |
+| m_VehicleCapacity | int | Maximum vehicle capacity of the garage |
+| m_ParkingFee | float | Fee charged for parking in the garage |
+| m_ComfortFactor | float | Comfort multiplier for pathfind cost weighting |
+
+*Source: `Game.dll` -> `Game.Net.GarageLane`*
+
+### `ParkingLaneData` (Game.Prefabs)
+
+Prefab data defining physical dimensions of parking lane slots.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_SlotInterval | float | Distance between parking slot centers along the lane |
+| m_MaxCarLength | float | Maximum vehicle length that can fit in a slot |
+
+*Source: `Game.dll` -> `Game.Prefabs.ParkingLaneData`*
+
+### `ParkingFacilityData` (Game.Prefabs)
+
+Prefab data for parking facility buildings (garages, parking structures).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_GarageMarkerCapacity | int | Number of parking spaces per garage marker in the building |
+| m_ComfortFactor | float | Base comfort factor for the facility (affects pathfind cost preference) |
+
+*Source: `Game.dll` -> `Game.Prefabs.ParkingFacilityData`*
+
+### `ParkingFacility` (Game.Net)
+
+Runtime component on parking facility entities tracking current state.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Flags | ParkingFacilityFlags | Facility state flags |
+
+*Source: `Game.dll` -> `Game.Net.ParkingFacility`*
+
+### `ParkingFacilityFlags`
+
+```
+ParkingAvailable = 1    // Facility has available parking spaces
+GarageAvailable = 2     // Garage portion has available spaces
+```
+
+### `FixParkingLocation` (Game.Vehicles)
+
+Tag component added to vehicles undergoing a parking transition with a non-standard location. When a vehicle needs to park in a location that deviates from normal parking lane behavior (e.g., parking at a building lot, cargo loading dock, or off-road location), the `FixParkingLocation` component is added to signal that the vehicle's parking target needs special position resolution.
+
+The component is consumed by the navigation system during the next update -- once the parking location is resolved and the vehicle is directed to the correct position, the component is removed.
+
+*Source: `Game.dll` -> `Game.Vehicles.FixParkingLocation`*
+
 ### `TrafficConfigurationData` (Game.Prefabs)
 
 Global singleton with notification entity references for traffic events.
@@ -454,6 +540,22 @@ Dispatches random background traffic vehicles from traffic spawner buildings (ou
 - **Update interval**: Based on UpdateFrame system
 - **Creates** `RandomTrafficRequest` entities that pathfind to targets
 - **Manages** traffic spawner buildings, ensuring they always have active requests
+
+### `ParkingLaneDataSystem` (Game.Simulation)
+
+Manages parking lane data updates, including street parking availability, garage capacity, and fee calculations.
+
+- **Base class**: GameSystemBase
+- **Update phase**: Simulation
+- **Key job**: `UpdateLaneDataJob` (IJobChunk)
+- **Queries**: Lanes with `ParkingLane` or `GarageLane` components, plus `Owner` to find parent road/building
+- **Key behavior**:
+  1. **Street parking calculation**: Reads `ParkingLaneData` from the lane prefab to get `m_SlotInterval` and `m_MaxCarLength`. Counts occupied slots by iterating parked vehicle entities. Writes `ParkingLane.m_FreeSpace` as remaining capacity.
+  2. **Garage capacity**: Reads `ParkingFacilityData.m_GarageMarkerCapacity` from the building prefab. Counts vehicles via `GarageLane.m_VehicleCount`. Capacity is `m_GarageMarkerCapacity * numMarkers`.
+  3. **Fee reading**: Reads parking fees from district modifier components on the owning district entity and building modifier components on the owning building. Writes to `ParkingLane.m_ParkingFee`, `ParkingLane.m_TaxiFee`, and `GarageLane.m_ParkingFee`.
+  4. **Comfort factor**: Computes `m_ComfortFactor` from the facility prefab's base comfort and any building-level modifiers (e.g., upgraded parking structures have higher comfort).
+
+The system ensures pathfinding has up-to-date parking availability and cost data, which the pathfinder uses when evaluating `PathMethod.Parking` edges.
 
 ### `TrafficFlowSystem` -- flow offset calculation
 
@@ -912,5 +1014,5 @@ public void CheckLaneFlow(EntityManager em, Entity lane)
 ## Sources
 
 - Decompiled from: Game.dll (Game.Simulation namespace, Game.Vehicles namespace, Game.Net namespace, Game.Prefabs namespace, Game.Objects namespace)
-- Key types: CarNavigationSystem, CarLaneSelectIterator, CarCurrentLane, CarNavigation, CarNavigationLane, CarLane, CarLaneFlags (both namespaces), TrafficLightSystem, TrafficLights, TrafficLightState, LaneSignal, LaneSignalType, TrafficFlowSystem, LaneFlow, TrafficBottleneckSystem, Bottleneck, Blocker, LaneReservation, LaneOverlap, TrafficAmbienceSystem, TrafficAmbienceCell, TrafficConfigurationData, TrafficLightInitializationSystem, RandomTrafficDispatchSystem
+- Key types: CarNavigationSystem, CarLaneSelectIterator, CarCurrentLane, CarNavigation, CarNavigationLane, CarLane, CarLaneFlags (both namespaces), TrafficLightSystem, TrafficLights, TrafficLightState, LaneSignal, LaneSignalType, TrafficFlowSystem, LaneFlow, TrafficBottleneckSystem, Bottleneck, Blocker, LaneReservation, LaneOverlap, TrafficAmbienceSystem, TrafficAmbienceCell, TrafficConfigurationData, TrafficLightInitializationSystem, RandomTrafficDispatchSystem, ParkingLane, ParkingLaneFlags, GarageLane, ParkingLaneData, ParkingFacilityData, ParkingFacility, ParkingFacilityFlags, ParkingLaneDataSystem, FixParkingLocation
 - All decompiled snippets saved in `snippets/` directory

@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-15
+> **Last updated**: 2026-02-17
 
 ## Scope
 
@@ -18,8 +18,9 @@
 |----------|-----------|-------------|
 | Game.dll | Game.Net | `Edge`, `Node`, `Curve`, `Lane`, `SubLane`, `SubNet`, `Composition`, `Elevation`, `EdgeGeometry`, `NodeGeometry`, `Segment`, `ConnectedEdge`, `ConnectedNode`, `Upgraded`, `Roundabout`, `Gate`, `TrafficLights`, `SubFlow`, `Layer` (enum), `GeometryFlags` (enum) |
 | Game.dll | Game.Net | `GeometrySystem`, `LaneSystem`, `LaneConnectionSystem`, `SearchSystem`, `InitializeSystem`, `CompositionSelectSystem`, `AggregateSystem`, `NetComponentsSystem`, `EdgeMappingSystem`, `NetUtils` |
+| Colossal.Mathematics.dll | Colossal.Mathematics | `MathUtils` (`Position`, `Tangent`, `Length` for Bezier4x3 operations) |
 | Game.dll | Game.Tools | `NetToolSystem`, `NetCourse`, `CoursePos`, `ControlPoint`, `CoursePosFlags`, `ApplyNetSystem`, `GenerateEdgesSystem`, `GenerateNodesSystem`, `ToolBaseSystem` |
-| Game.dll | Game.Prefabs | `NetData`, `NetGeometryData`, `NetCompositionData`, `PlaceableNetData`, `CompositionFlags`, `NetCompositionLane` |
+| Game.dll | Game.Prefabs | `NetData`, `NetGeometryData`, `NetCompositionData`, `PlaceableNetData`, `CompositionFlags`, `NetCompositionLane`, `RoadData`, `RoadFlags`, `NetGeometryPrefab`, `RoadPrefab`, `TrackPrefab`, `PathwayPrefab`, `FencePrefab`, `NetSectionPrefab`, `NetPieceInfo`, `NetPieceLanes`, `NetSectionInfo`, `NetPieceRequirements`, `NetEdgeStateInfo`, `NetNodeStateInfo`, `AggregateNetPrefab`, `CompositionInvertMode` |
 
 ## Architecture Overview
 
@@ -323,6 +324,58 @@ Maintains a spatial search tree (`NativeQuadTree<Entity, QuadTreeBoundsXZ>`) for
 
 *Source: `Game.dll` -> `Game.Net.SearchSystem`*
 
+### `NetUtils.FitCurve` (Game.Net)
+
+Static utility methods for generating `Bezier4x3` curves for network segments. Used by `GeometrySystem`, `LaneSystem`, and tool systems to create smooth curves between network points.
+
+**Overload 1 — From `Line3.Segment` array**:
+```csharp
+public static Bezier4x3 FitCurve(Line3.Segment[] segments)
+```
+Fits a cubic Bezier curve through a sequence of line segments. Used when generating curves from discrete sample points (e.g., terrain-following roads).
+
+**Overload 2 — From start/end positions and tangents**:
+```csharp
+public static Bezier4x3 FitCurve(float3 startPos, float3 startTangent, float3 endPos, float3 endTangent)
+```
+Creates a cubic Bezier from explicit start/end positions and tangent directions. This is the primary overload used when generating edge curves from control points. The tangent vectors determine curve curvature — longer tangents create wider curves.
+
+```csharp
+// Example: Create a curve between two points with specified directions
+float3 start = new float3(100, 0, 100);
+float3 startDir = new float3(1, 0, 0);  // heading east
+float3 end = new float3(200, 0, 200);
+float3 endDir = new float3(1, 0, 0);    // also heading east
+Bezier4x3 curve = NetUtils.FitCurve(start, startDir, end, endDir);
+```
+
+*Source: `Game.dll` -> `Game.Net.NetUtils`*
+
+### `MathUtils` Bezier Operations (Colossal.Mathematics)
+
+Static utility methods for working with `Bezier4x3` curves. Essential for any mod that reads or manipulates network geometry.
+
+**`MathUtils.Position(Bezier4x3, float t)`** — Evaluates the curve at parameter `t` (0-1), returning the world-space `float3` position.
+
+**`MathUtils.Tangent(Bezier4x3, float t)`** — Returns the tangent direction vector at parameter `t`. Useful for orienting objects along a road.
+
+**`MathUtils.Length(Bezier4x3)`** — Computes the approximate arc length of the curve.
+
+```csharp
+// Example: Sample positions along a road curve
+Curve curve = EntityManager.GetComponentData<Curve>(edgeEntity);
+for (float t = 0f; t <= 1f; t += 0.1f)
+{
+    float3 position = MathUtils.Position(curve.m_Bezier, t);
+    float3 tangent = MathUtils.Tangent(curve.m_Bezier, t);
+    float3 forward = math.normalize(tangent);
+    Log.Info($"t={t:F1}: pos={position}, forward={forward}");
+}
+float totalLength = MathUtils.Length(curve.m_Bezier);
+```
+
+*Source: `Colossal.Mathematics.dll` -> `Colossal.Mathematics.MathUtils`*
+
 ## Data Flow
 
 ### Road Placement Pipeline
@@ -419,6 +472,48 @@ Defines the core identity of a network prefab.
 | m_LocalConnectLayers | Layer | Layers for local connections |
 | m_NodePriority | float | Priority when resolving node conflicts |
 
+### `RoadData` (Game.Prefabs)
+
+Prefab component that defines road-specific properties. Present on road prefab entities (not tracks or pathways). Used to determine speed limits, highway behavior, and road classification.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_SpeedLimit | float | Speed limit in meters per second (not km/h). Convert: km/h = m/s * 3.6 |
+| m_Flags | RoadFlags | Road behavior flags (see below) |
+
+**`RoadFlags`** enum:
+
+| Flag | Description |
+|------|-------------|
+| UseHighwayRules | Enables highway-specific behavior (no traffic lights, restricted turns, highway lane merging) |
+
+**Road hierarchy classification pattern**: Roads can be classified by their `RoadData` properties and lane count:
+- **Highway**: `RoadFlags.UseHighwayRules` set, high speed limit
+- **Arterial**: High speed limit, multiple lanes, no highway flag
+- **Collector**: Medium speed limit, fewer lanes
+- **Local**: Low speed limit, typically 2 lanes
+
+**Lookup chain** (lane entity to road speed limit):
+```
+Lane entity → PrefabRef.m_Prefab → (get parent Edge) → Composition.m_Edge
+  → NetCompositionData → PrefabRef.m_Prefab → RoadData.m_SpeedLimit
+```
+
+Or more directly from the edge:
+```csharp
+// From an edge entity, get the road's speed limit
+Composition comp = EntityManager.GetComponentData<Composition>(edgeEntity);
+PrefabRef compPrefabRef = EntityManager.GetComponentData<PrefabRef>(comp.m_Edge);
+if (EntityManager.HasComponent<RoadData>(compPrefabRef.m_Prefab))
+{
+    RoadData roadData = EntityManager.GetComponentData<RoadData>(compPrefabRef.m_Prefab);
+    float speedLimitKmh = roadData.m_SpeedLimit * 3.6f;
+    bool isHighway = (roadData.m_Flags & RoadFlags.UseHighwayRules) != 0;
+}
+```
+
+*Source: `Game.dll` -> `Game.Prefabs.RoadData`, `Game.Prefabs.RoadFlags`*
+
 ### `Layer` Enum (Game.Net)
 
 Defines network layer types:
@@ -460,6 +555,35 @@ Flags controlling road composition. Two sub-enums:
 - `PrimaryLane` through `QuaternaryLane` -- Lane configurations
 - `ForbidLeftTurn` / `ForbidRightTurn` / `ForbidStraight` -- Turn restrictions
 
+### `CompositionInvertMode` Enum (Game.Prefabs)
+
+Controls how lane ordering and direction are adjusted for left-hand vs right-hand traffic. Applied to `NetCompositionLane` entries and `NetPieceLanes` to ensure lanes are correctly mirrored for the city's traffic configuration.
+
+| Value | Description |
+|-------|-------------|
+| InvertLefthandTraffic | Invert lane direction when `CityConfigurationSystem.leftHandTraffic` is true |
+| FlipLefthandTraffic | Flip (mirror) lane lateral position when left-hand traffic is active |
+| InvertRighthandTraffic | Invert lane direction when right-hand traffic is active (standard/default) |
+| FlipRighthandTraffic | Flip (mirror) lane lateral position when right-hand traffic is active |
+
+**Invert** reverses the lane's travel direction (swaps start/end). **Flip** mirrors the lane's lateral position across the road centerline (negates the x offset).
+
+Cross-reference: `CityConfigurationSystem.leftHandTraffic` determines which mode is active. See the [CityConfigurationSystem](#cityconfigurationsystem) section.
+
+```csharp
+// Check if a lane needs direction inversion for current traffic setting
+var cityConfig = World.GetOrCreateSystemManaged<CityConfigurationSystem>();
+bool leftHand = cityConfig.leftHandTraffic;
+
+// If lane has InvertLefthandTraffic and city uses left-hand traffic,
+// the lane direction should be inverted
+bool shouldInvert = leftHand
+    ? (invertMode & CompositionInvertMode.InvertLefthandTraffic) != 0
+    : (invertMode & CompositionInvertMode.InvertRighthandTraffic) != 0;
+```
+
+*Source: `Game.dll` -> `Game.Prefabs.CompositionInvertMode`*
+
 ### `NetCompositionLane` (Game.Prefabs)
 
 Buffer on composition prefabs defining lane positions.
@@ -469,9 +593,60 @@ Buffer on composition prefabs defining lane positions.
 | m_Lane | Entity | Lane prefab entity |
 | m_Position | float3 | Offset position (x = lateral, y = vertical, z = longitudinal) |
 | m_Flags | LaneFlags | Lane behavior flags (Master, Slave, etc.) |
-| m_Carriageway | byte | Which carriageway (0 = left, 1 = right) |
-| m_Group | byte | Lane group index |
+| m_Carriageway | byte | Which carriageway (0 = left, 1 = right for RHT; reversed for LHT) |
+| m_Group | byte | Lane group index within the carriageway |
 | m_Index | byte | Lane index within group |
+| m_InvertMode | CompositionInvertMode | How this lane adapts to left/right-hand traffic |
+
+#### Stable Lane Identity via `m_Carriageway` + `m_Group`
+
+The `m_Carriageway` and `m_Group` fields together form an `int2` key (`carriagewayAndGroup`) that serves as a **stable lane identity mechanism**. Unlike entity references or buffer indices, which change when a road is upgraded, split, or modified, the carriageway+group pair remains consistent for the same logical lane across road modifications.
+
+This is critical for mods that need to persist lane-specific data (e.g., custom speed limits, lane restrictions, priorities) across road upgrades. When a road is upgraded (e.g., adding a bus lane), the edge entity may be replaced and lane entities are regenerated, but the `m_Carriageway`/`m_Group` values for unchanged lanes remain the same in the new composition.
+
+**Serialization pattern for robust lane matching**:
+
+```csharp
+/// <summary>
+/// Serializable lane identity that survives road modifications.
+/// Store this instead of Entity references for persistent lane data.
+/// </summary>
+public struct LaneIdentity : IEquatable<LaneIdentity>
+{
+    public Entity EdgeEntity;       // Parent edge (may change on upgrade)
+    public byte Carriageway;        // Stable: which side of the road
+    public byte Group;              // Stable: lane group within carriageway
+    public byte Index;              // Stable: lane index within group
+
+    /// <summary>
+    /// Find the runtime lane entity matching this identity on a given edge.
+    /// Call after road modifications to re-resolve lane references.
+    /// </summary>
+    public Entity Resolve(EntityManager em, Entity edgeEntity)
+    {
+        if (!em.TryGetBuffer<SubLane>(edgeEntity, true, out var subLanes))
+            return Entity.Null;
+
+        Composition comp = em.GetComponentData<Composition>(edgeEntity);
+        if (!em.TryGetBuffer<NetCompositionLane>(comp.m_Edge, true, out var compLanes))
+            return Entity.Null;
+
+        for (int i = 0; i < subLanes.Length && i < compLanes.Length; i++)
+        {
+            if (compLanes[i].m_Carriageway == Carriageway
+                && compLanes[i].m_Group == Group
+                && compLanes[i].m_Index == Index)
+            {
+                return subLanes[i].m_SubLane;
+            }
+        }
+        return Entity.Null;
+    }
+
+    public bool Equals(LaneIdentity other) =>
+        Carriageway == other.Carriageway && Group == other.Group && Index == other.Index;
+}
+```
 
 ### `CarLane` (Game.Prefabs)
 
@@ -497,6 +672,143 @@ Prefab component on lane prefab entities that defines track-specific lane behavi
 | m_TrackTypes | TrackTypes | Which track types this lane supports (Train, Tram, Subway) |
 
 *Source: `Game.dll` -> `Game.Prefabs.TrackLane`*
+
+### Managed Prefab Hierarchy: `NetGeometryPrefab` (Game.Prefabs)
+
+`NetGeometryPrefab` is the managed (MonoBehaviour-side) base class for all network geometry prefabs. It defines the section composition and aggregate type for a network. Subclasses specialize for each network category.
+
+**`NetGeometryPrefab`** (abstract base):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Sections | NetSection[] | Array of section definitions composing this network |
+| m_AggregateType | AggregateNetPrefab | The aggregate prefab this network belongs to (e.g., Highway, Street) |
+| m_NodeSections | NetSection[] | Section definitions for node intersections |
+| m_EdgeStates | NetEdgeStateInfo[] | State-based edge section overrides |
+| m_NodeStates | NetNodeStateInfo[] | State-based node section overrides |
+| m_InvertMode | CompositionInvertMode | How lanes adapt to left/right-hand traffic |
+
+**`RoadPrefab`** (extends `NetGeometryPrefab`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_SpeedLimit | float | Road speed limit in m/s |
+| m_RoadType | RoadType | Classification: Normal, Highway, PublicTransport |
+| m_TrafficLights | bool | Whether this road supports traffic lights at intersections |
+| m_HighwayRules | bool | Whether to apply highway-specific rules |
+| m_ZoneBlock | ZoneBlockPrefab | Zone block generation settings (null for non-zoned roads) |
+
+**`TrackPrefab`** (extends `NetGeometryPrefab`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_SpeedLimit | float | Track speed limit in m/s |
+| m_TrackType | TrackType | Classification: Train, Tram, Subway |
+
+**`PathwayPrefab`** (extends `NetGeometryPrefab`):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_SpeedLimit | float | Pathway speed limit in m/s |
+
+**`FencePrefab`** (extends `NetGeometryPrefab`):
+
+No additional fields beyond `NetGeometryPrefab` base.
+
+The managed prefab hierarchy is initialized at game load. `PrefabSystem` converts these into ECS components (`NetData`, `NetGeometryData`, `RoadData`, etc.) on the prefab entities. Mods typically interact with the ECS components at runtime, but the managed prefabs are useful for understanding default values and configuration.
+
+*Source: `Game.dll` -> `Game.Prefabs.NetGeometryPrefab`, `Game.Prefabs.RoadPrefab`, `Game.Prefabs.TrackPrefab`, `Game.Prefabs.PathwayPrefab`, `Game.Prefabs.FencePrefab`*
+
+### `NetSectionPrefab` / `NetPieceInfo` / `NetPieceLanes` Hierarchy (Game.Prefabs)
+
+Network lane composition is defined through a multi-level hierarchy: sections contain pieces, and pieces contain lanes.
+
+**`NetSectionPrefab`** — Defines a cross-section of a network (e.g., "4-lane road with median"):
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Pieces | NetPieceInfo[] | Array of piece definitions composing this section |
+| m_SubSections | NetSectionInfo[] | Sub-section overrides based on requirements |
+
+**`NetSectionInfo`** struct — Conditional sub-section selection:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Section | NetSectionPrefab | The sub-section prefab to use |
+| m_RequireAll | NetPieceRequirements | All of these requirements must be met |
+| m_RequireAny | NetPieceRequirements | At least one of these requirements must be met |
+| m_RequireNone | NetPieceRequirements | None of these requirements may be met |
+
+**`NetPieceInfo`** struct — A single piece within a section:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Piece | NetPiecePrefab | The piece prefab reference |
+| m_RequireAll | NetPieceRequirements | All of these requirements must be met |
+| m_RequireAny | NetPieceRequirements | At least one must be met |
+| m_RequireNone | NetPieceRequirements | None may be met |
+| m_Offset | float3 | Position offset for this piece |
+
+**`NetPieceLanes`** (ComponentBase on `NetPiecePrefab`) — Defines lanes within a piece:
+
+Contains an array of `NetPieceLane` entries, each specifying a lane prefab, position offset, and flags. These are flattened into `NetCompositionLane` entries during prefab initialization.
+
+**`NetPieceRequirements`** enum (flags) — Common values:
+
+| Flag | Description |
+|------|-------------|
+| Intersection | Piece applies at intersections |
+| DeadEnd | Piece applies at dead ends |
+| Roundabout | Piece applies in roundabouts |
+| Elevated | Piece applies on elevated segments |
+| Tunnel | Piece applies in tunnels |
+| Sidewalk | Piece applies when sidewalk is present |
+| Lighting | Piece applies when street lights are enabled |
+| OppositeSide | Piece applies on the opposite side |
+| LevelCrossing | Piece applies at level crossings |
+
+**`NetEdgeStateInfo`** struct — State-based edge section override:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_SetState | NetPieceRequirements | Requirements to set on the edge |
+| m_UnsetState | NetPieceRequirements | Requirements to unset |
+| m_RequireAll | NetPieceRequirements | Conditions that must all be true |
+| m_RequireAny | NetPieceRequirements | At least one must be true |
+| m_RequireNone | NetPieceRequirements | Conditions that must all be false |
+
+**`NetNodeStateInfo`** struct — State-based node section override (same field structure as `NetEdgeStateInfo`).
+
+**Composition pipeline**: `NetGeometryPrefab.m_Sections` -> `NetSectionPrefab.m_Pieces` -> `NetPiecePrefab` + `NetPieceLanes` -> flattened to `DynamicBuffer<NetCompositionLane>` on the composition prefab entity.
+
+*Source: `Game.dll` -> `Game.Prefabs.NetSectionPrefab`, `Game.Prefabs.NetPieceInfo`, `Game.Prefabs.NetPieceLanes`, `Game.Prefabs.NetSectionInfo`, `Game.Prefabs.NetPieceRequirements`, `Game.Prefabs.NetEdgeStateInfo`, `Game.Prefabs.NetNodeStateInfo`*
+
+### `AggregateNetPrefab` (Game.Prefabs)
+
+Defines the aggregate type for a group of related network segments. Aggregates group contiguous edges that share the same network type for naming, statistics, and UI purposes.
+
+**Known aggregate prefab names**:
+
+| Aggregate Name | Network Types |
+|----------------|---------------|
+| Highway | Highway roads |
+| Street | Standard city roads |
+| Alley | Narrow/alley roads |
+| Train Track | Railway lines |
+| Tram Track | Tram lines |
+| Subway Track | Underground rail |
+| Pathway | Pedestrian paths |
+| Public Transport Lane | Dedicated PT lanes |
+
+**Relationship to `NetGeometryPrefab`**: Each `NetGeometryPrefab` subclass references an `AggregateNetPrefab` via `m_AggregateType`. This determines which aggregate a newly placed edge joins.
+
+**Runtime behavior**: `AggregateSystem` reads the `m_AggregateType` from the edge's prefab and creates/merges `Aggregate` entities accordingly. Each `Aggregate` entity carries:
+- `DynamicBuffer<AggregateElement>` listing member edge entities
+- `Aggregated` component on each member edge, pointing back to the aggregate
+
+**Usage**: Aggregates power road name labels (names span the full aggregate), the Traffic mod's road-level statistics, and UI display of aggregate-level info (total length, average condition).
+
+*Source: `Game.dll` -> `Game.Prefabs.AggregateNetPrefab`, `Game.Net.AggregateSystem`*
 
 ## Harmony Patch Points
 
@@ -772,7 +1084,7 @@ Custom mods can register apply systems at `SystemUpdatePhase.ApplyTool` **before
 - How does `NetToolSystem` handle the Grid mode internally? The control point collection differs from curve modes but the exact grid generation logic was not fully traced.
 - [x] What is the full lifecycle of `Temp` entities? — Documented above: ToolUpdate creates definitions → Modification generates Temp entities → ApplyTool promotes to permanent → ClearTool cleans up. Uses `TempFlags` (Delete, Replace, Combine, Cancel).
 - How does edge splitting work when a new node is placed on an existing edge mid-segment? `GenerateEdgesSystem` handles this but the exact split logic is complex.
-- ~~How are `Aggregate` entities used?~~ **Resolved**: `Aggregate` entities group contiguous edges that share the same network prefab (e.g., all connected segments of the same road type). `AggregateSystem` merges edges into aggregates when they share a node and have the same prefab, and splits aggregates when edges are deleted or change type. The `Aggregated` component on each edge stores a reference to its parent aggregate entity. Aggregates are used by the naming system (road name labels span the entire aggregate), by the Traffic mod for road-level statistics, and by the UI to display aggregate-level info (e.g., total road length, average condition). Each aggregate carries a `DynamicBuffer<AggregateElement>` listing its member edges.
+- ~~How are `Aggregate` entities used?~~ **Resolved**: `Aggregate` entities group contiguous edges that share the same network prefab (e.g., all connected segments of the same road type). `AggregateSystem` merges edges into aggregates when they share a node and have the same prefab, and splits aggregates when edges are deleted or change type. The `Aggregated` component on each edge stores a reference to its parent aggregate entity. Aggregates are used by the naming system (road name labels span the entire aggregate), by the Traffic mod for road-level statistics, and by the UI to display aggregate-level info (e.g., total road length, average condition). Each aggregate carries a `DynamicBuffer<AggregateElement>` listing its member edges. The aggregate type is determined by `NetGeometryPrefab.m_AggregateType`, which references an `AggregateNetPrefab` (known types: Highway, Street, Alley, Train Track, Tram Track, Subway Track, Pathway, Public Transport Lane). See the [AggregateNetPrefab](#aggregatenetprefab-gameprefabs) section for details.
 - What triggers `CompositionSelectSystem` to choose different compositions? The selection logic based on connected edges, upgrade flags, and context is complex.
 - How do parallel roads (from `NetToolSystem.parallelCount`) interact with the generation pipeline?
 
@@ -780,6 +1092,7 @@ Custom mods can register apply systems at `SystemUpdatePhase.ApplyTool` **before
 
 - `Game.dll` decompiled with ilspycmd v9.1
 - Key types: `Game.Net.Edge`, `Game.Net.Node`, `Game.Net.Curve`, `Game.Net.Lane`, `Game.Net.Composition`, `Game.Net.ConnectedEdge`, `Game.Net.SubLane`, `Game.Net.Elevation`, `Game.Net.EdgeGeometry`, `Game.Net.NodeGeometry`, `Game.Net.Upgraded`, `Game.Net.Roundabout`
-- Key systems: `Game.Tools.NetToolSystem` (7807 lines), `Game.Tools.ApplyNetSystem`, `Game.Tools.GenerateEdgesSystem`, `Game.Net.GeometrySystem`, `Game.Net.LaneSystem`, `Game.Net.LaneConnectionSystem`, `Game.Net.CompositionSelectSystem`
-- Key prefab data: `Game.Prefabs.NetData`, `Game.Prefabs.CompositionFlags`, `Game.Prefabs.NetCompositionLane`
+- Key systems: `Game.Tools.NetToolSystem` (7807 lines), `Game.Tools.ApplyNetSystem`, `Game.Tools.GenerateEdgesSystem`, `Game.Net.GeometrySystem`, `Game.Net.LaneSystem`, `Game.Net.LaneConnectionSystem`, `Game.Net.CompositionSelectSystem`, `Game.Net.NetUtils`
+- Key prefab data: `Game.Prefabs.NetData`, `Game.Prefabs.CompositionFlags`, `Game.Prefabs.NetCompositionLane`, `Game.Prefabs.RoadData`, `Game.Prefabs.RoadFlags`, `Game.Prefabs.NetGeometryPrefab`, `Game.Prefabs.RoadPrefab`, `Game.Prefabs.TrackPrefab`, `Game.Prefabs.PathwayPrefab`, `Game.Prefabs.FencePrefab`, `Game.Prefabs.NetSectionPrefab`, `Game.Prefabs.NetPieceInfo`, `Game.Prefabs.NetPieceLanes`, `Game.Prefabs.AggregateNetPrefab`, `Game.Prefabs.CompositionInvertMode`
+- Key math utilities: `Colossal.Mathematics.MathUtils` (Bezier4x3 operations)
 - Snippets saved to `research/topics/RoadNetwork/snippets/`

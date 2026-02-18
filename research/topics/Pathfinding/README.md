@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-16
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-17
 
 ## Scope
 
@@ -84,6 +84,22 @@ Key methods:
 - `IsSecondary()` -- bit 31 flag
 
 *Source: `Game.dll` -> `Game.Pathfind.PathNode`*
+
+### `PathfindUpdated` (Game.Common) -- Tag Component
+
+A zero-size tag component that signals pathfind-relevant data on an entity has changed. When added to a lane entity, `LanesModifiedSystem` picks it up via `m_UpdatedLanesQuery` and enqueues graph edge recalculation for that lane.
+
+**Flow**: Add `PathfindUpdated` to lane entity -> `LanesModifiedSystem` detects it -> rebuilds `PathSpecification` from current lane data -> enqueues `UpdateAction` into `PathfindQueueSystem` -> graph edge recalculated on next cycle.
+
+**Difference from `Updated`**: The generic `Updated` tag (Game.Common) triggers broad system processing across many systems (rendering, simulation, etc.). `PathfindUpdated` is a narrower signal that only triggers pathfind graph recalculation. Use `PathfindUpdated` when only pathfind-relevant data changed (e.g., lane costs, speed limits, rule flags) to avoid unnecessary processing by unrelated systems. Use `Updated` when the lane's physical geometry or fundamental properties changed.
+
+```csharp
+// Signal that a lane's pathfind data needs recalculation
+// (e.g., after modifying CarLane.m_SpeedLimit or RuleFlags)
+EntityManager.AddComponent<PathfindUpdated>(laneEntity);
+```
+
+*Source: `Game.dll` -> `Game.Common.PathfindUpdated`*
 
 ### `Edge` (Game.Pathfind)
 
@@ -305,7 +321,32 @@ Converts lane network data into pathfind graph edges. Runs when lanes are create
 
 ### `LanesModifiedSystem` (Game.Pathfind)
 
-Handles pathfind edge updates when existing lanes are modified (e.g., road policy changes).
+Handles pathfind edge updates when existing lanes are modified (e.g., road policy changes, speed limit changes, lane flag updates).
+
+- **Base class**: GameSystemBase
+- **Update phase**: Simulation
+- **Key query**: `m_UpdatedLanesQuery` -- an `EntityQueryDesc` matching lane entities that have been tagged with `Updated` or `PathfindUpdated` components, excluding `Deleted` and `Temp` entities.
+- **Key responsibilities**:
+  - Detects lanes whose pathfind-relevant data has changed
+  - Enqueues `UpdateAction` structs into `PathfindQueueSystem` to recalculate graph edges
+  - Uses `PathUtils.GetSpecification`, `PathUtils.GetSecondarySpecification`, and `PathUtils.GetLocationSpecification` to rebuild edge data from the modified lane components
+
+**Enqueue API**: `PathfindQueueSystem.Enqueue(UpdateAction)` accepts an `UpdateAction` struct that describes which edge to update and with what new data.
+
+| Struct | Fields | Description |
+|--------|--------|-------------|
+| `UpdateAction` | `m_EdgeIndex` (int), `m_Specification` (PathSpecification), `m_Location` (LocationSpecification) | Describes a single edge update to apply to the pathfind graph |
+| `UpdateActionData` | `m_Actions` (NativeList\<UpdateAction\>), `m_Dependencies` (JobHandle) | Batch container for multiple update actions submitted together |
+
+**PathUtils specification helpers**:
+
+| Method | Description |
+|--------|-------------|
+| `PathUtils.GetSpecification(...)` | Builds a `PathSpecification` from lane component data (CarLane, PedestrianLane, TrackLane, etc.) -- the primary edge specification |
+| `PathUtils.GetSecondarySpecification(...)` | Builds a secondary `PathSpecification` for bidirectional or reverse-direction edges |
+| `PathUtils.GetLocationSpecification(...)` | Builds a `LocationSpecification` from lane curve data for A* heuristic position calculations |
+
+These helpers are the same ones used by `LaneDataSystem` during initial graph construction. `LanesModifiedSystem` calls them to ensure updated edges are consistent with newly-created edges.
 
 ### `RoutesModifiedSystem` (Game.Pathfind)
 
@@ -363,6 +404,52 @@ Updates route-related pathfind data for transit connections.
   LanePoliciesSystem --> Update RuleFlags on edges
 ```
 
+### NativePathfindData Runtime Graph Manipulation
+
+`NativePathfindData` is the runtime container for the pathfind graph. It holds all edges, node mappings, and cost data used by the pathfind worker threads. Access it via `PathfindQueueSystem.GetDataContainer()`.
+
+**Key methods on `NativePathfindData`**:
+
+| Method | Description |
+|--------|-------------|
+| `GetEdge(int index)` | Returns the `Edge` struct at the given index (primary edge) |
+| `GetSecondaryEdge(int index)` | Returns a secondary edge (e.g., reverse direction or alternate path) |
+| `SetCosts(int edgeIndex, PathfindCosts costs)` | Overwrites the base costs on an edge |
+| `SetDensity(int edgeIndex, float density)` | Updates the traffic density value on an edge |
+
+**Delta-apply pattern**: When modifying graph costs at runtime, use a `NativeParallelHashMap<int, PathfindCosts>` to track your modifications as deltas (offsets from original values). This prevents **cost stacking** -- the problem where applying the same modification multiple frames in a row causes costs to grow unboundedly.
+
+```csharp
+// Delta-apply pattern to prevent cost stacking
+private NativeParallelHashMap<int, PathfindCosts> _originalCosts;
+
+public void ApplyCostModification(NativePathfindData graphData, int edgeIndex, PathfindCosts modifier)
+{
+    // Store original cost on first modification
+    if (!_originalCosts.ContainsKey(edgeIndex))
+    {
+        Edge edge = graphData.GetEdge(edgeIndex);
+        _originalCosts.Add(edgeIndex, edge.m_Specification.m_Costs);
+    }
+
+    // Always apply delta from the original, not from current value
+    PathfindCosts original = _originalCosts[edgeIndex];
+    PathfindCosts modified = new PathfindCosts(original.m_Value + modifier.m_Value);
+    graphData.SetCosts(edgeIndex, modified);
+}
+
+public void RevertCostModification(NativePathfindData graphData, int edgeIndex)
+{
+    if (_originalCosts.TryGetValue(edgeIndex, out PathfindCosts original))
+    {
+        graphData.SetCosts(edgeIndex, original);
+        _originalCosts.Remove(edgeIndex);
+    }
+}
+```
+
+**Important**: Graph modifications via `NativePathfindData` take effect on the next pathfind cycle (double-buffered). Modifications must be synchronized with the pathfind queue system's update to avoid race conditions with worker threads.
+
 ### Request Lifecycle
 
 1. A game system (e.g., `CitizenBehaviorSystem`) calls `PathfindSetupSystem.GetQueue()` to get a queue
@@ -392,6 +479,7 @@ Submitted with every pathfind request via `SetupQueueItem`. Controls which trans
 | m_ParkingSize | float | Size of the parking space required |
 | m_Authorization1 | Entity | First access authorization entity (e.g., gated area pass) |
 | m_Authorization2 | Entity | Second access authorization entity |
+| m_TaxiIgnoredRules | RuleFlags | Lane policy rules that taxis may ignore (e.g., transit-only restrictions) |
 
 *Source: `Game.dll` -> `Game.Pathfind.PathfindParameters`*
 
@@ -399,17 +487,102 @@ Submitted with every pathfind request via `SetupQueueItem`. Controls which trans
 
 **Authorization fields**: `m_Authorization1` and `m_Authorization2` are entity references to access authorization passes. These are checked against `PathSpecification.m_AccessRequirement` on graph edges -- if an edge requires authorization, the agent must carry a matching authorization entity to traverse it.
 
+**Taxi rules**: `m_TaxiIgnoredRules` is a `RuleFlags` bitfield specifying which lane policy rules taxis are allowed to ignore during pathfinding. For example, a taxi may ignore `ForbidPrivateTraffic` to use bus lanes for pickups. This field is checked alongside `m_IgnoredRules` when evaluating edge traversability for taxi-method paths.
+
+#### `CitizenUtils.GetPathfindWeights`
+
+The `CitizenUtils.GetPathfindWeights` utility method computes per-citizen `PathfindWeights` based on the citizen's age, wealth, and other attributes. This is used when building `PathfindParameters` for citizen pathfind requests.
+
+```csharp
+// CitizenUtils.GetPathfindWeights -- returns weighted cost preferences for a citizen
+// Wealth affects money sensitivity, age affects comfort preference, etc.
+PathfindWeights weights = CitizenUtils.GetPathfindWeights(citizen, citizenData);
+```
+
+Mods can intercept or replace the weights returned by this method to change how citizens prioritize route cost dimensions (time vs. money vs. comfort).
+
 ## Prefab & Configuration
 
 | Value | Source | Location |
 |-------|--------|----------|
 | PathfindPrefab | PrefabBase | `Game.Prefabs.PathfindPrefab` -- m_TrackTrafficFlow (bool) |
 | Car driving costs | PathfindCarData | DrivingCost, TurningCost, UnsafeTurningCost, UTurnCost, CurveAngleCost, LaneCrossCost, ParkingCost, SpawnCost, ForbiddenCost |
-| Pedestrian costs | PathfindPedestrianData | WalkingCost, CrosswalkCost, UnsafeCrosswalkCost, SpawnCost |
+| Pedestrian costs | PathfindPedestrianData | WalkingCost, CrosswalkCost, UnsafeCrosswalkCost, SpawnCost (see full structure below) |
 | Track costs | PathfindTrackData | (similar pattern for rail) |
 | Transport costs | PathfindTransportData | (boarding/transfer costs) |
 | Connection costs | PathfindConnectionData | (outside connection costs) |
 | Heuristic data | PathfindHeuristicData | CarCosts, TrackCosts, PedestrianCosts, FlyingCosts, OffRoadCosts, TaxiCosts -- used for A* heuristic estimates |
+
+### `PathfindPedestrianData` Full Structure (Game.Prefabs)
+
+The `PathfindPedestrianData` prefab component defines base costs for pedestrian pathfinding. All cost fields are `PathfindCosts` (float4) with channels: time, behaviour, money, comfort.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_WalkingCost | PathfindCosts (float4) | Base cost per unit distance of walking on a pedestrian lane |
+| m_CrosswalkCost | PathfindCosts (float4) | Additional cost for using a signalized crosswalk |
+| m_UnsafeCrosswalkCost | PathfindCosts (float4) | Additional cost for jaywalking / unsignalized crossing |
+| m_SpawnCost | PathfindCosts (float4) | One-time cost for spawning a pedestrian (entering the network) |
+
+*Source: `Game.dll` -> `Game.Prefabs.PathfindPedestrianData`*
+
+**Runtime modification pattern**: These values are on the pathfind prefab entity and can be modified at runtime to globally change pedestrian routing behavior. For example, increasing `m_UnsafeCrosswalkCost.y` (behaviour channel) discourages jaywalking without completely preventing it.
+
+```csharp
+// Modify pedestrian crosswalk costs at runtime
+Entity pathfindPrefab = GetPathfindPrefabEntity();
+PathfindPedestrianData pedData = EntityManager.GetComponentData<PathfindPedestrianData>(pathfindPrefab);
+
+// Double the jaywalking penalty (behaviour channel)
+pedData.m_UnsafeCrosswalkCost = new PathfindCosts(
+    pedData.m_UnsafeCrosswalkCost.m_Value * new float4(1f, 2f, 1f, 1f));
+
+EntityManager.SetComponentData(pathfindPrefab, pedData);
+```
+
+### Pedestrian Speed & Age Data (Game.Prefabs)
+
+#### `HumanData.m_WalkSpeed`
+
+The `Game.Prefabs.HumanData` component on human prefab entities contains `m_WalkSpeed`, which defines the base walking speed for pedestrians. This value is used when building `PathfindParameters.m_WalkSpeed` for citizen pathfind requests.
+
+*Source: `Game.dll` -> `Game.Prefabs.HumanData`*
+
+#### `ResidentData.m_Age`
+
+The `Game.Prefabs.ResidentData` component stores age-related data for residents. The `m_Age` field determines the citizen's age category, which affects walking speed multipliers and pathfind weight calculations.
+
+*Source: `Game.dll` -> `Game.Prefabs.ResidentData`*
+
+#### `AgeMask` Flags Enum
+
+The `AgeMask` flags enum categorizes citizens into age groups. Used by pedestrian speed calculations and citizen pathfind setup to apply age-appropriate walking speed multipliers.
+
+```
+Child   = 1    // Children -- slowest walk speed
+Teen    = 2    // Teenagers -- moderate walk speed
+Adult   = 4    // Adults -- standard walk speed
+Elderly = 8    // Elderly -- reduced walk speed
+```
+
+For pedestrian speed modding, modify `HumanData.m_WalkSpeed` on the prefab entity or intercept the `PathfindParameters.m_WalkSpeed` value at queue submission time. The age mask can be combined (e.g., `Child | Elderly = 9`) for queries targeting multiple age groups.
+
+### PathSpecification Edge Manipulation (m_Density & m_MaxSpeed)
+
+`PathSpecification.m_Density` and `PathSpecification.m_MaxSpeed` can be manipulated at runtime as a softer alternative to hard-disabling edges via `ConnectionLaneFlags.Disabled`.
+
+- **m_Density**: Setting density to a very high value (e.g., 100.0) makes the edge extremely expensive to traverse without completely removing it from the graph. Agents will strongly avoid the edge but can still use it if no alternative exists. The minimum density is 0.01 (clamped internally).
+- **m_MaxSpeed**: Setting `m_MaxSpeed` to a very low value (e.g., 0.01) dramatically increases the time cost for traversing the edge, since time cost = length / speed. This effectively makes the edge undesirable without disabling it.
+
+This approach is preferable to `ConnectionLaneFlags.Disabled` when you want agents to use the edge as a last resort rather than treating it as non-existent. It avoids pathfind failures in networks where the disabled edge might be the only route.
+
+```csharp
+// Soft-disable an edge by inflating density and reducing speed
+// Agents will strongly avoid this edge but can still use it if necessary
+PathSpecification spec = nativePathfindData.GetEdge(edgeIndex).m_Specification;
+spec.m_Density = 100f;   // extremely congested
+spec.m_MaxSpeed = 0.5f;  // very slow
+```
 
 ### Cost Model
 
@@ -480,6 +653,31 @@ public bool TryAddCosts(ref float totalCost, PathfindWeights weights, float maxC
 - **Signature**: `CheckDistrictLanesJob`, `CheckBuildingLanesJob`
 - **Patch type**: Burst-compiled -- **not patchable**
 - **Alternative**: Add a custom system that runs after LanePoliciesSystem to further modify edge `RuleFlags`
+
+### Candidate 6: `PathUtils.GetCarDriveSpecification` (static, 2 overloads)
+
+- **Signature (overload 1)**: `PathSpecification GetCarDriveSpecification(in CarLane carLane, in CarLaneData carLaneData, in PathfindCarData carData, float length, float density)`
+- **Signature (overload 2)**: `PathSpecification GetCarDriveSpecification(in CarLane carLane, in CarLaneData carLaneData, in PathfindCarData carData, float length, float density, RuleFlags rules)`
+- **Patch type**: Postfix (modify the returned `PathSpecification`)
+- **What it enables**: Modify the pathfind edge specification for car driving lanes before it is written to the graph. Adjust costs, density, speed, or rules per-lane.
+- **Risk level**: Low (pure function, returns a value struct)
+- **Side effects**: Called during graph edge creation/update -- affects all subsequent pathfinds on modified lanes
+
+### Candidate 7: `PathUtils.GetTaxiDriveSpecification` (static)
+
+- **Signature**: `PathSpecification GetTaxiDriveSpecification(in CarLane carLane, in CarLaneData carLaneData, in PathfindCarData carData, float length, float density)`
+- **Patch type**: Postfix
+- **What it enables**: Modify pathfind edge specifications specifically for taxi pathfinding. Useful for taxi-specific lane cost adjustments (e.g., reduced cost on bus lanes for taxis).
+- **Risk level**: Low (pure function)
+- **Side effects**: Same as GetCarDriveSpecification but only affects taxi pathfind method edges
+
+### Candidate 8: `PathUtils.TryAddCosts` (static)
+
+- **Signature**: `bool TryAddCosts(ref float totalCost, PathfindCosts costs, PathfindWeights weights, float maxCost)`
+- **Patch type**: Prefix (to override cost accumulation) or Postfix (to adjust running total)
+- **What it enables**: Intercept the incremental cost accumulation during edge evaluation. Can clamp, multiply, or conditionally zero out costs for specific edges.
+- **Risk level**: Medium -- called extremely frequently during pathfinding (inner loop of A*)
+- **Side effects**: Modifying the running total affects whether the pathfinder prunes the edge early via `maxCost` comparison. Must be very lightweight.
 
 ## Mod Blueprint
 
@@ -786,4 +984,4 @@ Identifies lane endpoints in the pathfind graph:
 
 - Decompiled from: Game.dll (Cities: Skylines II)
 - Key namespaces: Game.Pathfind, Game.Simulation, Game.Prefabs, Game.Common
-- Types decompiled: PathOwner, PathElement, PathInformation, PathInformations, PathNode, Edge, PathSpecification, PathTarget, PathfindParameters, PathfindWeights, PathfindCosts, SetupQueueItem, SetupQueueTarget, PathfindSetupSystem, PathfindQueueSystem, PathfindResultSystem, PathUtils, PathfindPrefab, PathfindCarData, PathfindPedestrianData, PathfindHeuristicData, all related enums
+- Types decompiled: PathOwner, PathElement, PathInformation, PathInformations, PathNode, Edge, PathSpecification, PathTarget, PathfindParameters, PathfindWeights, PathfindCosts, SetupQueueItem, SetupQueueTarget, PathfindSetupSystem, PathfindQueueSystem, PathfindResultSystem, PathUtils, PathfindPrefab, PathfindCarData, PathfindPedestrianData, PathfindHeuristicData, NativePathfindData, LanesModifiedSystem, UpdateAction, UpdateActionData, PathfindUpdated, HumanData, ResidentData, AgeMask, CitizenUtils, all related enums

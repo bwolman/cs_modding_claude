@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-16
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-17
 
 ## Scope
 
@@ -20,7 +20,7 @@
 | Game.dll | Game.Policies | Policy, PolicyFlags, Modify, ModifiedSystem, DistrictModifierInitializeSystem |
 | Game.dll | Game.Prefabs | DistrictPrefab, PolicyPrefab, PolicyTogglePrefab, PolicySliderPrefab, PolicyData, PolicySliderData, DistrictData, DistrictOptionData, DistrictModifierData, DistrictModifiers, DistrictOptions, DefaultPolicyData, DefaultPolicyInfo, PolicyCategory, PolicyVisibility, ModifierValueMode, PolicySliderUnit |
 | Game.dll | Game.Pathfind | LanePoliciesSystem |
-| Game.dll | Game.UI.InGame | DistrictsSection |
+| Game.dll | Game.UI.InGame | DistrictsSection, PoliciesUISystem |
 
 ## Component Map
 
@@ -238,7 +238,27 @@
 - **Key methods**:
   - `ModifyPolicyJob.Execute()` -- Processes Modify events: adds/removes/updates Policy entries in the target entity's Policy buffer, then calls RefreshEffects
   - `RefreshEffects()` -- Delegates to the appropriate refresh system (district, building, route, or city) to recalculate modifiers
-  - `GetPolicyRange()` -- Determines scope: District, Building, Route, or City
+  - `GetPolicyRange()` -- Determines scope by checking component presence on the target entity: District component -> District, Owner+ServiceUpgrade -> Building, Route component -> Route, otherwise -> City
+
+**Inner enum `ModifiedSystem.PolicyRange`**:
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | None | No policy range determined |
+| 1 | District | Policy targets a district area entity |
+| 2 | Building | Policy targets a building entity (with Owner+ServiceUpgrade) |
+| 3 | Route | Policy targets a transit route entity |
+| 4 | City | Policy targets the city-wide singleton |
+
+**Inner struct `ModifiedSystem.PolicyEventInfo`**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Activated | bool | True if the policy was activated, false if deactivated |
+| m_Entity | Entity | The target entity the policy was applied to |
+| m_PolicyRange | PolicyRange | The determined scope of the policy event |
+
+`PolicyEventInfo` is produced by `ModifyPolicyJob` after processing a `Modify` event, encapsulating the result for downstream refresh logic.
 
 ### Policy Scope: All Four Targets
 
@@ -252,6 +272,29 @@
 | City | City-wide singleton entity | `CityModifier` | City-wide tax rates, global service adjustments |
 
 Route modifiers work identically to district modifiers: `ModifiedSystem` processes the `Modify` event, updates the `Policy` buffer on the route entity, and calls `RefreshEffects()` which delegates to the route-specific refresh logic to rebuild the `RouteModifier` buffer.
+
+### `PoliciesUISystem` (Game.UI.InGame)
+
+- **Base class**: UISystemBase
+- **Update phase**: UI
+- **Key methods**:
+  - `SetPolicy(Entity entity, Entity policy, bool active, float adjustment)` -- Canonical UI-level API for setting policies programmatically. Creates a `Modify` event entity targeting the given entity with the specified policy, active state, and slider adjustment value. This is the same path the game UI uses when the player toggles or adjusts a policy.
+
+**Usage**: Call `SetPolicy` from mod code to activate or deactivate policies without manually constructing `Modify` event entities. This is the preferred approach for programmatic policy changes from UI-layer code.
+
+```csharp
+// Get the PoliciesUISystem instance
+PoliciesUISystem policiesUI = World.GetOrCreateSystemManaged<PoliciesUISystem>();
+
+// Activate a policy on a district
+policiesUI.SetPolicy(districtEntity, policyPrefabEntity, true, 0f);
+
+// Set a slider policy to a specific value
+policiesUI.SetPolicy(districtEntity, sliderPolicyPrefab, true, 0.5f);
+
+// Deactivate a policy
+policiesUI.SetPolicy(districtEntity, policyPrefabEntity, false, 0f);
+```
 
 ### `LanePoliciesSystem` (Game.Pathfind)
 
@@ -538,6 +581,7 @@ public void ListDistrictPolicies(EntityManager em, PrefabSystem prefabSystem, En
 ## Sources
 
 - Decompiled from: Game.dll -- Game.Areas.CurrentDistrictSystem, Game.Areas.ServiceDistrictSystem, Game.Areas.District, Game.Areas.DistrictModifier, Game.Areas.CurrentDistrict, Game.Areas.BorderDistrict, Game.Areas.ServiceDistrict, Game.Areas.DistrictModifierType, Game.Areas.DistrictOption
-- Policy types: Game.Policies.Policy, Game.Policies.PolicyFlags, Game.Policies.Modify, Game.Policies.ModifiedSystem, Game.Policies.DistrictModifierInitializeSystem
+- Policy types: Game.Policies.Policy, Game.Policies.PolicyFlags, Game.Policies.Modify, Game.Policies.ModifiedSystem, Game.Policies.ModifiedSystem.PolicyEventInfo, Game.Policies.ModifiedSystem.PolicyRange, Game.Policies.DistrictModifierInitializeSystem
 - Prefab types: Game.Prefabs.DistrictPrefab, Game.Prefabs.PolicyPrefab, Game.Prefabs.PolicySliderPrefab, Game.Prefabs.PolicyTogglePrefab, Game.Prefabs.PolicyData, Game.Prefabs.PolicySliderData, Game.Prefabs.DistrictOptionData, Game.Prefabs.DistrictModifierData, Game.Prefabs.DistrictModifiers, Game.Prefabs.DistrictOptions, Game.Prefabs.DefaultPolicyData
+- UI systems: Game.UI.InGame.PoliciesUISystem
 - Pathfinding integration: Game.Pathfind.LanePoliciesSystem

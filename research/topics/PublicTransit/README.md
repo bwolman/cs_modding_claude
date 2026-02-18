@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-15
+> **Last updated**: 2026-02-17
 
 ## Scope
 
@@ -16,11 +16,13 @@
 
 | Assembly | Namespace | What's there |
 |----------|-----------|-------------|
-| Game.dll | Game.Routes | Route, TransportLine, TransportStop, Waypoint, Segment, RouteWaypoint, RouteSegment, RouteVehicle, Connected, CurrentRoute, VehicleTiming, BoardingVehicle, RouteInfo, RouteNumber, Color, VehicleModel, DispatchedRequest, RouteModifierType, RouteOption, RouteFlags, StopFlags, TransportLineFlags |
+| Game.dll | Game.Routes | Route, TransportLine, TransportStop, Waypoint, Segment, RouteWaypoint, RouteSegment, RouteVehicle, Connected, CurrentRoute, VehicleTiming, BoardingVehicle, WaitingPassengers, TaxiStand, RouteInfo, RouteNumber, Color, VehicleModel, DispatchedRequest, RouteModifier, RouteModifierType, RouteOption, RouteFlags, StopFlags, TransportLineFlags, RouteUtils |
 | Game.dll | Game.Simulation | TransportLineSystem, TransportStopSystem, TransportVehicleDispatchSystem, TransportBoardingHelpers, TransportDepotAISystem, TransportStationAISystem, TransportCarAISystem, TransportTrainAISystem, TransportAircraftAISystem, TransportWatercraftAISystem, TransportUsageTrackSystem |
+| Game.dll | Game.Policies | RouteModifierInitializeSystem |
 | Game.dll | Game.Vehicles | PublicTransport, PublicTransportFlags, CargoTransport, CargoTransportFlags, PassengerTransport, EvacuatingTransport, PrisonerTransport |
-| Game.dll | Game.Prefabs | TransportLinePrefab, TransportType, TransportStop (prefab), TransportStation, TransportDepot, TransportStopMarker, TransportPathfind, PublicTransport (prefab), CargoTransport (prefab), PublicTransportPurpose, RouteConnectionType |
+| Game.dll | Game.Prefabs | TransportLinePrefab, TransportLineData, TransportType, TransportStop (prefab), TransportStation, TransportDepot, TransportStopMarker, TransportPathfind, PublicTransport (prefab), CargoTransport (prefab), PublicTransportVehicleData, PublicTransportPurpose, RouteConnectionType, RouteModifierData, RouteOptionData, UITransportConfigurationPrefab, UITransportConfigurationData |
 | Game.dll | Game.Buildings | TransportStation (runtime), TransportStationFlags, TransportDepotFlags, CargoTransportStation |
+| Game.dll | Game.UI.InGame | VehicleCountSection |
 | Game.dll | Game.Tools | RouteToolSystem, GenerateRoutesSystem, ApplyRoutesSystem |
 
 ## Architecture Overview
@@ -147,6 +149,31 @@ Tracks which vehicle is currently boarding at a stop.
 | m_Vehicle | Entity | Vehicle currently boarding (or Entity.Null) |
 | m_Testing | Entity | Vehicle currently testing the stop |
 
+### `WaitingPassengers` (Game.Routes)
+
+Attached to waypoint entities at transit stops. Tracks passenger accumulation and average wait time.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_AverageWaitingTime | ushort | Average waiting time at this stop in seconds |
+| m_Count | int | Number of passengers currently waiting at this stop |
+
+*Source: `Game.dll` -> `Game.Routes.WaitingPassengers`*
+
+**Usage**: Use `m_Count` to measure stop utilization and calculate crowding signals. A high `m_Count` relative to vehicle capacity indicates the stop is underserved. Combine with `m_AverageWaitingTime` to detect chronic overcrowding vs. transient peaks.
+
+### `TaxiStand` (Game.Routes)
+
+Attached to taxi stand entities. Defines the base fare for taxis dispatched from this stand.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_StartingFee | ushort | Base fare charged when a taxi departs from this stand |
+
+*Source: `Game.dll` -> `Game.Routes.TaxiStand`*
+
+**Usage**: Modify `m_StartingFee` to implement dynamic fare pricing. Cache the baseline fee before applying adjustments, then scale based on `WaitingPassengers.m_Count` at the connected stop to implement surge pricing.
+
 ### `RouteInfo` (Game.Routes)
 
 Per-segment travel information.
@@ -179,6 +206,102 @@ Per-segment travel information.
 | StopRight | 0x8000 | Stop is on right side |
 | Disabled | 0x10000 | Vehicle disabled |
 | Full | 0x20000 | Vehicle at capacity |
+
+### `PublicTransportVehicleData` (Game.Prefabs)
+
+Prefab component on vehicle prefabs defining transport type and capacity.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_TransportType | TransportType | The transport mode this vehicle serves (Bus, Train, etc.) |
+| m_PassengerCapacity | int | Maximum number of passengers this vehicle can carry |
+
+*Source: `Game.dll` -> `Game.Prefabs.PublicTransportVehicleData`*
+
+**Vehicle resolution chain**: To get vehicle capacity from a route, follow: `RouteVehicle` buffer -> vehicle entity -> `PrefabRef` -> `PublicTransportVehicleData`.
+
+```csharp
+DynamicBuffer<RouteVehicle> vehicles = em.GetBuffer<RouteVehicle>(routeEntity);
+for (int i = 0; i < vehicles.Length; i++)
+{
+    Entity vehicleEntity = vehicles[i].m_Vehicle;
+    PrefabRef prefabRef = em.GetComponentData<PrefabRef>(vehicleEntity);
+    PublicTransportVehicleData vtd = em.GetComponentData<PublicTransportVehicleData>(prefabRef.m_Prefab);
+    Log.Info($"Vehicle {vehicleEntity}: type={vtd.m_TransportType}, capacity={vtd.m_PassengerCapacity}");
+}
+```
+
+### `TransportLineData` (Game.Prefabs)
+
+Prefab component on transport line prefabs defining default scheduling and transport configuration.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_DefaultVehicleInterval | float | Default interval between vehicle dispatches (seconds) |
+| m_TransportType | TransportType | Transport mode for this line type |
+| m_StopDuration | float | Default stop dwell time (seconds) |
+| m_DefaultUnbunchingFactor | float | Default unbunching factor for spacing vehicles |
+| m_PassengerTransport | bool | True if this line type carries passengers |
+| m_CargoTransport | bool | True if this line type carries cargo |
+
+*Source: `Game.dll` -> `Game.Prefabs.TransportLineData`*
+
+### `UITransportConfigurationPrefab` (Game.Prefabs)
+
+Singleton prefab component that holds entity references to transport UI configuration data, including the ticket price policy.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_TicketPricePolicy | Entity | Reference to the ticket price policy prefab entity |
+
+*Source: `Game.dll` -> `Game.Prefabs.UITransportConfigurationPrefab`*
+
+### `UITransportConfigurationData` (Game.Prefabs)
+
+Singleton prefab component providing runtime transport configuration data for the UI.
+
+*Source: `Game.dll` -> `Game.Prefabs.UITransportConfigurationData`*
+
+**Singleton access pattern**: Use `PrefabSystem.GetSingletonPrefab<T>(EntityQuery)` to retrieve the singleton prefab entity, then read its components:
+
+```csharp
+EntityQuery configQuery = GetEntityQuery(ComponentType.ReadOnly<UITransportConfigurationData>());
+Entity configEntity = _prefabSystem.GetSingletonPrefab<UITransportConfigurationPrefab>(configQuery);
+UITransportConfigurationPrefab config = em.GetComponentData<UITransportConfigurationPrefab>(configEntity);
+Entity ticketPricePolicy = config.m_TicketPricePolicy;
+```
+
+### `RouteModifier` (Game.Routes) [Buffer]
+
+Per-route modifier buffer, analogous to `DistrictModifier` for districts. Indexed by `RouteModifierType` enum value.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Delta | float2 | x = absolute delta, y = relative delta. Index in buffer corresponds to RouteModifierType enum value |
+
+*Source: `Game.dll` -> `Game.Routes.RouteModifier`*
+
+### `RouteModifierData` (Game.Prefabs) [Buffer]
+
+Prefab buffer defining which simulation values a route policy modifies and how.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_Type | RouteModifierType | Which route simulation value to modify |
+| m_Mode | ModifierValueMode | Relative, Absolute, or InverseRelative |
+| m_Range | Bounds1 | Min/max effect range (interpolated by slider position) |
+
+*Source: `Game.dll` -> `Game.Prefabs.RouteModifierData`*
+
+### `RouteOptionData` (Game.Prefabs)
+
+Prefab component defining which route options a policy activates.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_OptionMask | uint | Bitmask of RouteOption values this policy sets |
+
+*Source: `Game.dll` -> `Game.Prefabs.RouteOptionData`*
 
 ## System Map
 
@@ -250,6 +373,57 @@ These systems handle:
 - Triggering boarding via TransportBoardingHelpers
 - Departing when departure frame is reached
 - Returning to depot when AbandonRoute is set
+
+### `RouteModifierInitializeSystem` (Game.Policies)
+
+The route-level equivalent of `DistrictModifierInitializeSystem`. Initializes route modifiers when route entities are created.
+
+- **Base class**: GameSystemBase
+- **Update phase**: Simulation
+- **Queries**:
+  - Created Route entities (with Policy buffer, excluding Temp)
+- **Reads**: Policy buffer, PolicySliderData, RouteOptionData, RouteModifierData
+- **Writes**: Route.m_OptionMask, RouteModifier buffer
+- **Key methods**:
+  - `RefreshRouteOptions()` -- Iterates active policies, OR's each policy's RouteOptionData.m_OptionMask into Route.m_OptionMask
+  - `RefreshRouteModifiers()` -- Clears modifier buffer, iterates active policies, interpolates slider value to modifier delta, calls AddModifier
+
+**Inner struct `RouteModifierRefreshData`**:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| m_PolicySliderData | ComponentLookup\<PolicySliderData\> | Lookup for policy slider configuration |
+| m_RouteOptionData | ComponentLookup\<RouteOptionData\> | Lookup for route option masks |
+| m_RouteModifierData | BufferLookup\<RouteModifierData\> | Lookup for route modifier definitions |
+
+### `VehicleCountSection` (Game.UI.InGame)
+
+UI system that displays and manages the vehicle count control for transit lines.
+
+- **Base class**: UISystemBase
+- **Update phase**: UI
+- **Key methods**:
+  - `Visible(Entity)` -- Returns true if the entity is a transit line that supports vehicle count adjustment
+  - `OnUpdate()` -- Refreshes the UI state for the currently selected transit line
+  - `OnWriteProperties(IJsonWriter)` -- Serializes vehicle count data for the UI panel
+  - `OnSetVehicleCount(Entity, int)` -- Callback from UI when player adjusts vehicle count; modifies `TransportLine.m_VehicleInterval` accordingly
+- **Internal fields**: Tracks the currently displayed route entity, current vehicle count, and min/max vehicle count bounds
+
+### `TransportLineSystem.CalculateVehicleCount` (Game.Simulation)
+
+Public static method for computing target vehicle count from line parameters.
+
+- **Signature**: `static int CalculateVehicleCount(float vehicleInterval, float lineDuration)`
+- **Behavior**: Returns `max(1, round(lineDuration / vehicleInterval))`
+- **Usage**: Call directly to predict vehicle count for a given interval and line duration without running the full system update
+
+### `RouteUtils.ApplyModifier` (Game.Routes)
+
+Public static method for applying a route modifier to a float value.
+
+- **Signature**: `static void ApplyModifier(ref float value, DynamicBuffer<RouteModifier> modifiers, RouteModifierType type)`
+- **Behavior**: Reads the `RouteModifier` at the index matching `type`, applies absolute delta (`value += m_Delta.x`) then relative delta (`value *= (1 + m_Delta.y)`)
+- **Usage**: Call to apply route-level policy modifiers to any simulation value (e.g. vehicle interval, ticket price)
 
 ## Data Flow
 
@@ -365,6 +539,51 @@ Vehicle AI System (e.g. TransportCarAISystem)
 - **Risk level**: Low -- read component data and modify as needed
 - **Note**: Safest approach for most transit mods
 
+### Candidate 5: `TransportLineSystem.OnUpdate` Postfix for Per-Mode Duration
+
+- **Patch type**: Postfix
+- **What it enables**: Modify `RouteInfo.m_Duration` on segments after the system recalculates them, allowing per-transit-mode travel time adjustments
+- **Risk level**: Medium -- must complete jobs before reading/writing segment data
+- **Trigger pattern**: The system sets `PathfindUpdated` on route entities when segment durations change. A Postfix can detect this to apply modifications only when the system has refreshed data.
+
+```csharp
+[HarmonyPatch(typeof(TransportLineSystem), "OnUpdate")]
+public static class TransportLineSystemOnUpdatePostfix
+{
+    public static void Postfix(TransportLineSystem __instance)
+    {
+        // Complete any scheduled jobs before accessing entity data
+        __instance.CompleteDependency();
+
+        EntityQuery routeQuery = __instance.GetEntityQuery(
+            ComponentType.ReadOnly<Route>(),
+            ComponentType.ReadOnly<TransportLine>(),
+            ComponentType.ReadOnly<RouteSegment>(),
+            ComponentType.ReadOnly<PathfindUpdated>()
+        );
+
+        NativeArray<Entity> routes = routeQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i < routes.Length; i++)
+        {
+            Entity route = routes[i];
+            DynamicBuffer<RouteSegment> segments =
+                __instance.EntityManager.GetBuffer<RouteSegment>(route);
+
+            for (int s = 0; s < segments.Length; s++)
+            {
+                Entity segEntity = segments[s].m_Segment;
+                RouteInfo info = __instance.EntityManager.GetComponentData<RouteInfo>(segEntity);
+
+                // Example: scale duration by 0.8 for this transit mode
+                info.m_Duration *= 0.8f;
+                __instance.EntityManager.SetComponentData(segEntity, info);
+            }
+        }
+        routes.Dispose();
+    }
+}
+```
+
 ## Open Questions
 
 - [x] How are transport lines structured as ECS entities? Route + TransportLine components, with child Waypoint and Segment entities
@@ -378,6 +597,6 @@ Vehicle AI System (e.g. TransportCarAISystem)
 
 ## Sources
 
-- Decompiled from: Game.dll (Game.Routes, Game.Simulation, Game.Vehicles, Game.Prefabs namespaces)
-- Key types: TransportLineSystem, TransportStopSystem, TransportVehicleDispatchSystem, TransportBoardingHelpers, TransportLinePrefab, Route, TransportLine, TransportStop, PublicTransport, PublicTransportFlags, TransportType, VehicleTiming, BoardingVehicle, RouteWaypoint, RouteSegment, RouteVehicle, RouteInfo, Connected, CurrentRoute
+- Decompiled from: Game.dll (Game.Routes, Game.Simulation, Game.Vehicles, Game.Prefabs, Game.UI.InGame namespaces)
+- Key types: TransportLineSystem, TransportStopSystem, TransportVehicleDispatchSystem, TransportBoardingHelpers, RouteModifierInitializeSystem, VehicleCountSection, TransportLinePrefab, TransportLineData, Route, TransportLine, TransportStop, PublicTransport, PublicTransportFlags, PublicTransportVehicleData, TransportType, VehicleTiming, BoardingVehicle, WaitingPassengers, TaxiStand, RouteWaypoint, RouteSegment, RouteVehicle, RouteInfo, RouteModifier, RouteModifierData, RouteOptionData, RouteUtils, UITransportConfigurationPrefab, UITransportConfigurationData, Connected, CurrentRoute
 - All decompiled snippets saved in `snippets/` directory
