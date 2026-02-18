@@ -323,6 +323,68 @@ Abstract base for all tools. Provides:
 
 - **Settings**: Object type, position, rotation, snap preferences
 
+## Mod Blueprint: Custom Object Placement Tool
+
+**Description**: A fully custom object placement tool that extends `ObjectToolBaseSystem` to provide new placement modes (line placement, curve placement, grid placement) beyond what the vanilla `ObjectToolSystem` supports. This is the most complex tool mod pattern, involving custom tool lifecycle management, direct entity creation, overlay rendering, tooltip display, input handling, and UI injection.
+
+**Reference mod**: [LineToolLite](https://github.com/algernon-A/LineToolLite)
+
+### Systems to Create
+
+1. **Custom Tool System** (extends `ObjectToolBaseSystem`) -- the main tool system. Overrides `toolID`, `GetPrefab()`, `TrySetPrefab()`, `InitializeRaycast()`, `OnStartRunning()`, `OnStopRunning()`, and `ElevationUp()`/`ElevationDown()` for custom placement behavior.
+2. **Custom TooltipSystem** (extends `TooltipSystemBase`) -- displays measurement tooltips (distance, count, spacing) during placement.
+
+### Components to Create
+
+- None required for the basic pattern. Preview entities use `Highlighted` + `Updated` (the Highlighted/Updated pattern) rather than custom components.
+
+### Harmony Patches Needed
+
+- None in the basic architecture. LineToolLite achieves full functionality without Harmony patches by using:
+  - `ObjectToolBaseSystem` subclass for tool behavior
+  - Direct DOM injection via `View.ExecuteScript` for UI
+  - `ProxyAction` and `InputAction` for input handling
+
+### Key Game Components
+
+| Component / API | Namespace | Role |
+|-----------------|-----------|------|
+| `ObjectToolBaseSystem` | Game.Tools | Base class providing `CreateDefinitionsJob`, prefab management, brush support |
+| `ObjectToolSystem` | Game.Tools | Vanilla tool -- read `ObjectToolSystem.prefab` to get selected prefab |
+| `ToolSystem` | Game.Tools | Set `activeTool` to activate custom tool; subscribe to `EventPrefabChanged` |
+| `ObjectData.m_Archetype` | Game.Prefabs | Entity archetype for creating preview entities directly |
+| `PrefabRef` | Game.Prefabs | Set on created entities to link to prefab |
+| `Transform` | Game.Objects | Position and rotation for placed entities |
+| `Highlighted` | Game.Tools | Added to preview entities for highlight rendering |
+| `Updated` | Game.Common | Triggers render refresh on entity |
+| `Deleted` | Game.Common | Standard CS2 deletion mechanism for canceling previews |
+| `OverlayRenderSystem.Buffer` | Game.Rendering | Draw guide lines and indicators during placement |
+| `TerrainUtils.SampleHeight` | Game.Simulation | Query terrain height for terrain-aware positioning |
+| `ProxyAction` | Game.Input | Built-in Tool map actions (Apply, Mouse Cancel) |
+
+### Architecture
+
+1. **Tool activation**: Read `ObjectToolSystem.prefab` to detect selected prefab. Set `m_ToolSystem.activeTool = customTool` to activate. Subscribe to `EventPrefabChanged` to reactivate after prefab selection changes. Store and restore the previous tool reference on deactivation.
+2. **Entity creation**: Use `ObjectData.m_Archetype` from the prefab entity to create entities with the correct component set. Set `PrefabRef`, `Transform`, `Highlighted`, and `Updated` on each preview entity. Track preview entities with `NativeList<Entity>` for cleanup.
+3. **Input handling**: Use `ProxyAction` for built-in Tool map actions (Apply, Mouse Cancel). Use raw `InputAction` for modifier+mouse combos (Ctrl+Click for spacing adjustment, Shift+Click for rotation snapping).
+4. **Rendering**: Use `OverlayRenderSystem.Buffer` to draw guide lines and placement indicators. Create a custom `TooltipSystemBase` subclass for measurement tooltips. Use `TerrainUtils.SampleHeight` for terrain-aware vertical positioning.
+5. **UI integration**: Inject UI elements into existing tool panels using `View.ExecuteScript` for direct DOM manipulation. Use `View.RegisterForEvent` for JS-to-C# communication.
+6. **Cross-mod integration**: Use `ToolSystem.tools.Find()` to detect other tool mods. Use reflection-based property access for interop with detected mods.
+7. **Cleanup**: On cancel or tool deactivation, add `Deleted` component to all tracked preview entities. Clear the `NativeList<Entity>` tracking list.
+
+### Settings Pattern
+
+- Placement mode (single, line, curve, grid)
+- Spacing distance between objects
+- Rotation mode (fixed, random, follow path)
+- Fence mode toggle (edge-to-edge placement)
+
+### Compatibility Concerns
+
+- Multiple custom tools can coexist as long as they have unique `toolID` values.
+- Tools that spoof `ObjectToolSystem`'s `toolID` to reuse its UI panels may conflict with each other.
+- Preview entities created with `Highlighted` bypass the undo system -- the mod must handle cleanup manually.
+
 ## Examples
 
 ### Example 1: Placing an Object Programmatically

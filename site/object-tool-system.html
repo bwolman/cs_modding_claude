@@ -699,6 +699,68 @@ static void Postfix(ToolSystem ___m_ToolSystem)
 }</code></pre>
 
   <!-- ============================================================ -->
+  <h2>Mod Blueprint: Custom Object Placement Tool</h2>
+
+  <p>
+    A fully custom object placement tool that extends <code>ObjectToolBaseSystem</code> to provide new
+    placement modes (line placement, curve placement, grid placement) beyond what the vanilla
+    <code>ObjectToolSystem</code> supports. This is the most complex tool mod pattern, involving custom
+    tool lifecycle management, direct entity creation, overlay rendering, tooltip display, input handling,
+    and UI injection.
+  </p>
+  <p><strong>Reference mod</strong>: <a href="https://github.com/algernon-A/LineToolLite">LineToolLite</a></p>
+
+  <h3>Systems to Create</h3>
+  <ol>
+    <li><strong>Custom Tool System</strong> (extends <code>ObjectToolBaseSystem</code>) -- the main tool system. Overrides <code>toolID</code>, <code>GetPrefab()</code>, <code>TrySetPrefab()</code>, <code>InitializeRaycast()</code>, <code>OnStartRunning()</code>, <code>OnStopRunning()</code>, and <code>ElevationUp()</code>/<code>ElevationDown()</code> for custom placement behavior.</li>
+    <li><strong>Custom TooltipSystem</strong> (extends <code>TooltipSystemBase</code>) -- displays measurement tooltips (distance, count, spacing) during placement.</li>
+  </ol>
+
+  <h3>Components to Create</h3>
+  <p>None required. Preview entities use <code>Highlighted</code> + <code>Updated</code> rather than custom components.</p>
+
+  <h3>Harmony Patches Needed</h3>
+  <p>
+    None in the basic architecture. This pattern achieves full functionality without Harmony patches by using
+    <code>ObjectToolBaseSystem</code> subclass for tool behavior, direct DOM injection via <code>View.ExecuteScript</code>
+    for UI, and <code>ProxyAction</code> / <code>InputAction</code> for input handling.
+  </p>
+
+  <h3>Key Game Components</h3>
+  <table>
+    <thead><tr><th>Component / API</th><th>Namespace</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td><code>ObjectToolBaseSystem</code></td><td>Game.Tools</td><td>Base class providing <code>CreateDefinitionsJob</code>, prefab management, brush support</td></tr>
+      <tr><td><code>ObjectToolSystem</code></td><td>Game.Tools</td><td>Read <code>ObjectToolSystem.prefab</code> to get selected prefab</td></tr>
+      <tr><td><code>ToolSystem</code></td><td>Game.Tools</td><td>Set <code>activeTool</code> to activate custom tool; subscribe to <code>EventPrefabChanged</code></td></tr>
+      <tr><td><code>ObjectData.m_Archetype</code></td><td>Game.Prefabs</td><td>Entity archetype for creating preview entities directly</td></tr>
+      <tr><td><code>Highlighted</code></td><td>Game.Tools</td><td>Added to preview entities for highlight rendering</td></tr>
+      <tr><td><code>Deleted</code></td><td>Game.Common</td><td>Standard CS2 deletion mechanism for canceling previews</td></tr>
+      <tr><td><code>OverlayRenderSystem.Buffer</code></td><td>Game.Rendering</td><td>Draw guide lines and indicators during placement</td></tr>
+      <tr><td><code>TerrainUtils.SampleHeight</code></td><td>Game.Simulation</td><td>Query terrain height for terrain-aware positioning</td></tr>
+      <tr><td><code>ProxyAction</code></td><td>Game.Input</td><td>Built-in Tool map actions (Apply, Mouse Cancel)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Architecture</h3>
+  <ol>
+    <li><strong>Tool activation</strong>: Read <code>ObjectToolSystem.prefab</code> to detect selected prefab. Set <code>m_ToolSystem.activeTool = customTool</code> to activate. Subscribe to <code>EventPrefabChanged</code> to reactivate after prefab changes.</li>
+    <li><strong>Entity creation</strong>: Use <code>ObjectData.m_Archetype</code> to create entities with the correct component set. Set <code>PrefabRef</code>, <code>Transform</code>, <code>Highlighted</code>, and <code>Updated</code>. Track preview entities with <code>NativeList&lt;Entity&gt;</code> for cleanup.</li>
+    <li><strong>Input handling</strong>: Use <code>ProxyAction</code> for built-in Tool map actions (Apply, Mouse Cancel). Use raw <code>InputAction</code> for modifier+mouse combos (Ctrl+Click, Shift+Click).</li>
+    <li><strong>Rendering</strong>: Use <code>OverlayRenderSystem.Buffer</code> for guide lines. Create custom <code>TooltipSystemBase</code> for measurement tooltips. Use <code>TerrainUtils.SampleHeight</code> for terrain-aware positioning.</li>
+    <li><strong>UI integration</strong>: Direct DOM injection via <code>View.ExecuteScript</code>. Use <code>View.RegisterForEvent</code> for JS-to-C# communication.</li>
+    <li><strong>Cross-mod integration</strong>: Use <code>ToolSystem.tools.Find()</code> to detect other tool mods. Use reflection-based property access for interop.</li>
+    <li><strong>Cleanup</strong>: Add <code>Deleted</code> component to all tracked preview entities on cancel or tool deactivation.</li>
+  </ol>
+
+  <h3>Compatibility Concerns</h3>
+  <ul>
+    <li>Multiple custom tools can coexist as long as they have unique <code>toolID</code> values.</li>
+    <li>Tools that spoof <code>ObjectToolSystem</code>'s <code>toolID</code> to reuse its UI panels may conflict with each other.</li>
+    <li>Preview entities created with <code>Highlighted</code> bypass the undo system -- the mod must handle cleanup manually.</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
