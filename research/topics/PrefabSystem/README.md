@@ -579,6 +579,110 @@ public static bool IsDecal(EntityManager em, Entity prefabEntity)
 - **To duplicate a prefab**: Use `PrefabSystem.DuplicatePrefab(template, name)` or `PrefabBase.Clone()`
 - **To query prefabs**: Use `PrefabSystem.TryGetPrefab(PrefabID)` or iterate `PrefabSystem.prefabs`
 
+## Mod Blueprint: Prefab Search & Browser (FindIt Pattern)
+
+A blueprint for mods that provide searchable, browsable prefab databases with categorization, filtering, and direct placement -- based on the FindIt mod architecture.
+
+**Mod archetype**: Prefab browser/search tool. The mod indexes all game prefabs, categorizes them by type and properties, provides a searchable UI with virtual scrolling, and allows direct placement of found objects via the game's tool system.
+
+### Systems to Create
+
+| System | Phase | Purpose |
+|--------|-------|---------|
+| PrefabIndexingSystem | PrefabUpdate | Indexes all prefabs with incremental update support via `Created`/`Updated`/`Deleted` queries. Uses `IPrefabCategoryProcessor` strategy pattern for pluggable categorization logic per prefab type |
+| FindItUISystem | UIUpdate | `ExtendedUISystemBase` managing search panel with virtual scrolling, async search with `CancellationToken` and debouncing, and `ValueBindingHelper` for batched UI updates |
+| PickerToolSystem | ToolUpdate | Custom `ToolBaseSystem` for eyedropper/picker tool with configurable raycast to identify placed objects |
+| PrefabTrackingSystem | PrefabUpdate | Tracks placed instances of each prefab using `PrefabRef`-based entity counting |
+
+### Components to Create
+
+| Component | Type | Purpose |
+|-----------|------|---------|
+| PrefabIndexEntry | Managed (C# class) | Stores indexed prefab metadata: name, category, subcategory, thumbnail path, source (vanilla/mod/DLC), search keywords |
+| CategoryDefinition | Managed (C# class) | Defines a category hierarchy node for the browser tree |
+| SearchResult | Managed (C# class) | Wraps a prefab reference with match score for ranked search results |
+
+### Harmony Patches Needed
+
+- **None required** -- all functionality uses public APIs: `PrefabSystem` for prefab access, `ToolSystem.ActivatePrefabTool()` for placement, `ImageSystem` for thumbnails, `PrefabUISystem` for localized names
+
+### Key Game Components
+
+- `PrefabData` / `PrefabRef` -- core prefab identity and instance tracking
+- `PrefabSystem.TryGetPrefab()` -- entity-to-prefab resolution
+- `ImageSystem.GetThumbnail()` -- icon/thumbnail resolution for UI display
+- `PrefabUISystem.GetTitleAndDescription()` -- localized prefab name resolution
+- `EditorAssetCategoryOverride` -- category detection for prefab classification
+- `ServiceObject.m_Service` -- service building classification by service name
+- `ZoneData.m_AreaType` + `ZonePropertiesData` -- residential density classification
+- `SpawnableBuildingData.m_ZonePrefab` -- building-to-zone linkage
+- `BrandObjectData` / `PlaceholderObjectData` -- component presence for filtering placeholder and branded objects
+- `ToolSystem.ActivatePrefabTool(PrefabBase)` -- programmatic placement of found objects
+- `Created` / `Updated` / `Deleted` -- incremental prefab change detection
+
+### Prefab Categorization Patterns
+
+```csharp
+// Type detection via EntityQuery
+EntityQuery treePrefabs = SystemAPI.QueryBuilder()
+    .WithAll<PrefabData, TreeData, GrowthScaleData>()
+    .Build();
+
+EntityQuery propPrefabs = SystemAPI.QueryBuilder()
+    .WithAll<PrefabData, StaticObjectData>()
+    .WithNone<BuildingData, TreeData, NetObjectData, PlaceholderObjectData>()
+    .Build();
+
+// Service building classification
+if (prefab.TryGet<ServiceObject>(out var svc))
+{
+    string category = svc.m_Service.name; // "Roads", "Transportation", "Landscaping", etc.
+}
+
+// Zone density classification
+if (em.TryGetComponent<ZoneData>(zonePrefabEntity, out var zoneData))
+{
+    AreaType area = zoneData.m_AreaType; // Residential, Commercial, Industrial
+}
+
+// Content source detection
+bool isVanilla = prefab.isBuiltin;
+bool isFromMods = prefab.asset?.database == AssetDatabase<ParadoxMods>.instance;
+```
+
+### UI Integration Pattern
+
+```csharp
+// Virtual scrolling with batched updates
+ValueBindingHelper<int> m_ResultCount;
+ValueBindingHelper<string[]> m_VisibleResults;
+
+// Async search with debouncing
+private CancellationTokenSource m_SearchCts;
+public void OnSearchTextChanged(string text)
+{
+    m_SearchCts?.Cancel();
+    m_SearchCts = new CancellationTokenSource();
+    _ = SearchAsync(text, m_SearchCts.Token);
+}
+
+// Place found object
+var toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+toolSystem.ActivatePrefabTool(foundPrefab);
+```
+
+### Key Considerations
+
+- Use **incremental indexing** with `Created`/`Updated`/`Deleted` queries -- never re-index all prefabs every frame
+- `IPrefabCategoryProcessor` strategy pattern enables clean separation of categorization logic per prefab type (buildings, props, trees, networks, vehicles)
+- `GenericUIWriter`/`GenericUIReader` for reflection-based serialization of complex search result objects to the UI layer
+- Virtual scrolling is essential -- the game has thousands of prefabs; rendering all at once is prohibitive
+- `CancellationToken` and debouncing prevent search lag during rapid text input
+- Content source detection (`isBuiltin`, `isSubscribedMod`, `platformID`) enables filtering by vanilla/mod/DLC
+- `EditorAssetCategoryOverride` can be written by mods to create custom categorization schemes (e.g., `"FindIt/{category}/{subcategory}"`)
+- Exclude `Owner`, `Controller`, and `Overridden` entities when counting placed instances to count only top-level objects
+- Run instance counting on a timer (e.g., every 60 seconds), not every frame
+
 ## Examples
 
 ### Example 1: Looking Up a Prefab by ID

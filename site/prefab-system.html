@@ -783,6 +783,115 @@ public Dictionary&lt;int, int&gt; CountPrefabInstances()
     <li><strong>UpdatePrefab replaces the entity</strong> -- old entity gets <code>Deleted</code>, a new entity is created. Any cached entity references become stale.</li>
   </ul>
 
+  <!-- ============================================================ -->
+  <h2>Mod Blueprint: Prefab Search &amp; Browser (FindIt Pattern)</h2>
+
+  <p>
+    A blueprint for mods that provide searchable, browsable prefab databases with categorization,
+    filtering, and direct placement -- based on the FindIt mod architecture.
+  </p>
+
+  <p>
+    <strong>Mod archetype:</strong> Prefab browser/search tool. The mod indexes all game prefabs,
+    categorizes them by type and properties, provides a searchable UI with virtual scrolling, and
+    allows direct placement of found objects via the game's tool system.
+  </p>
+
+  <h3>Systems to Create</h3>
+
+  <table>
+    <thead><tr><th>System</th><th>Phase</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>PrefabIndexingSystem</td><td>PrefabUpdate</td><td>Indexes all prefabs with incremental update support via <code>Created</code>/<code>Updated</code>/<code>Deleted</code> queries. Uses <code>IPrefabCategoryProcessor</code> strategy pattern for pluggable categorization</td></tr>
+      <tr><td>FindItUISystem</td><td>UIUpdate</td><td><code>ExtendedUISystemBase</code> managing search panel with virtual scrolling, async search with <code>CancellationToken</code> and debouncing</td></tr>
+      <tr><td>PickerToolSystem</td><td>ToolUpdate</td><td>Custom <code>ToolBaseSystem</code> for eyedropper/picker tool with configurable raycast</td></tr>
+      <tr><td>PrefabTrackingSystem</td><td>PrefabUpdate</td><td>Tracks placed instances of each prefab using <code>PrefabRef</code>-based entity counting</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Components to Create</h3>
+
+  <table>
+    <thead><tr><th>Component</th><th>Type</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>PrefabIndexEntry</td><td>Managed (C# class)</td><td>Stores indexed prefab metadata: name, category, thumbnail, source, search keywords</td></tr>
+      <tr><td>CategoryDefinition</td><td>Managed (C# class)</td><td>Defines a category hierarchy node for the browser tree</td></tr>
+      <tr><td>SearchResult</td><td>Managed (C# class)</td><td>Wraps a prefab reference with match score for ranked results</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Harmony Patches Needed</h3>
+
+  <ul>
+    <li><strong>None required</strong> -- all functionality uses public APIs: <code>PrefabSystem</code> for prefab access, <code>ToolSystem.ActivatePrefabTool()</code> for placement, <code>ImageSystem</code> for thumbnails, <code>PrefabUISystem</code> for localized names</li>
+  </ul>
+
+  <h3>Key Game Components</h3>
+
+  <ul>
+    <li><code>PrefabData</code> / <code>PrefabRef</code> -- core prefab identity and instance tracking</li>
+    <li><code>PrefabSystem.TryGetPrefab()</code> -- entity-to-prefab resolution</li>
+    <li><code>ImageSystem.GetThumbnail()</code> -- icon/thumbnail resolution for UI display</li>
+    <li><code>PrefabUISystem.GetTitleAndDescription()</code> -- localized prefab name resolution</li>
+    <li><code>EditorAssetCategoryOverride</code> -- category detection for prefab classification</li>
+    <li><code>ServiceObject.m_Service</code> -- service building classification by service name</li>
+    <li><code>ZoneData.m_AreaType</code> + <code>ZonePropertiesData</code> -- residential density classification</li>
+    <li><code>BrandObjectData</code> / <code>PlaceholderObjectData</code> -- component presence for filtering</li>
+    <li><code>ToolSystem.ActivatePrefabTool(PrefabBase)</code> -- programmatic placement of found objects</li>
+    <li><code>Created</code> / <code>Updated</code> / <code>Deleted</code> -- incremental prefab change detection</li>
+  </ul>
+
+  <h3>Prefab Categorization Patterns</h3>
+
+  <pre><code>// Type detection via EntityQuery
+EntityQuery treePrefabs = SystemAPI.QueryBuilder()
+    .WithAll&lt;PrefabData, TreeData, GrowthScaleData&gt;()
+    .Build();
+
+EntityQuery propPrefabs = SystemAPI.QueryBuilder()
+    .WithAll&lt;PrefabData, StaticObjectData&gt;()
+    .WithNone&lt;BuildingData, TreeData, NetObjectData, PlaceholderObjectData&gt;()
+    .Build();
+
+// Service building classification
+if (prefab.TryGet&lt;ServiceObject&gt;(out var svc))
+{
+    string category = svc.m_Service.name; // "Roads", "Transportation", etc.
+}
+
+// Content source detection
+bool isVanilla = prefab.isBuiltin;
+bool isFromMods = prefab.asset?.database == AssetDatabase&lt;ParadoxMods&gt;.instance;</code></pre>
+
+  <h3>UI Integration Pattern</h3>
+
+  <pre><code>// Async search with debouncing
+private CancellationTokenSource m_SearchCts;
+public void OnSearchTextChanged(string text)
+{
+    m_SearchCts?.Cancel();
+    m_SearchCts = new CancellationTokenSource();
+    _ = SearchAsync(text, m_SearchCts.Token);
+}
+
+// Place found object
+var toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+toolSystem.ActivatePrefabTool(foundPrefab);</code></pre>
+
+  <h3>Key Considerations</h3>
+
+  <ul>
+    <li>Use <strong>incremental indexing</strong> with <code>Created</code>/<code>Updated</code>/<code>Deleted</code> queries -- never re-index all prefabs every frame</li>
+    <li><code>IPrefabCategoryProcessor</code> strategy pattern enables clean separation of categorization logic per prefab type</li>
+    <li>Virtual scrolling is essential -- the game has thousands of prefabs</li>
+    <li><code>CancellationToken</code> and debouncing prevent search lag during rapid text input</li>
+    <li>Content source detection (<code>isBuiltin</code>, <code>isSubscribedMod</code>, <code>platformID</code>) enables filtering by vanilla/mod/DLC</li>
+    <li><code>EditorAssetCategoryOverride</code> can be written by mods to create custom categorization schemes</li>
+    <li>Exclude <code>Owner</code>, <code>Controller</code>, and <code>Overridden</code> entities when counting placed instances</li>
+    <li>Run instance counting on a timer (e.g., every 60 seconds), not every frame</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
