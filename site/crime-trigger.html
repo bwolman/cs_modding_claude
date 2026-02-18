@@ -93,8 +93,8 @@
 <h1>Crime Trigger</h1>
 
 <div class="scope">
-  <p><strong>What this covers:</strong> How to programmatically trigger crimes in Cities: Skylines II -- who becomes a criminal, how crime events are created, and the full lifecycle from planning through arrest or escape.</p>
-  <p><strong>Why it matters:</strong> If you want to trigger crimes on specific citizens, change crime probabilities, or build custom crime scenarios, you need to understand the event pipeline and state machine that drives it all.</p>
+  <p><strong>What this covers:</strong> How to programmatically trigger crimes in Cities: Skylines II at specific locations -- who becomes a criminal, how crime events are created, how a criminal is bound to a building, and the full lifecycle from planning through arrest or escape.</p>
+  <p><strong>Why it matters:</strong> If you want to trigger crimes on specific citizens at specific buildings, change crime probabilities, or build custom crime scenarios, you need to understand the five-system pipeline and state machine that drives it all.</p>
   <p><strong>Out of scope:</strong> Police vehicle pathfinding, prison management, crime statistics UI.</p>
   <p><strong>Status:</strong> Complete</p>
 </div>
@@ -102,32 +102,46 @@
 <!-- ============================================================ -->
 <h2>How It Works</h2>
 
-<p>Crime in CS2 is driven by three systems working together. Understanding the flow between them is the key to modding crime behavior.</p>
+<p>Crime in CS2 is driven by <strong>five systems</strong> working together in a pipeline. Understanding the flow between them is the key to modding crime behavior.</p>
 
 <h3>The Big Picture</h3>
 
 <p><code>CrimeAccumulationSystem</code> runs in the background, slowly increasing a crime counter on buildings based on zone type and police coverage. This affects police patrol dispatch but does <em>not</em> directly cause crimes.</p>
 
-<p>Actual crimes start in <code>CrimeCheckSystem</code>, which runs once per game day. It scans citizens and picks candidates based on their wellbeing score. When a citizen "rolls" for crime, the system creates a crime event entity and an <code>AddCriminal</code> command entity.</p>
+<p>Actual crimes start in <code>CrimeCheckSystem</code>, which runs once per game day. It scans citizens and picks candidates based on their wellbeing score. When a citizen "rolls" for crime, the system creates a crime event entity with a <code>Crime</code> tag and a <code>TargetElement</code> buffer containing the citizen.</p>
 
-<p><code>AddCriminalSystem</code> picks up that command on the next frame and attaches a <code>Criminal</code> component to the citizen. From that point, <code>CriminalSystem</code> (running every 16 frames) drives the criminal through a state machine: planning, traveling, committing the crime, and either escaping or getting arrested.</p>
+<p><code>InitializeSystem</code> (in <code>Game.Events</code>) detects the new crime event entity on the next frame (via the <code>Created</code> tag). It reads the <code>TargetElement</code> buffer and creates <code>AddCriminal</code> command entities -- one for each citizen target. This is the bridge between event creation and criminal assignment.</p>
+
+<p><code>AddCriminalSystem</code> picks up those commands and attaches a <code>Criminal</code> component to each citizen. From that point, <code>CriminalSystem</code> (running every 16 frames) drives the criminal through a state machine: planning, traveling, committing the crime, and either escaping or getting arrested.</p>
+
+<p>Meanwhile, <code>AccidentSiteSystem</code> (every 64 frames) manages the crime scene on the building -- handling detection timing, police dispatch requests, crime duration, and cleanup.</p>
 
 <div class="diagram">
-CrimeCheckSystem               AddCriminalSystem           CriminalSystem
-(once per game day)             (next frame)                (every 16 frames)
-      |                               |                          |
-      |  citizen has low wellbeing     |                          |
-      |  + unemployed + not sick       |                          |
-      |  + roll succeeds               |                          |
-      |                               |                          |
-      +---> Crime Event Entity --------+                          |
-      +---> AddCriminal Command -------+--> Criminal component    |
-                                       |    added to citizen      |
-                                       |                          |
-                                       |       Planning ----------+
-                                       |       Preparing (travel) |
-                                       |       At Target (rob)    |
-                                       |       Arrest or Escape   |
+<pre>
+CrimeCheckSystem        InitializeSystem       AddCriminalSystem       CriminalSystem
+(once per game day)     (next frame)           (next frame)            (every 16 frames)
+      |                       |                      |                       |
+      |  citizen has low      |                      |                       |
+      |  wellbeing + unemp.   |                      |                       |
+      |  + roll succeeds      |                      |                       |
+      |                       |                      |                       |
+      +-> Crime Event Entity -+                      |                       |
+          (Crime tag,          \                     |                       |
+           TargetElement buf)   +-> AddCriminal -----+-> Criminal component  |
+                                    Command Entity        added to citizen   |
+                                                     |                       |
+                                                     |    Planning ----------+
+                                                     |    Preparing (travel)  |
+                                                     |    At Target (rob)     |
+                                                     |    Arrest or Escape    |
+
+                                              AccidentSiteSystem (every 64 frames)
+                                                     |
+                                              CrimeDetected (after alarm delay)
+                                              RequirePolice -> PoliceEmergencyRequest
+                                              CrimeFinished (after crime duration)
+                                              Cleanup (after secured + 1024 frames)
+</pre>
 </div>
 
 <h3>Who Can Become a Criminal?</h3>
@@ -138,8 +152,10 @@ CrimeCheckSystem               AddCriminalSystem           CriminalSystem
   <li>Unemployed (no <code>Worker</code> component)</li>
   <li>Not a student</li>
   <li>Not sick (no <code>HealthProblem</code> component)</li>
-  <li>Not already participating in an active crime</li>
+  <li>Not already participating in an active crime (no <code>Criminal</code> with non-null <code>m_Event</code>)</li>
 </ul>
+
+<p>However, a mod can bypass all of these requirements by directly creating <code>AddCriminal</code> command entities or adding the <code>Criminal</code> component. The eligibility checks are only in <code>CrimeCheckSystem</code>, not in the downstream systems.</p>
 
 <h3>The Wellbeing-to-Crime Curve</h3>
 
@@ -150,45 +166,74 @@ CrimeCheckSystem               AddCriminalSystem           CriminalSystem
   <li><strong>WellBeing 26-100:</strong> Quadratic falloff. <code>t = ((100 - wellbeing) / 75)^2</code>. Crime probability drops sharply as wellbeing rises. At 100, it reaches zero.</li>
 </ul>
 
-<p>The resulting <code>t</code> value is interpolated across the occurrence probability range (default 0-50 for first-time, 0-100 for repeat offenders). The final check rolls against a population-scaled random range: <code>max(population / 2000 * 100, 100)</code>. Larger cities have lower per-citizen crime rates, but more total crime.</p>
+<p>The resulting <code>t</code> value is interpolated across the occurrence probability range (default 0-50 for first-time, 0-100 for repeat offenders). The final check rolls against a population-scaled random range: <code>max(population / 2000 * 100, 100)</code>. Larger cities have lower per-citizen crime rates, but more total crime. The probability is also modified by <code>CityModifier.CrimeProbability</code>.</p>
 
 <h3>The Criminal State Machine</h3>
 
 <p>Once a citizen gets a <code>Criminal</code> component, <code>CriminalSystem</code> drives them through these states via the <code>CriminalFlags</code> bitmask:</p>
 
 <div class="diagram">
-  Planning -----> Preparing -----> At Target (Robber)
-  (add trip)      (traveling)           |
-                                        +----------+----------+
-                                        |                     |
-                                  Police secured?        Not secured
-                                        |                     |
-                                     Arrested           Commit crime
-                                        |               (steal money,
-                                   Jail countdown        apply effects)
-                                        |                     |
-                                  Roll prison?           TryEscape
-                                   /        \                 |
-                                 Yes         No          Released
-                                  |           |
-                              Sentenced    Released
-                                  |
-                            Wait transport
-                                  |
-                              Prisoner
-                                  |
-                            Sentence countdown
-                                  |
-                              Released
+<pre>
+  Planning -------> Preparing -------> At Target (Robber)
+  (add TripNeeded   (traveling)              |
+   Purpose.Crime,                            |
+   roll Monitor)                   +---------+---------+
+                                   |                   |
+                             No AccidentSite?    AccidentSite exists?
+                                   |                   |
+                           AddCrimeScene         +-----+-----+
+                           (AddAccidentSite)     |           |
+                                           Secured?     Not Secured
+                                           + police     |
+                                           AtTarget     |
+                                              |    CrimeScene +
+                                           Arrested  !CrimeFinished +
+                                              |    same event?
+                                         Jail countdown    |
+                                              |         Yes: Wait
+                                        Roll prison?    No: Commit crime
+                                         /        \      |
+                                       Yes         No    +-> GetCrimeSource
+                                        |           |    +-> GetStealAmount
+                                    Sentenced    Released +-> AddCrimeEffects
+                                        |                +-> TryEscape
+                                  Wait transport              |
+                                        |                  Released
+                                    Prisoner
+                                        |
+                                  Sentence countdown
+                                        |
+                                    Released
+</pre>
 </div>
 
 <p>The only crime type in the game is <strong>Robbery</strong>. When a crime succeeds, the criminal steals money from a random renter in the building, and <code>CrimeVictim</code> effects are applied to household members and employees.</p>
+
+<h3>How Crime Binds to a Building</h3>
+
+<p>There are two mechanisms that bind a crime to a specific building:</p>
+
+<ol>
+  <li><strong>Normal flow (Planning -> Preparing):</strong> When <code>CriminalSystem</code> processes a criminal in <code>Planning</code> state, it adds <code>TripNeeded(Purpose.Crime)</code>. The citizen pathfinding system selects a building and the citizen travels there. When the citizen arrives (is in a <code>CurrentBuilding</code>), <code>CriminalSystem</code> creates an <code>AddAccidentSite(CrimeScene)</code> on that building. The building choice is made by the trip/pathfinding system.</li>
+  <li><strong>Mod override:</strong> A mod can create the <code>AddAccidentSite</code> on a specific building directly, bypassing the trip system. If the criminal is already at that building (or if you skip the Planning/Preparing states), <code>CriminalSystem</code> will interact with the <code>AccidentSite</code> on the criminal's <code>CurrentBuilding</code>.</li>
+</ol>
+
+<h3>What Triggers Police Dispatch?</h3>
+
+<p><code>AccidentSiteSystem</code> (every 64 frames) manages police dispatch for crime scenes:</p>
+
+<ol>
+  <li>When a building gets an <code>AccidentSite</code> with <code>CrimeScene</code> flag, the system starts tracking the alarm delay.</li>
+  <li>After the alarm delay expires (default 5-10 seconds, modified by <code>CityModifier.CrimeResponseTime</code>), the <code>CrimeDetected</code> flag is set. If the criminal has <code>Monitored</code> flag, detection is immediate.</li>
+  <li>Once detected, the system sets <code>RequirePolice</code> and calls <code>RequestPoliceIfNeeded()</code>, which creates a <code>PoliceEmergencyRequest</code> entity (with <code>ServiceRequest</code> + <code>RequestGroup(4)</code>).</li>
+  <li>The police dispatch pipeline (see <a href="police-dispatch.html">Police Dispatch</a>) picks up the request and sends a police car with lights and sirens.</li>
+</ol>
 
 <!-- ============================================================ -->
 <h2>Key Components</h2>
 
 <h3>Criminal (Game.Citizens)</h3>
-<p>Attached to citizen entities when they become criminals. Removed when <code>m_Flags</code> becomes 0 (released/escaped).</p>
+<p>Attached to citizen entities when they become criminals. Removed when <code>m_Flags</code> becomes 0 (released/escaped). Persisted via <code>ISerializable</code>.</p>
 <table>
   <tr><th>Field</th><th>Type</th><th>Description</th></tr>
   <tr><td><code>m_Event</code></td><td>Entity</td><td>The crime event entity this criminal is participating in</td></tr>
@@ -204,13 +249,13 @@ public enum CriminalFlags : ushort
     Prisoner  = 2,     // Serving prison sentence
     Planning  = 4,     // Just became criminal, will travel next tick
     Preparing = 8,     // Traveling to crime target
-    Monitored = 0x10,  // Police monitoring active
+    Monitored = 0x10,  // Police monitoring active (instant detection)
     Arrested  = 0x20,  // Held in police station
     Sentenced = 0x40   // Sentenced to prison, awaiting transport
 }</code></pre>
 
 <h3>AddCriminal (Game.Events)</h3>
-<p>A temporary command entity that tells <code>AddCriminalSystem</code> to attach the <code>Criminal</code> component to a citizen. This is the bridge between event creation and the citizen actually becoming a criminal.</p>
+<p>A temporary command entity that tells <code>AddCriminalSystem</code> to attach the <code>Criminal</code> component to a citizen. Created by <code>InitializeSystem.InitializeCrimeEvent</code> when a new crime event is detected.</p>
 <table>
   <tr><th>Field</th><th>Type</th><th>Description</th></tr>
   <tr><td><code>m_Event</code></td><td>Entity</td><td>The crime event entity</td></tr>
@@ -218,8 +263,16 @@ public enum CriminalFlags : ushort
   <tr><td><code>m_Flags</code></td><td>CriminalFlags</td><td>Initial flags (typically <code>Robber | Planning</code>)</td></tr>
 </table>
 
+<h3>EventData (Game.Prefabs)</h3>
+<p>Stored on event prefab entities. Contains the archetype used to create event instances.</p>
+<table>
+  <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>m_Archetype</code></td><td>EntityArchetype</td><td>Archetype for event instances (Crime tag + TargetElement buffer for crimes)</td></tr>
+  <tr><td><code>m_ConcurrentLimit</code></td><td>int</td><td>Max concurrent instances (0 = unlimited)</td></tr>
+</table>
+
 <h3>CrimeProducer (Game.Buildings)</h3>
-<p>Tracks accumulated crime on a building. When <code>m_Crime</code> exceeds the tolerance threshold (default 1000), a police patrol is dispatched.</p>
+<p>Tracks accumulated crime on a building. When <code>m_Crime</code> exceeds the tolerance threshold (default 1000), a police patrol is dispatched. Note: this is separate from active crime events -- it drives patrol requests, not emergency dispatch.</p>
 <table>
   <tr><th>Field</th><th>Type</th><th>Description</th></tr>
   <tr><td><code>m_PatrolRequest</code></td><td>Entity</td><td>Active police patrol request</td></tr>
@@ -228,7 +281,7 @@ public enum CriminalFlags : ushort
 </table>
 
 <h3>AccidentSite (Game.Events)</h3>
-<p>Placed on buildings where a crime (or traffic accident) is happening. <code>CriminalSystem</code> checks whether the site is <code>Secured</code> to decide if the criminal gets arrested or completes the robbery.</p>
+<p>Placed on buildings where a crime (or traffic accident) is happening. State transitions managed by <code>AccidentSiteSystem</code> every 64 frames. <code>CriminalSystem</code> checks whether the site is <code>Secured</code> to decide if the criminal gets arrested or completes the robbery.</p>
 <table>
   <tr><th>Field</th><th>Type</th><th>Description</th></tr>
   <tr><td><code>m_Event</code></td><td>Entity</td><td>The crime/accident event entity</td></tr>
@@ -242,109 +295,208 @@ public enum CriminalFlags : ushort
 <pre><code class="language-csharp">[Flags]
 public enum AccidentSiteFlags : uint
 {
-    StageAccident   = 1,
+    StageAccident   = 1,      // Staging additional impacts (timeout 3600 frames)
     Secured         = 2,      // Police have secured the scene
     CrimeScene      = 4,      // This is a crime scene (vs traffic accident)
-    TrafficAccident = 8,
-    CrimeFinished   = 0x10,
-    CrimeDetected   = 0x20,
-    CrimeMonitored  = 0x40,
-    RequirePolice   = 0x80,
-    MovingVehicles  = 0x100
+    TrafficAccident = 8,      // This is a traffic accident
+    CrimeFinished   = 0x10,   // Crime duration expired
+    CrimeDetected   = 0x20,   // Alarm delay expired, police notified
+    CrimeMonitored  = 0x40,   // Monitored criminal, instant detection
+    RequirePolice   = 0x80,   // Police dispatch requested (set by AccidentSiteSystem)
+    MovingVehicles  = 0x100   // Involved vehicles still moving
 }</code></pre>
 
 <h3>CrimeVictim (Game.Citizens)</h3>
-<p>Enabled on citizens affected by crime. The <code>m_Effect</code> byte (0-255) reduces wellbeing. Applied to household members (effect = 15) and employees (effect = 5) of the robbed building.</p>
+<p>Enabled on citizens affected by crime. The <code>m_Effect</code> byte (0-255) reduces wellbeing. Applied to household members (effect = 15) and employees (effect = 5) of the robbed building. Implements <code>IEnableableComponent</code>.</p>
+
+<h3>CrimeData (Game.Prefabs)</h3>
+<p>Set on crime event prefab entities by the <code>Crime</code> ComponentBase. Contains all configuration for crime behavior.</p>
+<table>
+  <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+  <tr><td><code>m_RandomTargetType</code></td><td>EventTargetType</td><td>Citizen</td><td>Target type for random selection</td></tr>
+  <tr><td><code>m_CrimeType</code></td><td>CrimeType</td><td>Robbery</td><td>Only crime type in the game</td></tr>
+  <tr><td><code>m_OccurenceProbability</code></td><td>Bounds1</td><td>0 - 50</td><td>First-time crime probability range</td></tr>
+  <tr><td><code>m_RecurrenceProbability</code></td><td>Bounds1</td><td>0 - 100</td><td>Repeat offender probability range</td></tr>
+  <tr><td><code>m_AlarmDelay</code></td><td>Bounds1</td><td>5 - 10 sec</td><td>Time before police notified</td></tr>
+  <tr><td><code>m_CrimeDuration</code></td><td>Bounds1</td><td>20 - 60 sec</td><td>Time before criminal escapes</td></tr>
+  <tr><td><code>m_CrimeIncomeAbsolute</code></td><td>Bounds1</td><td>100 - 1000</td><td>Fixed money stolen</td></tr>
+  <tr><td><code>m_CrimeIncomeRelative</code></td><td>Bounds1</td><td>0 - 0.25</td><td>Percentage of victim's money</td></tr>
+  <tr><td><code>m_JailTimeRange</code></td><td>Bounds1</td><td>0.125 - 1 days</td><td>Time in police station</td></tr>
+  <tr><td><code>m_PrisonTimeRange</code></td><td>Bounds1</td><td>1 - 100 days</td><td>Prison sentence length</td></tr>
+  <tr><td><code>m_PrisonProbability</code></td><td>float</td><td>50%</td><td>Chance of jail leading to prison</td></tr>
+</table>
 
 <!-- ============================================================ -->
 <h2>Data Flow</h2>
 
-<h3>Crime Event Pipeline</h3>
+<h3>Full Crime Pipeline (5 Systems)</h3>
 
 <div class="diagram">
+<pre>
 [CrimeCheckSystem] ---- once per game day, 16 partitions ----
   |
-  |  For each eligible citizen:
+  |  For each eligible citizen (unemployed, non-student, non-sick, Teen/Adult):
   |    Roll probability based on wellbeing + population scaling
-  |    If roll succeeds:
+  |    Apply CityModifier.CrimeProbability
+  |    Check welfare coverage for repeat offenders
   |
-  +---> Create Crime Event Entity
-  |       - Crime tag component
-  |       - TargetElement buffer (citizen)
-  |       - PrefabRef (crime data prefab)
+  +---&gt; Create Crime Event Entity
+  |       - Crime tag (from EventData.m_Archetype)
+  |       - TargetElement buffer [citizen]
+  |       - PrefabRef -&gt; crime event prefab
+  |       - Created tag (auto)
+              |
+              v
+[InitializeSystem] ---- processes Created + Event entities ----
   |
-  +---> Create AddCriminal Command Entity
-          - m_Event = crime event
-          - m_Target = citizen
-          - m_Flags = Robber | Planning
-                |
-                v
-[AddCriminalSystem] ---- processes next frame ----
+  |  Detects Crime tag on event entity
+  |  Reads CrimeData from prefab: CrimeType = Robbery
+  |  For each citizen in TargetElement buffer:
+  |    Resolves Creature.Resident -&gt; Citizen if needed
+  |
+  +---&gt; Create AddCriminal Command Entity
+  |       - Game.Common.Event tag
+  |       - AddCriminal { m_Event, m_Target, Robber | Planning }
+              |
+              v
+[AddCriminalSystem] ---- processes Event + AddCriminal ----
   |
   |  Adds Criminal component to citizen entity
-  |  Links citizen to crime event's TargetElement buffer
-  |  (If citizen already criminal: merges flags)
+  |  Links citizen to crime event TargetElement buffer
+  |  (Merges flags if citizen already criminal; Prisoner takes priority)
   |
   v
 [CriminalSystem] ---- every 16 frames ----
   |
-  |  Planning:    Add TripNeeded(Purpose.Crime), transition to Preparing
-  |  Preparing:   Wait for citizen to arrive at destination
+  |  Planning:    TripNeeded(Purpose.Crime), roll Monitor, -&gt; Preparing
+  |  Preparing:   Wait for arrival at building
   |  At Target:   Create AddAccidentSite(CrimeScene) on building
-  |  Crime Scene: Check AccidentSite flags:
-  |     Secured?  --> Arrested --> Jail --> maybe Prison --> Released
-  |     Open?     --> Steal money, apply CrimeVictim --> TryEscape --> Released
+  |  Crime Scene: Check AccidentSite on CurrentBuilding:
+  |     Secured + police AtTarget?  -&gt; GoToJail -&gt; Arrested -&gt; maybe Prison -&gt; Released
+  |     CrimeScene, not finished?   -&gt; Wait
+  |     Otherwise?  -&gt; Steal money, apply CrimeVictim -&gt; TryEscape -&gt; Released
+  |
+  v
+[AccidentSiteSystem] ---- every 64 frames ----
+  |
+  |  CrimeScene + !CrimeDetected: alarm delay check -&gt; set CrimeDetected
+  |  CrimeDetected: set RequirePolice, create PoliceEmergencyRequest
+  |  CrimeScene + CrimeDetected + !CrimeFinished: duration check -&gt; set CrimeFinished
+  |  No active targets + secured + 1024 frames: remove AccidentSite
+</pre>
 </div>
 
 <h3>Crime Accumulation (Background)</h3>
 
 <div class="diagram">
+<pre>
 [CrimeAccumulationSystem] ---- periodic ----
   |
   |  For each building with CrimeProducer:
   |    crime += crimeRate * (10 - policeCoverage) / 10 * coverageFactor
   |    Apply district/city modifiers
   |
-  |  If m_Crime > tolerance (1000):
-  +---> Create PolicePatrolRequest
+  |  If m_Crime &gt; tolerance (1000):
+  +---&gt; Create PolicePatrolRequest (routine patrol, no sirens)
+</pre>
 </div>
 
 <!-- ============================================================ -->
 <h2>Examples</h2>
 
-<h3>Triggering a Crime on a Citizen (Recommended)</h3>
+<h3>Example 1: Trigger a Crime at a Specific Building</h3>
 
-<p>This mirrors the game's own approach: create a crime event entity and an <code>AddCriminal</code> command. <code>AddCriminalSystem</code> processes it on the next frame, and <code>CriminalSystem</code> drives the lifecycle from there.</p>
+<p>The most complete approach: creates a crime event, makes a citizen a criminal, and creates a crime scene at the target building. The citizen should ideally already be at the building for immediate effect.</p>
 
-<pre><code class="language-csharp">using Game.Citizens;
-using Game.Common;
-using Game.Events;
-using Game.Prefabs;
-using Unity.Collections;
-using Unity.Entities;
-
-public void TriggerCrimeOnCitizen(EntityManager entityManager, Entity citizenEntity)
+<pre><code class="language-csharp">public partial class CrimeTriggerSystem : GameSystemBase
 {
-    // Find the crime event prefab (has CrimeData + EventData).
+    private SimulationSystem m_SimulationSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_SimulationSystem = World.GetOrCreateSystemManaged&lt;SimulationSystem&gt;();
+    }
+
+    protected override void OnUpdate() { }
+
+    public void TriggerCrimeAtBuilding(
+        Entity citizenEntity,
+        Entity buildingEntity,
+        bool createCrimeScene = true)
+    {
+        // Find the crime event prefab (CrimeData + EventData).
+        var crimeQuery = EntityManager.CreateEntityQuery(
+            ComponentType.ReadOnly&lt;CrimeData&gt;(),
+            ComponentType.ReadOnly&lt;EventData&gt;(),
+            ComponentType.Exclude&lt;Locked&gt;()
+        );
+        using var prefabEntities = crimeQuery.ToEntityArray(Allocator.Temp);
+        if (prefabEntities.Length == 0) return;
+
+        Entity eventPrefab = prefabEntities[0];
+        EventData eventData = EntityManager.GetComponentData&lt;EventData&gt;(eventPrefab);
+
+        // Create crime event entity from prefab archetype (Crime tag + TargetElement).
+        Entity crimeEvent = EntityManager.CreateEntity(eventData.m_Archetype);
+        EntityManager.SetComponentData(crimeEvent, new PrefabRef(eventPrefab));
+        EntityManager.GetBuffer&lt;TargetElement&gt;(crimeEvent)
+            .Add(new TargetElement(citizenEntity));
+
+        // Create AddCriminal command (mirrors InitializeSystem.InitializeCrimeEvent).
+        Entity addCriminalCmd = EntityManager.CreateEntity(
+            ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+            ComponentType.ReadWrite&lt;AddCriminal&gt;()
+        );
+        EntityManager.SetComponentData(addCriminalCmd, new AddCriminal
+        {
+            m_Event = crimeEvent,
+            m_Target = citizenEntity,
+            m_Flags = CriminalFlags.Robber | CriminalFlags.Planning
+        });
+
+        // Optionally create crime scene at the building immediately.
+        if (createCrimeScene)
+        {
+            Entity addSiteCmd = EntityManager.CreateEntity(
+                ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+                ComponentType.ReadWrite&lt;AddAccidentSite&gt;()
+            );
+            EntityManager.SetComponentData(addSiteCmd, new AddAccidentSite
+            {
+                m_Event = crimeEvent,
+                m_Target = buildingEntity,
+                m_Flags = AccidentSiteFlags.CrimeScene
+            });
+        }
+        // AccidentSiteSystem handles: detection -&gt; police dispatch -&gt; duration
+    }
+}</code></pre>
+
+<h3>Example 2: Convert a Citizen into a Criminal</h3>
+
+<p>Creates a crime event and <code>AddCriminal</code> command. The citizen enters <code>Planning</code> state, picks a building via pathfinding, travels there, and attempts robbery. You do not control which building they target.</p>
+
+<pre><code class="language-csharp">public void MakeCitizenCriminal(EntityManager entityManager, Entity citizenEntity)
+{
     var crimeQuery = entityManager.CreateEntityQuery(
         ComponentType.ReadOnly&lt;CrimeData&gt;(),
         ComponentType.ReadOnly&lt;EventData&gt;(),
         ComponentType.Exclude&lt;Locked&gt;()
     );
-
     using var prefabEntities = crimeQuery.ToEntityArray(Allocator.Temp);
     if (prefabEntities.Length == 0) return;
 
     Entity eventPrefab = prefabEntities[0];
     EventData eventData = entityManager.GetComponentData&lt;EventData&gt;(eventPrefab);
 
-    // Create the crime event entity from the prefab's archetype.
+    // Create crime event entity.
     Entity crimeEvent = entityManager.CreateEntity(eventData.m_Archetype);
     entityManager.SetComponentData(crimeEvent, new PrefabRef(eventPrefab));
     entityManager.GetBuffer&lt;TargetElement&gt;(crimeEvent)
         .Add(new TargetElement(citizenEntity));
 
-    // Create the AddCriminal command entity.
+    // Create AddCriminal command.
     Entity cmd = entityManager.CreateEntity(
         ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
         ComponentType.ReadWrite&lt;AddCriminal&gt;()
@@ -355,91 +507,194 @@ public void TriggerCrimeOnCitizen(EntityManager entityManager, Entity citizenEnt
         m_Target = citizenEntity,
         m_Flags = CriminalFlags.Robber | CriminalFlags.Planning
     });
+    // CriminalSystem drives: Planning -&gt; Preparing -&gt; At Target -&gt; Crime/Arrest
 }</code></pre>
 
-<h3>Creating a Crime Scene at a Building</h3>
+<h3>Example 3: Immediate Crime Spawn (Direct Component Manipulation)</h3>
 
-<p>You can mark any building as an active crime scene to trigger police dispatch. This uses the same <code>AddAccidentSite</code> command pattern that <code>CriminalSystem</code> uses internally.</p>
+<p>Bypasses the event command pipeline for same-frame effect. Directly adds <code>Criminal</code> component and <code>AccidentSite</code>. Still creates a crime event entity so <code>CriminalSystem</code> can read <code>CrimeData</code> for jail times and steal amounts.</p>
 
-<pre><code class="language-csharp">using Game.Common;
-using Game.Events;
-using Unity.Entities;
-
-public void CreateCrimeSceneAtBuilding(
+<pre><code class="language-csharp">public void SpawnCrimeImmediate(
     EntityManager entityManager,
+    Entity citizenEntity,
     Entity buildingEntity,
-    Entity crimeEventEntity)
+    uint currentFrame)
 {
-    Entity cmd = entityManager.CreateEntity(
-        ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
-        ComponentType.ReadWrite&lt;AddAccidentSite&gt;()
+    var crimeQuery = entityManager.CreateEntityQuery(
+        ComponentType.ReadOnly&lt;CrimeData&gt;(),
+        ComponentType.ReadOnly&lt;EventData&gt;(),
+        ComponentType.Exclude&lt;Locked&gt;()
     );
-    entityManager.SetComponentData(cmd, new AddAccidentSite
-    {
-        m_Event = crimeEventEntity,
-        m_Target = buildingEntity,
-        m_Flags = AccidentSiteFlags.CrimeScene
-    });
-    // CriminalSystem checks AccidentSite to determine outcome:
-    //   Secured     -> criminal gets arrested
-    //   Not Secured -> criminal commits robbery and tries to escape
-}</code></pre>
+    using var prefabEntities = crimeQuery.ToEntityArray(Allocator.Temp);
+    if (prefabEntities.Length == 0) return;
 
-<h3>Reading a Citizen's Criminal State</h3>
+    Entity eventPrefab = prefabEntities[0];
+    EventData eventData = entityManager.GetComponentData&lt;EventData&gt;(eventPrefab);
 
-<pre><code class="language-csharp">using Game.Citizens;
-using Unity.Entities;
+    // Create crime event entity (needed for CrimeData reference).
+    Entity crimeEvent = entityManager.CreateEntity(eventData.m_Archetype);
+    entityManager.SetComponentData(crimeEvent, new PrefabRef(eventPrefab));
+    entityManager.GetBuffer&lt;TargetElement&gt;(crimeEvent)
+        .Add(new TargetElement(citizenEntity));
 
-public string GetCriminalStatus(EntityManager entityManager, Entity citizenEntity)
-{
+    // Directly add Criminal component (skip Planning/Preparing).
     if (!entityManager.HasComponent&lt;Criminal&gt;(citizenEntity))
-        return "Not a criminal";
+    {
+        entityManager.AddComponentData(citizenEntity, new Criminal
+        {
+            m_Event = crimeEvent,
+            m_JailTime = 0,
+            m_Flags = CriminalFlags.Robber
+        });
+    }
 
-    Criminal criminal = entityManager.GetComponentData&lt;Criminal&gt;(citizenEntity);
-    CriminalFlags flags = criminal.m_Flags;
-
-    if (flags == 0) return "Released (pending removal)";
-
-    if ((flags &amp; CriminalFlags.Prisoner) != 0)
-        return $"In prison, {criminal.m_JailTime} ticks remaining";
-
-    if ((flags &amp; CriminalFlags.Arrested) != 0 &amp;&amp; (flags &amp; CriminalFlags.Sentenced) != 0)
-        return "Sentenced, awaiting prison transport";
-
-    if ((flags &amp; CriminalFlags.Arrested) != 0)
-        return $"Arrested, in jail for {criminal.m_JailTime} more ticks";
-
-    if ((flags &amp; CriminalFlags.Planning) != 0)
-        return "Planning crime (will start traveling next tick)";
-
-    if ((flags &amp; CriminalFlags.Preparing) != 0)
-        return "Traveling to crime target";
-
-    if ((flags &amp; CriminalFlags.Robber) != 0)
-        return "At crime target, committing robbery";
-
-    return $"Unknown state: flags={flags}";
+    // Directly add AccidentSite to building.
+    if (!entityManager.HasComponent&lt;AccidentSite&gt;(buildingEntity))
+    {
+        entityManager.AddComponentData(buildingEntity, new AccidentSite
+        {
+            m_Event = crimeEvent,
+            m_PoliceRequest = Entity.Null,
+            m_Flags = AccidentSiteFlags.CrimeScene,
+            m_CreationFrame = currentFrame,
+            m_SecuredFrame = 0
+        });
+    }
+    // CriminalSystem processes on next 16-frame tick.
+    // AccidentSiteSystem manages detection + police dispatch.
 }</code></pre>
 
-<h3>Calculating Crime Probability from Wellbeing</h3>
+<h3>Example 4: Listen for Crime Events (Observer System)</h3>
 
-<pre><code class="language-csharp">using Unity.Mathematics;
-
-public float CalculateCrimeProbabilityFactor(byte wellBeing)
+<pre><code class="language-csharp">public partial class CrimeObserverSystem : GameSystemBase
 {
-    float t;
-    if (wellBeing &lt;= 25)
+    private EntityQuery m_NewCrimeQuery;
+    private EntityQuery m_CriminalQuery;
+
+    protected override void OnCreate()
     {
-        // Low wellbeing: linear. 0 = max crime, 25 = threshold.
-        t = (float)wellBeing / 25f;
+        base.OnCreate();
+        m_NewCrimeQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Events.Crime&gt;(),
+            ComponentType.ReadOnly&lt;Created&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
+        m_CriminalQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Criminal&gt;(),
+            ComponentType.ReadOnly&lt;Citizen&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;()
+        );
     }
-    else
+
+    public override int GetUpdateInterval(SystemUpdatePhase phase) =&gt; 16;
+
+    protected override void OnUpdate()
     {
-        // Higher wellbeing: quadratic falloff. Drops sharply.
-        t = (float)(100 - wellBeing) / 75f;
-        t *= t;
+        // Detect new crime events
+        if (!m_NewCrimeQuery.IsEmptyIgnoreFilter)
+        {
+            var newCrimes = m_NewCrimeQuery.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i &lt; newCrimes.Length; i++)
+            {
+                if (EntityManager.TryGetBuffer&lt;TargetElement&gt;(
+                    newCrimes[i], true, out var targets))
+                {
+                    for (int j = 0; j &lt; targets.Length; j++)
+                    {
+                        Log.Info($"Crime targeting citizen {targets[j].m_Entity}");
+                    }
+                }
+            }
+            newCrimes.Dispose();
+        }
+
+        // Monitor criminal state changes
+        var criminals = m_CriminalQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; criminals.Length; i++)
+        {
+            Criminal c = EntityManager.GetComponentData&lt;Criminal&gt;(criminals[i]);
+            if ((c.m_Flags &amp; CriminalFlags.Arrested) != 0
+                &amp;&amp; (c.m_Flags &amp; CriminalFlags.Sentenced) == 0)
+            {
+                Log.Info($"Citizen {criminals[i]} arrested, " +
+                         $"jail: {c.m_JailTime} ticks");
+            }
+        }
+        criminals.Dispose();
     }
-    return t;
+}</code></pre>
+
+<h3>Example 5: Modify Crime Probability and Timing</h3>
+
+<p>Change crime frequency by modifying <code>CrimeData</code> on the prefab entity at runtime. This is the safest approach -- works through the game's normal systems.</p>
+
+<pre><code class="language-csharp">public partial class CrimeProbabilityModifierSystem : GameSystemBase
+{
+    protected override void OnCreate() { base.OnCreate(); }
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Multiplies crime probability ranges by a factor.
+    /// factor &gt; 1 = more crime, factor &lt; 1 = less crime, 0 = no crime.
+    /// &lt;/summary&gt;
+    public void SetCrimeProbabilityMultiplier(float factor)
+    {
+        var query = EntityManager.CreateEntityQuery(
+            ComponentType.ReadWrite&lt;CrimeData&gt;(),
+            ComponentType.ReadOnly&lt;EventData&gt;(),
+            ComponentType.Exclude&lt;Locked&gt;()
+        );
+        using var entities = query.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            CrimeData data = EntityManager.GetComponentData&lt;CrimeData&gt;(entities[i]);
+            data.m_OccurenceProbability.min *= factor;
+            data.m_OccurenceProbability.max *= factor;
+            data.m_RecurrenceProbability.min *= factor;
+            data.m_RecurrenceProbability.max *= factor;
+            EntityManager.SetComponentData(entities[i], data);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Changes alarm delay (time before police are notified).
+    /// &lt;/summary&gt;
+    public void SetAlarmDelay(float minSeconds, float maxSeconds)
+    {
+        var query = EntityManager.CreateEntityQuery(
+            ComponentType.ReadWrite&lt;CrimeData&gt;(),
+            ComponentType.ReadOnly&lt;EventData&gt;(),
+            ComponentType.Exclude&lt;Locked&gt;()
+        );
+        using var entities = query.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            CrimeData data = EntityManager.GetComponentData&lt;CrimeData&gt;(entities[i]);
+            data.m_AlarmDelay.min = minSeconds;
+            data.m_AlarmDelay.max = maxSeconds;
+            EntityManager.SetComponentData(entities[i], data);
+        }
+    }
+
+    /// &lt;summary&gt;
+    /// Changes crime duration (how long before criminal finishes and escapes).
+    /// &lt;/summary&gt;
+    public void SetCrimeDuration(float minSeconds, float maxSeconds)
+    {
+        var query = EntityManager.CreateEntityQuery(
+            ComponentType.ReadWrite&lt;CrimeData&gt;(),
+            ComponentType.ReadOnly&lt;EventData&gt;(),
+            ComponentType.Exclude&lt;Locked&gt;()
+        );
+        using var entities = query.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            CrimeData data = EntityManager.GetComponentData&lt;CrimeData&gt;(entities[i]);
+            data.m_CrimeDuration.min = minSeconds;
+            data.m_CrimeDuration.max = maxSeconds;
+            EntityManager.SetComponentData(entities[i], data);
+        }
+    }
 }</code></pre>
 
 <!-- ============================================================ -->
@@ -450,20 +705,20 @@ public float CalculateCrimeProbabilityFactor(byte wellBeing)
   <tr><th>Value</th><th>Default</th><th>Notes</th></tr>
   <tr><td>Occurrence probability</td><td>0 - 50</td><td>First-time crime chance range</td></tr>
   <tr><td>Recurrence probability</td><td>0 - 100</td><td>Repeat offender chance range</td></tr>
-  <tr><td>Alarm delay</td><td>5 - 10 sec</td><td>Time before police are notified</td></tr>
-  <tr><td>Crime duration</td><td>20 - 60 sec</td><td>How long the crime lasts</td></tr>
+  <tr><td>Alarm delay</td><td>5 - 10 sec</td><td>Time before police are notified (modified by CrimeResponseTime)</td></tr>
+  <tr><td>Crime duration</td><td>20 - 60 sec</td><td>How long the crime lasts before criminal escapes</td></tr>
   <tr><td>Steal amount (absolute)</td><td>100 - 1000</td><td>Fixed money stolen</td></tr>
   <tr><td>Steal amount (relative)</td><td>0 - 25%</td><td>Percentage of victim's money</td></tr>
   <tr><td>Jail time</td><td>0.125 - 1 days</td><td>Time held in police station</td></tr>
   <tr><td>Prison time</td><td>1 - 100 days</td><td>Sentence if convicted</td></tr>
-  <tr><td>Prison probability</td><td>50%</td><td>Chance of jail leading to prison</td></tr>
+  <tr><td>Prison probability</td><td>50%</td><td>Chance of jail leading to prison (modified by PrisonTime modifier)</td></tr>
 </table>
 
 <h3>Police Configuration (PoliceConfigurationData)</h3>
 <table>
   <tr><th>Value</th><th>Default</th><th>Notes</th></tr>
   <tr><td>Max crime accumulation</td><td>100,000</td><td>Cap on building crime counter</td></tr>
-  <tr><td>Crime accumulation tolerance</td><td>1,000</td><td>Threshold for police dispatch</td></tr>
+  <tr><td>Crime accumulation tolerance</td><td>1,000</td><td>Threshold for police patrol dispatch</td></tr>
   <tr><td>Home crime effect</td><td>15</td><td>CrimeVictim wellbeing impact on household</td></tr>
   <tr><td>Workplace crime effect</td><td>5</td><td>CrimeVictim wellbeing impact on employees</td></tr>
   <tr><td>Welfare recurrence factor</td><td>0.4</td><td>Welfare coverage reduces repeat crime</td></tr>
@@ -478,29 +733,46 @@ public float CalculateCrimeProbabilityFactor(byte wellBeing)
 </table>
 <p>Set per zone type via the <code>CrimeAccumulation</code> ComponentBase on zone/service prefabs.</p>
 
+<h3>System Update Intervals</h3>
+<table>
+  <tr><th>System</th><th>Interval</th><th>Notes</th></tr>
+  <tr><td>CrimeCheckSystem</td><td>16384 frames</td><td>Once per game day (16 partitions)</td></tr>
+  <tr><td>InitializeSystem</td><td>Every frame</td><td>Processes Created + Event entities</td></tr>
+  <tr><td>AddCriminalSystem</td><td>Every frame</td><td>Processes AddCriminal commands</td></tr>
+  <tr><td>CriminalSystem</td><td>16 frames</td><td>Criminal lifecycle state machine</td></tr>
+  <tr><td>AccidentSiteSystem</td><td>64 frames</td><td>Crime scene state transitions</td></tr>
+  <tr><td>CrimeAccumulationSystem</td><td>16384 frames</td><td>Background crime accumulation</td></tr>
+</table>
+
 <!-- ============================================================ -->
 <h2>Patch Points</h2>
 
 <h3>CrimeCheckSystem.OnUpdate</h3>
 <p><strong>Patch type:</strong> Prefix / Postfix</p>
-<p><strong>Enables:</strong> Override crime probability calculations, force specific citizens to become criminals, or prevent crime entirely.</p>
+<p><strong>Enables:</strong> Override crime probability calculations, force specific citizens to become criminals, or prevent crime entirely. Can also toggle <code>debugFullCrimeMode</code> field to bypass all probability checks.</p>
 <p><strong>Risk:</strong> Medium. Changing crime frequency affects police dispatch, statistics, and citizen wellbeing.</p>
+
+<h3>InitializeSystem.InitializeCrimeEvent</h3>
+<p><strong>Patch type:</strong> Prefix / Postfix</p>
+<p><strong>Enables:</strong> Intercept crime event initialization, modify which citizens become criminals, prevent <code>AddCriminal</code> command creation, or inject additional criminals into existing crime events.</p>
+<p><strong>Risk:</strong> Low. Runs on main thread, not BurstCompiled. Blocking this prevents criminals from being created even when crime events exist.</p>
 
 <h3>CriminalSystem.CriminalJob.Execute</h3>
 <p><strong>Patch type:</strong> Prefix (difficult -- BurstCompiled)</p>
 <p><strong>Enables:</strong> Modify criminal behavior (skip arrest, change steal amounts, alter state transitions).</p>
 <p><strong>Risk:</strong> High. BurstCompiled job -- Harmony patches may not work directly. Breaking the state machine can leave criminals in invalid states.</p>
 
-<h3>CrimeCheckSystem.CrimeCheckJob.TryAddCrime</h3>
+<h3>AccidentSiteSystem.AccidentSiteJob.Execute</h3>
 <p><strong>Patch type:</strong> Prefix (difficult -- BurstCompiled)</p>
-<p><strong>Enables:</strong> Override the wellbeing-to-crime probability curve.</p>
-<p><strong>Risk:</strong> High. BurstCompiled. Consider the ECS approach instead -- modify citizen wellbeing directly or create event entities.</p>
+<p><strong>Enables:</strong> Modify crime detection timing, police request creation, or crime duration.</p>
+<p><strong>Risk:</strong> High. BurstCompiled. Consider modifying <code>CrimeData</code> on the prefab instead.</p>
 
 <!-- ============================================================ -->
 <h2>Open Questions</h2>
 
 <ul>
-  <li>What system processes <code>AccidentSite</code> state transitions (<code>CrimeDetected</code>, <code>CrimeFinished</code>, etc.)?</li>
+  <li>How does <code>Purpose.Crime</code> trip pathfinding select the target building? The <code>TripNeeded</code> with <code>Purpose.Crime</code> is consumed by the citizen movement system, but the exact building selection logic is in the trip/pathfinding system and not traced here.</li>
+  <li>Can a mod add new <code>CrimeType</code> enum values and have them processed by <code>CriminalSystem</code>? Currently only <code>Robbery</code> exists and the steal logic has <code>if (crimeType == CrimeType.Robbery)</code> guard.</li>
 </ul>
 
 <!-- ============================================================ -->
@@ -509,14 +781,14 @@ public float CalculateCrimeProbabilityFactor(byte wellBeing)
 <table>
   <tr><th>Assembly</th><th>Namespace</th><th>Key Types</th></tr>
   <tr><td>Game.dll</td><td>Game.Citizens</td><td><code>Criminal</code>, <code>CriminalFlags</code>, <code>CrimeVictim</code></td></tr>
-  <tr><td>Game.dll</td><td>Game.Events</td><td><code>Crime</code> (tag), <code>AddCriminal</code>, <code>AccidentSite</code>, <code>AccidentSiteFlags</code>, <code>AddAccidentSite</code></td></tr>
+  <tr><td>Game.dll</td><td>Game.Events</td><td><code>Crime</code> (tag), <code>AddCriminal</code>, <code>AddCriminalSystem</code>, <code>InitializeSystem</code>, <code>AccidentSite</code>, <code>AccidentSiteFlags</code>, <code>AddAccidentSite</code>, <code>TargetElement</code></td></tr>
   <tr><td>Game.dll</td><td>Game.Buildings</td><td><code>CrimeProducer</code></td></tr>
-  <tr><td>Game.dll</td><td>Game.Simulation</td><td><code>CrimeCheckSystem</code>, <code>CriminalSystem</code>, <code>CrimeAccumulationSystem</code></td></tr>
-  <tr><td>Game.dll</td><td>Game.Prefabs</td><td><code>CrimeData</code>, <code>CrimeType</code>, <code>PoliceConfigurationData</code>, <code>CrimeAccumulationData</code></td></tr>
+  <tr><td>Game.dll</td><td>Game.Simulation</td><td><code>CrimeCheckSystem</code>, <code>CriminalSystem</code>, <code>CrimeAccumulationSystem</code>, <code>AccidentSiteSystem</code></td></tr>
+  <tr><td>Game.dll</td><td>Game.Prefabs</td><td><code>CrimeData</code>, <code>CrimeType</code>, <code>EventData</code>, <code>PoliceConfigurationData</code>, <code>CrimeAccumulationData</code>, <code>Crime</code> (ComponentBase)</td></tr>
 </table>
 
 <footer>
-  <p>Source: Decompiled from Game.dll (Cities: Skylines II)</p>
+  <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd. Full systems decompiled: CrimeCheckSystem, CriminalSystem, AddCriminalSystem, InitializeSystem (InitializeCrimeEvent), AccidentSiteSystem.</p>
   <div class="attribution-footer">
     <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
   </div>
