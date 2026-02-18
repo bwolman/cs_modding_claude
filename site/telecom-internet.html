@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Telecom &amp; Internet Service - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="telecom-internet.html" class="active">Telecom &amp; Internet</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+    <a href="mail-post-service.html">Mail &amp; Post Service</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+    <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+    <a href="notifications-advisor.html">Notifications &amp; Advisor</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Telecom &amp; Internet Service -- Deep Dive</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 simulate telecom/internet service -- tower coverage,
+      signal propagation, network capacity, and the effect on building efficiency?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Telecom in CS2 uses a dedicated <strong>128x128 cell map</strong>
+      (<code>CellMapSystem&lt;TelecomCoverage&gt;</code>) that is completely independent from the
+      general <code>ServiceCoverageSystem</code> used by police, fire, healthcare, etc. Each cell
+      stores two bytes: <code>m_SignalStrength</code> and <code>m_NetworkLoad</code>. Signal strength
+      follows a <strong>quadratic falloff</strong> from each tower (<code>1 - (distance/range)^2</code>),
+      with optional terrain obstruction. Network capacity is distributed across cells weighted by
+      signal, then divided by local population density (citizens + employees). Buildings with
+      <code>TelecomConsumer</code> receive an efficiency penalty when local network quality drops
+      below a global baseline threshold.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> The rendering pipeline for the telecom info view overlay texture,
+      the general <code>ServiceCoverageSystem</code> (telecom has its own system), and satellite
+      uplink cosmetic animations.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The telecom system consists of three layers: <strong>facility placement</strong> (towers with
+    range and capacity), <strong>coverage calculation</strong> (a cell map of signal and load), and
+    <strong>efficiency impact</strong> (buildings lose productivity without coverage). Unlike
+    electricity and water which flow through physical networks, telecom is a <strong>wireless
+    area-of-effect</strong> system -- towers broadcast signal in a radius, and buildings sample
+    coverage at their position.
+  </p>
+
+  <h3>The Coverage Grid</h3>
+
+  <p>
+    <code>TelecomCoverageSystem</code> maintains a 128x128 cell map covering the entire playable
+    area. Each cell stores:
+  </p>
+
+  <ul>
+    <li><strong><code>m_SignalStrength</code></strong> (byte, 0-255): Combined signal from all
+    towers reaching this cell. Multiple towers contribute via a <strong>multiplicative
+    combination</strong>: <code>1 - (1 - existing) * (1 - new)</code>, so overlapping coverage
+    approaches 1.0 but never exceeds it.</li>
+    <li><strong><code>m_NetworkLoad</code></strong> (byte, 0-255): How congested the network is at
+    this cell. Computed as <code>127.5 / max(0.0001, networkCapacity)</code> where capacity is the
+    tower's capacity distributed proportionally by signal strength and divided by the number of
+    users in range.</li>
+  </ul>
+
+  <p>
+    The <strong>network quality</strong> at any position is sampled via bilinear interpolation
+    across 4 cells: <code>min(1, signalStrength / (127.5 + networkLoad))</code>. A value of
+    1.0 means perfect coverage; 0.0 means no signal.
+  </p>
+
+  <h3>Signal Propagation</h3>
+
+  <p>
+    Each tower computes signal for every cell within its range using a quadratic falloff:
+  </p>
+
+  <pre><code class="language-csharp">float CalculateSignalStrength(float distance, float range)
+{
+    float normalized = distance / range;
+    return 1f - normalized * normalized;  // Quadratic falloff
+}</code></pre>
+
+  <p>
+    The tower's position is at its <code>Transform</code> plus the building's geometry height
+    (<code>ObjectGeometryData.m_Size.y</code>), so taller buildings transmit from higher up.
+  </p>
+
+  <p>
+    If <code>TelecomFacilityData.m_PenetrateTerrain</code> is <code>false</code> (the default),
+    the system performs <strong>terrain obstruction</strong> calculations. Starting from the tower's
+    cell, it spirals outward comparing the slope angle from the tower top to the terrain at each
+    cell. If terrain rises above the line-of-sight, the signal is attenuated. This means towers
+    on hilltops provide better coverage, and valleys behind ridges get weaker signal.
+  </p>
+
+  <h3>Network Capacity Distribution</h3>
+
+  <p>
+    Each tower has a <code>m_NetworkCapacity</code> value (default: 10,000). This capacity is
+    distributed across all cells the tower covers, <strong>weighted by signal strength</strong>
+    relative to the accumulated signal from all towers at each cell. The capacity at a cell is then
+    divided by the number of <strong>network users</strong> (household citizens + employees) in that cell.
+  </p>
+
+  <p>
+    This creates realistic behavior: areas with many users and few towers get congested (high
+    <code>m_NetworkLoad</code>), while areas with strong signal and few users have abundant bandwidth.
+  </p>
+
+  <h3>Building Efficiency Impact</h3>
+
+  <p>
+    <code>TelecomEfficiencySystem</code> runs 512 times per game day (staggered across buildings).
+    For each building with a <code>TelecomConsumer</code> component, it samples the network quality
+    at the building's position and computes an efficiency factor:
+  </p>
+
+  <pre><code class="language-csharp">float GetTelecomEfficiency(float3 position, float telecomNeed)
+{
+    float quality = TelecomCoverage.SampleNetworkQuality(coverage, position);
+    float baseline = m_EfficiencyParameters.m_TelecomBaseline;
+    float penalty = 0f;
+    if (quality &lt; baseline)
+    {
+        float deficit = 1f - quality / baseline;
+        penalty = deficit * deficit * -0.01f * telecomNeed;
+    }
+    return 1f + penalty;
+}</code></pre>
+
+  <p>
+    The penalty is <strong>quadratic</strong> -- small coverage deficits have minimal impact, but
+    going from some coverage to no coverage has a dramatically increasing effect. The
+    <code>telecomNeed</code> value from the building's <code>ConsumptionData</code> scales the penalty,
+    so office buildings (high telecom need) are hurt much more by poor coverage than residential
+    buildings (lower need).
+  </p>
+
+  <p>
+    The system checks whether the telecom service prefab is <code>Locked</code> (not yet unlocked
+    in the milestone tree) and skips all processing if so, meaning buildings do not suffer telecom
+    penalties until the player unlocks telecom infrastructure.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>TelecomCoverageSystem, TelecomEfficiencySystem, TelecomFacilityAISystem, TelecomCoverage, TelecomStatus</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>TelecomFacility (component), TelecomFacilityFlags, TelecomConsumer, EfficiencyFactor.Telecom</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>TelecomFacilityData, TelecomParameterData, TelecomFacility (prefab), TelecomPrefab, ConsumptionData.m_TelecomNeed, BuildingEfficiencyParameterData.m_TelecomBaseline</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs.Modes</td>
+        <td>TelecomFacilityMode (difficulty/mode multipliers for range and capacity)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Tools</td>
+        <td>TelecomPreviewSystem (recalculates coverage during facility placement)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.UI.InGame</td>
+        <td>TelecomInfoviewUISystem (telecomInfo.networkAvailability binding)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.City</td>
+        <td>CityModifierType.TelecomCapacity (value 19)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Common</td>
+        <td>PointOfInterest (antenna pointing animation)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>TelecomCoverage (Game.Simulation)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_SignalStrength</td><td>byte</td><td>Signal strength at this cell (0-255)</td></tr>
+      <tr><td>m_NetworkLoad</td><td>byte</td><td>Network congestion at this cell (0-255). Lower = less congested.</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Network quality formula (integer):</strong>
+    <code>signalStrength * 510 / (255 + networkLoad * 2)</code>.
+    When <code>networkLoad = 0</code>, quality approaches <code>signalStrength * 2</code>.
+    When <code>networkLoad = 255</code>, quality is reduced to ~67% of signal strength.
+  </p>
+
+  <h3>TelecomStatus (Game.Simulation)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Capacity</td><td>float</td><td>Total network capacity across all facilities</td></tr>
+      <tr><td>m_Load</td><td>float</td><td>Total users (population density weighted by signal)</td></tr>
+      <tr><td>m_Quality</td><td>float</td><td>Population-weighted average quality across all cells (0-1)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TelecomFacilityData (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Default</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Range</td><td>float</td><td>1000</td><td>Coverage radius in meters</td></tr>
+      <tr><td>m_NetworkCapacity</td><td>float</td><td>10000</td><td>Bandwidth capacity units</td></tr>
+      <tr><td>m_PenetrateTerrain</td><td>bool</td><td>false</td><td>If true, signal ignores terrain obstruction</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Implements <code>ICombineData</code>: upgrades add their range and capacity to the base.
+    <code>m_PenetrateTerrain</code> is OR'd (any upgrade enabling it enables it for the whole facility).
+  </p>
+
+  <h3>TelecomFacility (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Flags</td><td>TelecomFacilityFlags</td><td>State flags (only HasCoverage = 0x01)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TelecomConsumer (Game.Buildings)</h3>
+
+  <p>
+    Empty marker component (1 byte). Added automatically to any building whose prefab has
+    <code>ConsumptionData.m_TelecomNeed &gt; 0</code>. Its presence causes the building to be
+    queried by <code>TelecomEfficiencySystem</code>.
+  </p>
+
+  <h3>TelecomParameterData (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TelecomServicePrefab</td><td>Entity</td><td>Telecom service prefab -- checked for <code>Locked</code> state to gate efficiency system</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+TELECOM FACILITY PREFABS
+    m_Range (default 1000m), m_NetworkCapacity (default 10000)
+    m_PenetrateTerrain (default false)
+    |
+    v
+TelecomFacilityAISystem (every 256 frames, offset 208)
+    Sets TelecomFacilityFlags.HasCoverage on active facilities
+    Randomizes PointOfInterest for antenna animation
+    |
+    v
+TelecomCoverageSystem (every 4096 frames)
+    |
+    +-- Phase 1: AddDensity
+    |     Counts HouseholdCitizen + Employee per 128x128 cell
+    |     -> CellDensityData.m_Density (ushort, max 65535)
+    |
+    +-- Phase 2: CalculateSignalStrength
+    |     Per facility, per cell in range:
+    |       signal = 1 - (distance/range)^2
+    |       Range scaled by sqrt(buildingEfficiency)
+    |       If !PenetrateTerrain: terrain obstruction applied
+    |       CityModifier.TelecomCapacity applied to capacity
+    |     Signal combination: 1 - (1-existing)*(1-new)
+    |     -> CellFacilityData.m_SignalStrength, m_AccumulatedSignalStrength
+    |
+    +-- Phase 3: AddNetworkCapacity
+    |     Per facility: users = density * (signal / accumulatedSignal)
+    |     capacity_at_cell = facilityCapacity / max(1, users)
+    |     -> CellFacilityData.m_NetworkCapacity
+    |     -> TelecomStatus.m_Capacity, m_Load
+    |
+    +-- Phase 4: CalculateTelecomCoverage
+    |     m_SignalStrength = (byte)clamp(signalStrength * 255, 0, 255)
+    |     m_NetworkLoad = (byte)clamp(127.5 / max(0.0001, capacity), 0, 255)
+    |     -> CellMap&lt;TelecomCoverage&gt; (128x128)
+    |
+    +-- Phase 5: CalculateTelecomQuality
+          quality = min(1, signal*2 / (1 + 1/capacity))
+          Weighted by population density
+          -> TelecomStatus.m_Quality
+    |
+    v
+128x128 CellMap&lt;TelecomCoverage&gt;
+    |
+    +--> TelecomEfficiencySystem (every 32 frames, 512/day)
+    |      For each building with TelecomConsumer:
+    |        quality = SampleNetworkQuality(position)  [bilinear interpolation]
+    |        if quality &lt; m_TelecomBaseline:
+    |          deficit = 1 - quality/baseline
+    |          penalty = deficit^2 * -0.01 * telecomNeed
+    |        Sets EfficiencyFactor.Telecom on building
+    |        |
+    |        v
+    |      Building efficiency affects production, services, happiness
+    |
+    +--> TelecomInfoviewUISystem
+    |      Exposes telecomInfo.networkAvailability to UI
+    |
+    +--> TelecomPreviewSystem (tool mode)
+           Recalculates when placing/moving telecom facilities
+           Shows coverage preview before confirming placement
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Signal Propagation Details</h2>
+
+  <h3>Quadratic Falloff</h3>
+
+  <p>
+    The signal strength formula <code>1 - (d/r)^2</code> produces a smooth falloff that is
+    strong near the tower and drops rapidly near the edge:
+  </p>
+
+  <ul>
+    <li>At 0% of range: signal = 1.0 (100%)</li>
+    <li>At 50% of range: signal = 0.75 (75%)</li>
+    <li>At 70% of range: signal = 0.51 (51%)</li>
+    <li>At 90% of range: signal = 0.19 (19%)</li>
+    <li>At 100% of range: signal = 0.0 (0%)</li>
+  </ul>
+
+  <h3>Terrain Obstruction</h3>
+
+  <p>
+    When <code>m_PenetrateTerrain</code> is <code>false</code>, the system performs line-of-sight
+    checks from the tower to each cell. The algorithm:
+  </p>
+
+  <ol>
+    <li>Start from the tower's cell and spiral outward</li>
+    <li>For each cell, compute the slope angle from the tower top to the terrain height at the cell</li>
+    <li>Compare this slope against the "obstruction slope" propagated from neighboring cells closer to the tower</li>
+    <li>If terrain rises above the line-of-sight (slope exceeds threshold), signal is attenuated</li>
+    <li>The attenuation uses a smooth transition: <code>saturate((obstructSlope - currentSlope) * 20 + 1)</code></li>
+  </ol>
+
+  <p>
+    The tower height includes the building geometry (<code>ObjectGeometryData.m_Size.y</code>),
+    so taller towers naturally clear more terrain obstacles.
+  </p>
+
+  <h3>Efficiency Scaling</h3>
+
+  <p>
+    Building efficiency affects the tower's effective parameters:
+  </p>
+
+  <pre><code class="language-csharp">// Range uses square root of efficiency (gentler reduction)
+componentData.m_Range *= math.sqrt(efficiencyFactor);
+// Capacity uses linear efficiency (direct proportion)
+componentData.m_NetworkCapacity *= efficiencyFactor;</code></pre>
+
+  <p>
+    The <code>CityModifierType.TelecomCapacity</code> modifier is applied to network capacity,
+    meaning city-wide bonuses (from policies or milestones) can boost all tower capacity.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Modify Telecom Facility Range and Capacity</h3>
+
+  <p>
+    Modify range and capacity of all telecom facility prefabs at game load time. This is the
+    simplest approach -- change the prefab data and all existing and future towers use the new values.
+  </p>
+
+  <pre><code class="language-csharp">public partial class TelecomPrefabModifierSystem : GameSystemBase
+{
+    private PrefabSystem m_PrefabSystem;
+    private EntityQuery m_TelecomPrefabQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_PrefabSystem = World.GetOrCreateSystemManaged&lt;PrefabSystem&gt;();
+        m_TelecomPrefabQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;TelecomFacilityData&gt;(),
+            ComponentType.ReadOnly&lt;PrefabData&gt;()
+        );
+        RequireForUpdate(m_TelecomPrefabQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        // Run once then disable
+        Enabled = false;
+
+        var entities = m_TelecomPrefabQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            TelecomFacilityData data =
+                EntityManager.GetComponentData&lt;TelecomFacilityData&gt;(entities[i]);
+
+            // Double the range, triple the capacity
+            data.m_Range *= 2f;
+            data.m_NetworkCapacity *= 3f;
+
+            // Enable terrain penetration for all towers
+            data.m_PenetrateTerrain = true;
+
+            EntityManager.SetComponentData(entities[i], data);
+        }
+        entities.Dispose();
+
+        Log.Info($"Modified {entities.Length} telecom facility prefabs");
+    }
+}</code></pre>
+
+  <h3>Example 2: Sample Telecom Coverage at a Position</h3>
+
+  <p>
+    Read the telecom coverage quality at any world position using the 128x128 cell map.
+    Useful for custom systems that need to check connectivity.
+  </p>
+
+  <pre><code class="language-csharp">public partial class TelecomCoverageReaderSystem : GameSystemBase
+{
+    private TelecomCoverageSystem m_TelecomCoverageSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_TelecomCoverageSystem =
+            World.GetOrCreateSystemManaged&lt;TelecomCoverageSystem&gt;();
+    }
+
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Get the network quality (0.0-1.0) at a world position.
+    /// Must be called from main thread outside of jobs.
+    /// &lt;/summary&gt;
+    public float GetNetworkQualityAt(float3 worldPosition)
+    {
+        JobHandle dependencies;
+        CellMapData&lt;TelecomCoverage&gt; coverageData =
+            m_TelecomCoverageSystem.GetData(readOnly: true, out dependencies);
+        dependencies.Complete();
+
+        return TelecomCoverage.SampleNetworkQuality(coverageData, worldPosition);
+    }
+
+    /// &lt;summary&gt;
+    /// Check if a building has adequate telecom coverage.
+    /// Returns true if quality &gt;= baseline (no efficiency penalty).
+    /// &lt;/summary&gt;
+    public bool HasAdequateCoverage(float3 position, float baseline)
+    {
+        return GetNetworkQualityAt(position) &gt;= baseline;
+    }
+}</code></pre>
+
+  <h3>Example 3: Monitor Building Telecom Connectivity</h3>
+
+  <p>
+    Query all buildings with <code>TelecomConsumer</code> and check their current telecom
+    efficiency factor to monitor service quality across the city.
+  </p>
+
+  <pre><code class="language-csharp">public partial class TelecomConnectivityMonitorSystem : GameSystemBase
+{
+    private EntityQuery m_ConsumerQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_ConsumerQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;TelecomConsumer&gt;(),
+            ComponentType.ReadOnly&lt;Building&gt;(),
+            ComponentType.ReadOnly&lt;Efficiency&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = m_ConsumerQuery.ToEntityArray(Allocator.Temp);
+        int connected = 0;
+        int degraded = 0;
+        int noService = 0;
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            DynamicBuffer&lt;Efficiency&gt; efficiencies =
+                EntityManager.GetBuffer&lt;Efficiency&gt;(entities[i]);
+
+            float telecomEfficiency = BuildingUtils.GetEfficiency(
+                efficiencies, EfficiencyFactor.Telecom);
+
+            if (telecomEfficiency &gt;= 1f)
+                connected++;
+            else if (telecomEfficiency &gt; 0.5f)
+                degraded++;
+            else
+                noService++;
+        }
+
+        if (degraded &gt; 0 || noService &gt; 0)
+        {
+            Log.Info($"Telecom: {connected} connected, {degraded} degraded, " +
+                     $"{noService} no service (of {entities.Length} consumers)");
+        }
+
+        entities.Dispose();
+    }
+
+    public override int GetUpdateInterval(SystemUpdatePhase phase) =&gt; 1024;
+}</code></pre>
+
+  <h3>Example 4: Adjust Telecom Baseline Threshold</h3>
+
+  <p>
+    Modify the global <code>m_TelecomBaseline</code> parameter to change when buildings start
+    suffering efficiency penalties. Lowering this value makes the game more forgiving about
+    telecom coverage.
+  </p>
+
+  <pre><code class="language-csharp">public partial class TelecomBaselineModifierSystem : GameSystemBase
+{
+    private EntityQuery m_ParameterQuery;
+    private float m_TargetBaseline = 0.3f; // Lower = more forgiving
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_ParameterQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;BuildingEfficiencyParameterData&gt;()
+        );
+        RequireForUpdate(m_ParameterQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        Enabled = false; // Run once
+
+        var entities = m_ParameterQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            BuildingEfficiencyParameterData data =
+                EntityManager.GetComponentData&lt;BuildingEfficiencyParameterData&gt;(
+                    entities[i]);
+
+            float original = data.m_TelecomBaseline;
+            data.m_TelecomBaseline = m_TargetBaseline;
+
+            EntityManager.SetComponentData(entities[i], data);
+            Log.Info($"Telecom baseline: {original} -&gt; {m_TargetBaseline}");
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 5: Custom Coverage Calculation via Cell Map Access</h3>
+
+  <p>
+    Read the raw telecom cell map to compute custom statistics -- for example, counting how many
+    cells have coverage above a threshold, or finding the weakest coverage area.
+  </p>
+
+  <pre><code class="language-csharp">public partial class TelecomCoverageAnalysisSystem : GameSystemBase
+{
+    private TelecomCoverageSystem m_TelecomCoverageSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_TelecomCoverageSystem =
+            World.GetOrCreateSystemManaged&lt;TelecomCoverageSystem&gt;();
+    }
+
+    protected override void OnUpdate() { }
+
+    public override int GetUpdateInterval(SystemUpdatePhase phase) =&gt; 4096;
+
+    public struct CoverageStats
+    {
+        public int CoveredCells;
+        public int UncoveredCells;
+        public int CongestedCells;
+        public float AverageQuality;
+        public int2 WeakestCell;
+    }
+
+    public CoverageStats AnalyzeCoverage(float qualityThreshold = 0.5f)
+    {
+        JobHandle dependencies;
+        CellMapData&lt;TelecomCoverage&gt; data =
+            m_TelecomCoverageSystem.GetData(readOnly: true, out dependencies);
+        dependencies.Complete();
+
+        CoverageStats stats = default;
+        float totalQuality = 0f;
+        float worstQuality = float.MaxValue;
+        int cellsWithSignal = 0;
+
+        for (int y = 0; y &lt; 128; y++)
+        {
+            for (int x = 0; x &lt; 128; x++)
+            {
+                int idx = x + 128 * y;
+                TelecomCoverage cell = data.m_Buffer[idx];
+
+                if (cell.m_SignalStrength == 0)
+                {
+                    stats.UncoveredCells++;
+                    continue;
+                }
+
+                float quality = math.min(1f,
+                    (float)cell.m_SignalStrength /
+                    (127.5f + (float)cell.m_NetworkLoad));
+
+                if (quality &gt;= qualityThreshold)
+                    stats.CoveredCells++;
+                else
+                    stats.UncoveredCells++;
+
+                if (cell.m_NetworkLoad &gt; 200)
+                    stats.CongestedCells++;
+
+                totalQuality += quality;
+                cellsWithSignal++;
+
+                if (quality &lt; worstQuality)
+                {
+                    worstQuality = quality;
+                    stats.WeakestCell = new int2(x, y);
+                }
+            }
+        }
+
+        stats.AverageQuality = cellsWithSignal &gt; 0
+            ? totalQuality / cellsWithSignal : 0f;
+        return stats;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Coverage range</td>
+        <td>TelecomFacilityData.m_Range</td>
+        <td>1000 meters</td>
+        <td>Radius of signal coverage from tower</td>
+      </tr>
+      <tr>
+        <td>Network capacity</td>
+        <td>TelecomFacilityData.m_NetworkCapacity</td>
+        <td>10000</td>
+        <td>Bandwidth units distributed across covered cells</td>
+      </tr>
+      <tr>
+        <td>Terrain penetration</td>
+        <td>TelecomFacilityData.m_PenetrateTerrain</td>
+        <td>false</td>
+        <td>Whether signal ignores terrain obstruction</td>
+      </tr>
+      <tr>
+        <td>Telecom need</td>
+        <td>ConsumptionData.m_TelecomNeed</td>
+        <td>Per building type</td>
+        <td>How much penalty a building takes from poor coverage</td>
+      </tr>
+      <tr>
+        <td>Quality baseline</td>
+        <td>BuildingEfficiencyParameterData.m_TelecomBaseline</td>
+        <td>Singleton prefab</td>
+        <td>Quality threshold below which efficiency penalty applies</td>
+      </tr>
+      <tr>
+        <td>Grid size</td>
+        <td>Hardcoded</td>
+        <td>128x128 cells</td>
+        <td>Resolution of the coverage cell map</td>
+      </tr>
+      <tr>
+        <td>Coverage update interval</td>
+        <td>Hardcoded</td>
+        <td>4096 frames</td>
+        <td>How often the full coverage map is recalculated</td>
+      </tr>
+      <tr>
+        <td>Efficiency update interval</td>
+        <td>Hardcoded</td>
+        <td>32 frames</td>
+        <td>How often building efficiency factors are updated</td>
+      </tr>
+      <tr>
+        <td>Facility AI interval</td>
+        <td>Hardcoded</td>
+        <td>256 frames, offset 208</td>
+        <td>How often facility state is checked</td>
+      </tr>
+      <tr>
+        <td>Efficiency updates per day</td>
+        <td>Hardcoded</td>
+        <td>512</td>
+        <td>Total updates staggered across all consumer buildings</td>
+      </tr>
+      <tr>
+        <td>Signal falloff</td>
+        <td>Hardcoded</td>
+        <td>1 - (d/r)^2</td>
+        <td>Quadratic distance attenuation</td>
+      </tr>
+      <tr>
+        <td>Efficiency penalty</td>
+        <td>Hardcoded</td>
+        <td>(1 - q/b)^2 * -0.01 * need</td>
+        <td>Quadratic penalty when quality below baseline</td>
+      </tr>
+      <tr>
+        <td>City capacity modifier</td>
+        <td>CityModifierType.TelecomCapacity (19)</td>
+        <td>From policies/milestones</td>
+        <td>Multiplier applied to all facility network capacity</td>
+      </tr>
+      <tr>
+        <td>Range mode multiplier</td>
+        <td>TelecomFacilityMode.ModeData.m_RangeMultiplier</td>
+        <td>Per game mode</td>
+        <td>Difficulty-based range scaling</td>
+      </tr>
+      <tr>
+        <td>Capacity mode multiplier</td>
+        <td>TelecomFacilityMode.ModeData.m_NetworkCapacityMultiplier</td>
+        <td>Per game mode</td>
+        <td>Difficulty-based capacity scaling</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Default baseline value:</strong> The actual value of
+      <code>BuildingEfficiencyParameterData.m_TelecomBaseline</code> comes from asset data, not code.
+      Needs in-game verification to determine the threshold.
+    </li>
+    <li>
+      <strong>Per-building telecomNeed values:</strong> The <code>ConsumptionData.m_TelecomNeed</code>
+      values for residential, commercial, industrial, and office zones are defined in asset data.
+      Office buildings likely have the highest need.
+    </li>
+    <li>
+      <strong>TelecomInfoviewUISystem.PerformUpdate():</strong> The decompiled method body is empty.
+      The actual UI indicator calculation may be in the base class or triggered through a different
+      mechanism.
+    </li>
+    <li>
+      <strong>TelecomFacilityMode trigger conditions:</strong> The mode system applies range/capacity
+      multipliers, but when and how these modes are activated (difficulty settings, milestones) is
+      not visible in the decompiled code.
+    </li>
+    <li>
+      <strong>PointOfInterest gameplay effect:</strong> The randomized position set by
+      <code>TelecomFacilityAISystem</code> on the <code>PointOfInterest</code> component is likely
+      purely cosmetic (satellite dish animation), but this is not confirmed.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled (full systems): Game.Simulation.TelecomCoverageSystem, Game.Simulation.TelecomEfficiencySystem, Game.Simulation.TelecomFacilityAISystem, Game.Tools.TelecomPreviewSystem, Game.UI.InGame.TelecomInfoviewUISystem</li>
+    <li>Decompiled (components): Game.Buildings.TelecomFacility, TelecomFacilityFlags, TelecomConsumer; Game.Simulation.TelecomCoverage, TelecomStatus; Game.Common.PointOfInterest</li>
+    <li>Decompiled (prefab data): Game.Prefabs.TelecomFacilityData, TelecomParameterData, TelecomFacility (prefab), TelecomPrefab, ConsumptionData, BuildingEfficiencyParameterData, Modes.TelecomFacilityMode</li>
+    <li>Decompiled (enums): Game.Buildings.EfficiencyFactor, Game.City.CityModifierType</li>
+    <li>Related: <a href="electricity-grid.html">Electricity Grid</a> (similar utility infrastructure pattern), <a href="info-views-overlays.html">Info Views &amp; Overlays</a> (telecom info view rendering)</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
