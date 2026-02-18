@@ -698,6 +698,107 @@ public bool TryAddCosts(ref float totalCost, PathfindWeights weights, float maxC
 
 - **UI changes**: Optional debug overlay showing pathfind statistics via `PathfindResultSystem.queryStats`
 
+### Mod Blueprint: Pathfinding Cost Manipulation
+
+A pathfinding cost manipulation mod modifies how the pathfinder evaluates routes, enabling realistic traffic distribution, mode choice rebalancing, and congestion-responsive routing. This blueprint documents five distinct approaches with different trade-offs, based on analysis of the [RealisticPathFinding](https://github.com/ruzbeh0/RealisticPathFinding) mod.
+
+#### Approach 1: Direct Graph Manipulation via NativePathfindData
+
+**Used for**: Slow-updating global modifications (road hierarchy bias, congestion EWMA, pedestrian penalties).
+
+**Pattern**: Get `PathfindQueueSystem.GetDataContainer()`, modify `SetDensity()` or `SetCosts()` on edges, call `AddDataReader()` to register the system. Uses a `NativeParallelHashMap` delta-apply pattern to prevent cost stacking.
+
+**Systems to create**:
+- `CarTurnAndHierarchyBiasSystem` -- applies turning penalties and road hierarchy preferences
+- `CarCongestionEwmaSystem` -- applies exponentially-weighted moving average congestion costs
+- `PedestrianWalkCostFactorSystem` -- modifies base pedestrian walking costs
+- `PedestrianDensityPenaltySystem` -- penalizes high-density pedestrian lanes
+
+**Key pattern -- delta-apply with original caching**:
+```csharp
+private NativeParallelHashMap<int, float> _originalDensities;
+
+// Always apply from original, never from current (prevents stacking)
+if (!_originalDensities.ContainsKey(edgeIndex))
+    _originalDensities.Add(edgeIndex, graphData.GetEdge(edgeIndex).m_Specification.m_Density);
+
+float original = _originalDensities[edgeIndex];
+graphData.SetDensity(edgeIndex, original * congestionMultiplier);
+```
+
+**Performance**: Use `GetUpdateInterval()` to throttle updates (e.g., every 256 frames) rather than running every frame.
+
+#### Approach 2: Prefab Data Modification
+
+**Used for**: Global behavioral changes (crosswalk costs, walk speeds).
+
+**Pattern**: Query prefab entities with `PathfindPedestrianData` or `HumanData`, modify fields directly. Cache originals in a custom `IComponentData` for clean restoration on mod unload.
+
+**Systems to create**:
+- `PedestrianCrosswalkCostFactorSystem` -- scales `PathfindPedestrianData.m_CrosswalkCost` and `m_UnsafeCrosswalkCost`
+- `WalkSpeedUpdaterSystem` -- modifies `HumanData.m_WalkSpeed` on human prefab entities
+
+**Key pattern -- original value caching**:
+```csharp
+// Custom component to store original prefab values
+public struct OriginalPedestrianData : IComponentData
+{
+    public PathfindCosts m_OriginalCrosswalkCost;
+    public PathfindCosts m_OriginalUnsafeCrosswalkCost;
+}
+
+// On first run, cache originals; always apply multiplier from original
+```
+
+#### Approach 3: Harmony Postfix on PathUtils Static Methods
+
+**Used for**: Per-edge cost adjustments that depend on lane flags (e.g., bus lane access).
+
+**Pattern**: Postfix on `PathUtils.GetCarDriveSpecification` / `PathUtils.GetTaxiDriveSpecification`, modify the returned `PathSpecification` costs via `TryAddCosts`.
+
+**Harmony patches needed**:
+- `PathUtils.GetCarDriveSpecification` (both overloads) -- postfix to modify car driving costs based on lane flags
+- `PathUtils.GetTaxiDriveSpecification` -- postfix to modify taxi costs (e.g., reduced cost on bus lanes for taxis)
+
+**Example**: The BusLanePatches pattern checks `CarLane` flags and adjusts costs for bus lane access:
+```csharp
+[HarmonyPatch(typeof(PathUtils), nameof(PathUtils.GetCarDriveSpecification))]
+public static void Postfix(ref PathSpecification __result, in CarLane carLane)
+{
+    // Check if lane has bus-lane flags, adjust costs via TryAddCosts
+}
+```
+
+#### Approach 4: TransportLine Segment Duration Modification
+
+**Used for**: Mode-specific transit attractiveness tuning.
+
+**Pattern**: Postfix on `TransportLineSystem.OnUpdate`, iterate `RouteSegments` buffer, modify `RouteInfo.m_Duration` to make transit routes more or less attractive.
+
+**Harmony patches needed**:
+- `TransportLineSystem.OnUpdate` -- postfix to adjust segment durations after vanilla calculation
+
+#### Approach 5: Full System Replacement
+
+**Used for**: Deep behavioral changes to agent decision-making (mode choice logic).
+
+**Pattern**: Disable vanilla system with `Enabled = false`, register a replacement system with custom mode choice logic. Copy the entire Burst-compiled job structure, modifying decision thresholds and cost evaluations.
+
+**Systems to create**:
+- `RPFResidentAISystem` -- replaces the vanilla resident AI system with custom mode choice parameters
+
+**Key considerations**:
+- Must reproduce all vanilla behavior except the targeted changes
+- Burst-compiled jobs must be fully re-implemented (cannot selectively patch)
+- Use `World.GetOrCreateSystemManaged<VanillaSystem>().Enabled = false` to disable the original
+
+#### Common Patterns Across All Approaches
+
+- **`PathfindUpdated` tag**: Add to lane entities after modifying pathfind-relevant data to trigger `LanesModifiedSystem` graph edge recalculation
+- **`GetUpdateInterval()` throttling**: Limit system update frequency to avoid per-frame overhead on expensive operations
+- **Original value caching**: Always store and restore original values to prevent stacking and enable clean mod removal
+- **Delta-apply**: Apply modifications as offsets from cached originals, never from current values
+
 ## Examples
 
 ### Example 1: Reading an Entity's Current Path

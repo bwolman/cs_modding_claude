@@ -1127,6 +1127,114 @@ spec.m_MaxSpeed = 0.5f;  // very slow</code></pre>
   <p>Optional debug overlay showing pathfind statistics via <code>PathfindResultSystem.queryStats</code>.</p>
 
   <!-- ============================================================ -->
+  <h2>Mod Blueprint: Pathfinding Cost Manipulation</h2>
+
+  <p>A pathfinding cost manipulation mod modifies how the pathfinder evaluates routes, enabling realistic
+    traffic distribution, mode choice rebalancing, and congestion-responsive routing. This blueprint documents
+    five distinct approaches with different trade-offs.</p>
+
+  <p><strong>Reference implementation:</strong>
+    <a href="https://github.com/ruzbeh0/RealisticPathFinding">RealisticPathFinding</a></p>
+
+  <h3>Approach 1: Direct Graph Manipulation via NativePathfindData</h3>
+
+  <p><strong>Used for:</strong> Slow-updating global modifications (road hierarchy bias, congestion EWMA, pedestrian penalties).</p>
+
+  <p><strong>Pattern:</strong> Get <code>PathfindQueueSystem.GetDataContainer()</code>, modify
+    <code>SetDensity()</code> or <code>SetCosts()</code> on edges, call <code>AddDataReader()</code>.
+    Uses a <code>NativeParallelHashMap</code> delta-apply pattern to prevent cost stacking.</p>
+
+  <p><strong>Systems to create:</strong></p>
+  <ul>
+    <li><code>CarTurnAndHierarchyBiasSystem</code> -- applies turning penalties and road hierarchy preferences</li>
+    <li><code>CarCongestionEwmaSystem</code> -- applies exponentially-weighted moving average congestion costs</li>
+    <li><code>PedestrianWalkCostFactorSystem</code> -- modifies base pedestrian walking costs</li>
+    <li><code>PedestrianDensityPenaltySystem</code> -- penalizes high-density pedestrian lanes</li>
+  </ul>
+
+  <p><strong>Key pattern -- delta-apply with original caching:</strong></p>
+  <pre><code class="language-csharp">private NativeParallelHashMap&lt;int, float&gt; _originalDensities;
+
+// Always apply from original, never from current (prevents stacking)
+if (!_originalDensities.ContainsKey(edgeIndex))
+    _originalDensities.Add(edgeIndex, graphData.GetEdge(edgeIndex).m_Specification.m_Density);
+
+float original = _originalDensities[edgeIndex];
+graphData.SetDensity(edgeIndex, original * congestionMultiplier);</code></pre>
+
+  <p><strong>Performance:</strong> Use <code>GetUpdateInterval()</code> to throttle updates (e.g., every 256 frames)
+    rather than running every frame.</p>
+
+  <h3>Approach 2: Prefab Data Modification</h3>
+
+  <p><strong>Used for:</strong> Global behavioral changes (crosswalk costs, walk speeds).</p>
+
+  <p><strong>Pattern:</strong> Query prefab entities with <code>PathfindPedestrianData</code> or
+    <code>HumanData</code>, modify fields directly. Cache originals in a custom <code>IComponentData</code>
+    for clean restoration on mod unload.</p>
+
+  <p><strong>Systems to create:</strong></p>
+  <ul>
+    <li><code>PedestrianCrosswalkCostFactorSystem</code> -- scales crosswalk and unsafe crosswalk costs</li>
+    <li><code>WalkSpeedUpdaterSystem</code> -- modifies <code>HumanData.m_WalkSpeed</code> on human prefab entities</li>
+  </ul>
+
+  <p><strong>Key pattern -- original value caching:</strong></p>
+  <pre><code class="language-csharp">// Custom component to store original prefab values
+public struct OriginalPedestrianData : IComponentData
+{
+    public PathfindCosts m_OriginalCrosswalkCost;
+    public PathfindCosts m_OriginalUnsafeCrosswalkCost;
+}
+
+// On first run, cache originals; always apply multiplier from original</code></pre>
+
+  <h3>Approach 3: Harmony Postfix on PathUtils Static Methods</h3>
+
+  <p><strong>Used for:</strong> Per-edge cost adjustments that depend on lane flags (e.g., bus lane access).</p>
+
+  <p><strong>Pattern:</strong> Postfix on <code>PathUtils.GetCarDriveSpecification</code> /
+    <code>PathUtils.GetTaxiDriveSpecification</code>, modify the returned <code>PathSpecification</code>
+    costs via <code>TryAddCosts</code>.</p>
+
+  <p><strong>Harmony patches needed:</strong></p>
+  <ul>
+    <li><code>PathUtils.GetCarDriveSpecification</code> (both overloads) -- postfix to modify car driving costs based on lane flags</li>
+    <li><code>PathUtils.GetTaxiDriveSpecification</code> -- postfix to modify taxi costs (e.g., reduced cost on bus lanes)</li>
+  </ul>
+
+  <h3>Approach 4: TransportLine Segment Duration Modification</h3>
+
+  <p><strong>Used for:</strong> Mode-specific transit attractiveness tuning.</p>
+
+  <p><strong>Pattern:</strong> Postfix on <code>TransportLineSystem.OnUpdate</code>, iterate
+    <code>RouteSegments</code> buffer, modify <code>RouteInfo.m_Duration</code> to make transit
+    routes more or less attractive.</p>
+
+  <h3>Approach 5: Full System Replacement</h3>
+
+  <p><strong>Used for:</strong> Deep behavioral changes to agent decision-making (mode choice logic).</p>
+
+  <p><strong>Pattern:</strong> Disable vanilla system with <code>Enabled = false</code>, register a
+    replacement system with custom mode choice logic. Copy the entire Burst-compiled job structure,
+    modifying decision thresholds and cost evaluations.</p>
+
+  <p><strong>Key considerations:</strong></p>
+  <ul>
+    <li>Must reproduce all vanilla behavior except the targeted changes</li>
+    <li>Burst-compiled jobs must be fully re-implemented (cannot selectively patch)</li>
+    <li>Use <code>World.GetOrCreateSystemManaged&lt;VanillaSystem&gt;().Enabled = false</code> to disable the original</li>
+  </ul>
+
+  <h3>Common Patterns Across All Approaches</h3>
+  <ul>
+    <li><strong><code>PathfindUpdated</code> tag:</strong> Add to lane entities after modifying pathfind-relevant data to trigger graph edge recalculation</li>
+    <li><strong><code>GetUpdateInterval()</code> throttling:</strong> Limit system update frequency to avoid per-frame overhead</li>
+    <li><strong>Original value caching:</strong> Always store and restore original values to prevent stacking and enable clean mod removal</li>
+    <li><strong>Delta-apply:</strong> Apply modifications as offsets from cached originals, never from current values</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
