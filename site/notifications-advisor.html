@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notifications &amp; Advisor System - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+    <a href="notifications-advisor.html" class="active">Notifications &amp; Advisor</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Notifications &amp; Advisor System -- Deep Dive</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 communicate problems, events, and guidance to the
+      player through its four notification channels, and how can mods interact with each one?
+    </p>
+    <p>
+      <strong>Verdict:</strong> CS2 has four distinct notification systems, each with different
+      data models and API surfaces:
+      <strong>(1) Building problem icons</strong> -- floating ECS-based icons managed via
+      <code>IconCommandBuffer</code>;
+      <strong>(2) Banner notifications</strong> -- UI popups managed by the static
+      <code>NotificationSystem.Push/Pop</code> facade;
+      <strong>(3) Chirper messages</strong> -- social media feed backed by ECS
+      <code>Chirp</code> entities created by <code>CreateChirpSystem</code>;
+      <strong>(4) Advisor/tutorials</strong> -- a state machine with activation conditions,
+      phases, and balloon tooltips managed by <code>TutorialSystem</code>.
+      Mods can use banner notifications and icon commands directly; chirps and tutorials
+      require either queue injection or Harmony patches.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> GPU rendering of icon sprites, radio/audio events,
+      internal tutorial trigger evaluation logic, and the Coherent/cohtml rendering pipeline.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The notification systems are independent -- each has its own data model, creation pipeline,
+    and UI presentation. They serve different purposes:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Channel</th><th>Purpose</th><th>Data Model</th><th>Persistence</th><th>Mod Access</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Building Problem Icons</td>
+        <td>Floating icons above entities (no water, fire, crime)</td>
+        <td>ECS: <code>Icon</code> + <code>IconElement</code> buffer</td>
+        <td>Persistent (serialized)</td>
+        <td>Direct via <code>IconCommandBuffer</code></td>
+      </tr>
+      <tr>
+        <td>Banner Notifications</td>
+        <td>Top-of-screen popups (mod install, downloads)</td>
+        <td>Managed: <code>NotificationInfo</code> dictionary</td>
+        <td>Transient (not saved)</td>
+        <td>Direct via <code>NotificationSystem.Push/Pop</code></td>
+      </tr>
+      <tr>
+        <td>Chirper Messages</td>
+        <td>Social media feed (citizen events, milestones)</td>
+        <td>ECS: <code>Chirp</code> entities with <code>PrefabRef</code></td>
+        <td>Persistent (serialized)</td>
+        <td>Queue injection or Harmony patch</td>
+      </tr>
+      <tr>
+        <td>Advisor/Tutorials</td>
+        <td>Guided tutorials, advisor tips, phase-based walkthroughs</td>
+        <td>ECS: <code>TutorialActive</code> + <code>TutorialPhaseActive</code></td>
+        <td>Persistent (completion state saved)</td>
+        <td><code>ITutorialSystem</code> methods or Harmony</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Channel 1: Building Problem Icons</h2>
+
+  <p>
+    Building problem icons are the floating notification sprites that appear above buildings,
+    vehicles, and other entities when something is wrong (no water, no electricity, on fire, etc.).
+    They are fully ECS-based: each icon is its own entity with an <code>Icon</code> component,
+    owned by the entity it floats above.
+  </p>
+
+  <h3>The IconCommandBuffer Pattern</h3>
+
+  <p>
+    Icons are created and removed through a <strong>command buffer pattern</strong>, not by
+    directly creating entities. Systems request an <code>IconCommandBuffer</code> from
+    <code>IconCommandSystem</code>, enqueue commands during their update, and the commands are
+    processed in batch during the modification phase.
+  </p>
+
+  <div class="diagram">
+<pre>
+[Simulation System] detects problem on entity
+    |
+    v
+IconCommandSystem.CreateCommandBuffer()
+    |-- Returns an IconCommandBuffer (wraps a NativeQueue)
+    |
+    v
+buffer.Add(owner, prefab, priority, clusterLayer, flags)
+    |-- Enqueues a Command struct with Add flag
+    |-- Or: buffer.Remove(owner, prefab) to remove
+    |-- Or: buffer.Update(owner) to refresh location
+    |
+    v
+IconCommandSystem.OnUpdate()
+    |-- Collects all commands from all queues
+    |-- Sorts by owner entity
+    |-- IconCommandPlaybackJob:
+        |-- Deduplicates by (owner, prefab, target, flags)
+        |-- Creates icon entity from NotificationIconData.m_Archetype
+        |-- Sets Icon component (location, priority, layer, flags)
+        |-- Adds IconElement to owner's buffer
+        |-- Adds Owner, PrefabRef, appear Animation
+    |
+    v
+IconClusterSystem groups nearby icons
+    |
+    v
+NotificationIconRenderSystem renders at world positions
+</pre>
+  </div>
+
+  <h3>Icon Component</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Location</td><td>float3</td><td>World position (auto-calculated from owner or custom)</td></tr>
+      <tr><td>m_Priority</td><td>IconPriority</td><td>Visual priority: Info(10), Problem(50), Warning(100), MajorProblem(150), FatalProblem(250)</td></tr>
+      <tr><td>m_ClusterLayer</td><td>IconClusterLayer</td><td>Default(0), Marker(1), Transaction(2)</td></tr>
+      <tr><td>m_Flags</td><td>IconFlags</td><td>Unique, IgnoreTarget, TargetLocation, OnTop, SecondaryLocation, CustomLocation</td></tr>
+      <tr><td>m_ClusterIndex</td><td>int</td><td>Cluster grouping index (managed by IconClusterSystem)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>IconPriority Values</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th><th>Usage</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>Min</td><td>Minimum priority</td></tr>
+      <tr><td>10</td><td><strong>Info</strong></td><td>Informational icons (default for most commands)</td></tr>
+      <tr><td>50</td><td><strong>Problem</strong></td><td>Minor service problems (no water, garbage full)</td></tr>
+      <tr><td>100</td><td><strong>Warning</strong></td><td>Significant warnings</td></tr>
+      <tr><td>150</td><td><strong>MajorProblem</strong></td><td>Major problems requiring attention</td></tr>
+      <tr><td>200</td><td>Error</td><td>Errors</td></tr>
+      <tr><td>250</td><td><strong>FatalProblem</strong></td><td>Critical/fatal problems</td></tr>
+      <tr><td>255</td><td>Max</td><td>Maximum priority</td></tr>
+    </tbody>
+  </table>
+
+  <h3>IconCategory Enum</h3>
+
+  <p>
+    Notification icons are categorized for filtering (e.g., info view overlays).
+    The <code>IconCategory</code> enum defines 16 categories:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th><th>Value</th><th>Name</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>Healthcare</td><td>8</td><td>Transport</td></tr>
+      <tr><td>1</td><td>FireRescue</td><td>9</td><td>Disaster</td></tr>
+      <tr><td>2</td><td>Police</td><td>10</td><td>Zoning</td></tr>
+      <tr><td>3</td><td>Water</td><td>11</td><td>AirPollution</td></tr>
+      <tr><td>4</td><td>Electricity</td><td>12</td><td>NoisePollution</td></tr>
+      <tr><td>5</td><td>Garbage</td><td>13</td><td>GroundPollution</td></tr>
+      <tr><td>6</td><td>Road</td><td>14</td><td>LandValue</td></tr>
+      <tr><td>7</td><td>Track</td><td>15</td><td>Level</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Channel 2: Banner Notifications</h2>
+
+  <p>
+    Banner notifications are the pop-up messages at the top of the screen. They are
+    <strong>not ECS-based</strong> -- they use a simple managed dictionary of
+    <code>NotificationInfo</code> objects, backed by a <code>ValueBinding</code> to the React
+    frontend.
+  </p>
+
+  <h3>The NotificationSystem Static Facade</h3>
+
+  <p>
+    <code>Game.PSI.NotificationSystem</code> is a static class that delegates to the
+    <code>NotificationUISystem</code> singleton. This is the simplest notification API for mods:
+  </p>
+
+  <pre><code class="language-csharp">// Push a notification
+NotificationSystem.Push(
+    "my-mod.status",                              // unique identifier
+    title: LocalizedString.Value("My Mod"),       // title text
+    text: LocalizedString.Value("Working..."),    // body text
+    progressState: ProgressState.Progressing,     // visual style
+    progress: 50                                  // percentage (0-100)
+);
+
+// Check if a notification exists
+bool exists = NotificationSystem.Exist("my-mod.status");
+
+// Remove with a 2-second delay (shows final state briefly)
+NotificationSystem.Pop(
+    "my-mod.status",
+    delay: 2f,
+    text: LocalizedString.Value("Complete!"),
+    progressState: ProgressState.Complete,
+    progress: 100
+);</code></pre>
+
+  <h3>ProgressState Enum</h3>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>None</td><td>No progress indicator</td></tr>
+      <tr><td>1</td><td>Progressing</td><td>Shows progress bar at specified percentage</td></tr>
+      <tr><td>2</td><td>Indeterminate</td><td>Spinning/loading indicator</td></tr>
+      <tr><td>3</td><td>Complete</td><td>Checkmark/success indicator</td></tr>
+      <tr><td>4</td><td>Failed</td><td>Error/failure indicator</td></tr>
+      <tr><td>5</td><td>Cancelled</td><td>Cancelled state</td></tr>
+      <tr><td>6</td><td>Warning</td><td>Warning indicator</td></tr>
+    </tbody>
+  </table>
+
+  <h3>NotificationInfo Serialization</h3>
+
+  <p>
+    The <code>NotificationInfo</code> class implements <code>IJsonWritable</code> and is
+    pushed to the React frontend via a <code>ValueBinding&lt;List&lt;NotificationInfo&gt;&gt;</code>
+    with binding path <code>"notification.notifications"</code>. The JS side receives objects
+    with <code>id</code>, <code>thumbnail</code>, <code>title</code>, <code>text</code>,
+    <code>progressState</code> (as int), and <code>progress</code> fields.
+  </p>
+
+  <p>
+    Clicking a notification triggers <code>"notification.selectNotification"</code> with the
+    notification ID, which invokes the <code>onClicked</code> callback registered during
+    <code>Push()</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Channel 3: Chirper Messages</h2>
+
+  <p>
+    The Chirper is CS2's social media feed -- a Twitter/X-style panel where citizens, companies,
+    and game accounts post messages about city events and milestones. Each chirp is a persistent
+    ECS entity.
+  </p>
+
+  <h3>Chirp Entity Structure</h3>
+
+  <p>A chirp entity has these components:</p>
+
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>Chirp</code></td><td>Core data: sender, creation frame, likes, flags</td></tr>
+      <tr><td><code>PrefabRef</code></td><td>Points to the chirp type prefab (has <code>ChirpData</code>)</td></tr>
+      <tr><td><code>RandomLocalizationIndex</code></td><td>Selects a random message variant from the localization table</td></tr>
+      <tr><td><code>ChirpEntity</code> (buffer)</td><td>Links to related entities (for clickable names in the message)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Chirp Component Fields</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Sender</td><td>Entity</td><td>Sender (citizen, company, or ChirperAccount)</td></tr>
+      <tr><td>m_CreationFrame</td><td>uint</td><td>Simulation frame when created</td></tr>
+      <tr><td>m_Likes</td><td>uint</td><td>Current like count</td></tr>
+      <tr><td>m_TargetLikes</td><td>uint</td><td>Target like count for animation</td></tr>
+      <tr><td>m_InactiveFrame</td><td>uint</td><td>Frame when chirp becomes inactive</td></tr>
+      <tr><td>m_ViralFactor</td><td>int</td><td>Like accumulation multiplier (default: 1)</td></tr>
+      <tr><td>m_ContinuousFactor</td><td>float</td><td>Continuous like growth factor (default: 0.2)</td></tr>
+      <tr><td>m_Flags</td><td>ChirpFlags</td><td>Liked (0x01)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Chirp Creation Pipeline</h3>
+
+  <div class="diagram">
+<pre>
+[TriggerSystem fires TriggerAction with chirp data]
+    |
+    v
+CreateChirpSystem
+    |-- Dequeues ChirpCreationData { m_TriggerPrefab, m_Sender, m_Target }
+    |-- Checks recent chirps: same prefab within 18000 frames (~5 min)?
+    |   If yes: skip (duplicate prevention)
+    |   If no: create chirp entity
+    |
+    v
+New Chirp Entity
+    |-- Chirp(sender, creationFrame)
+    |-- PrefabRef(chirpPrefab)
+    |-- RandomLocalizationIndex (random message variant)
+    |-- ChirpEntity buffer (linked entities for clickable names)
+    |-- Created tag
+    |
+    v
+ChirperUISystem.OnUpdate()
+    |-- Detects new chirps via m_CreatedChirpQuery (has Created tag)
+    |-- Fires "chirper.chirpAdded" event for each new chirp
+    |-- Updates "chirper.chirps" binding when chirps are modified
+    |
+    v
+React frontend renders chirp in Chirper panel
+    |-- Shows sender name, avatar, message, likes, links
+    |-- Player can like/unlike and click entity links
+</pre>
+  </div>
+
+  <h3>ChirperAccount Prefabs</h3>
+
+  <p>
+    System-level chirps (milestones, city events) come from <code>ChirperAccount</code> prefabs,
+    which are named accounts like "City Hall" or "Fire Department". Each account references an
+    <code>InfoviewPrefab</code> -- clicking the sender in the Chirper opens that info view.
+  </p>
+
+  <h3>ChirpData Flags</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>CitizensCanSend</td><td>1</td><td>Individual citizens can send this chirp type</td></tr>
+      <tr><td>BrandsCanSend</td><td>2</td><td>Company brands can send this chirp type</td></tr>
+      <tr><td>ServiceCanSend</td><td>4</td><td>City services can send this chirp type</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Channel 4: Advisor/Tutorial System</h2>
+
+  <p>
+    The advisor/tutorial system guides new players through game mechanics using a state machine
+    of tutorials, phases, triggers, and balloon tooltips. It is managed by
+    <code>TutorialSystem</code> (implementing <code>ITutorialSystem</code>) and presented via
+    <code>TutorialsUISystem</code>.
+  </p>
+
+  <h3>Tutorial Entity Hierarchy</h3>
+
+  <div class="diagram">
+<pre>
+TutorialListPrefab (top-level grouping)
+    |-- TutorialRef buffer: references to tutorials
+    |
+    v
+TutorialPrefab (individual tutorial)
+    |-- TutorialData { m_Type }
+    |-- TutorialPhaseRef buffer: references to phases
+    |-- TutorialAlternative buffer: alternative tutorials
+    |-- State tags: TutorialActive, TutorialCompleted, TutorialShown
+    |-- Activation: TutorialActivationData, AdvisorActivation, ForceAdvisor
+    |
+    v
+TutorialPhasePrefab (step within a tutorial)
+    |-- TutorialPhaseData { m_Type }
+    |-- TutorialTrigger { m_Trigger } -> TutorialTriggerPrefabBase
+    |-- State tags: TutorialPhaseActive, TutorialPhaseCompleted, TutorialPhaseShown
+    |-- Optional: TutorialBalloonPrefab (extends TutorialPhasePrefab with UI targets)
+    |
+    v
+TutorialTriggerPrefabBase (completion condition)
+    |-- Various subtypes: InputTrigger, ObjectPlacementTrigger, UITrigger, etc.
+    |-- State tags: TriggerActive, TriggerCompleted, TriggerPreCompleted
+</pre>
+  </div>
+
+  <h3>Tutorial Activation Types</h3>
+
+  <p>
+    Tutorials are activated by various systems that check different conditions:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Activation System</th><th>Condition</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>TutorialAutoActivationSystem</td><td>Automatic (when tutorial list becomes active)</td></tr>
+      <tr><td>TutorialUIActivationSystem</td><td>UI tag becomes active</td></tr>
+      <tr><td>TutorialFireActivationSystem</td><td>Building fire or forest fire occurs</td></tr>
+      <tr><td>TutorialHealthProblemActivationSystem</td><td>Citizen health problem detected</td></tr>
+      <tr><td>TutorialInfoviewActivationSystem</td><td>Specific info view opened</td></tr>
+      <tr><td>TutorialObjectSelectedActivationSystem</td><td>Specific object type selected</td></tr>
+      <tr><td>TutorialControlSchemeActivationSystem</td><td>Control scheme changes (keyboard/gamepad)</td></tr>
+      <tr><td>TutorialEventActivationSystem</td><td>Game event triggers</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Key ITutorialSystem Methods</h3>
+
+  <pre><code class="language-csharp">// Activate a tutorial (optionally at a specific phase)
+void SetTutorial(Entity tutorial, Entity phase);
+
+// Force-activate a tutorial with optional advisor flag
+void ForceTutorial(Entity tutorial, Entity phase, bool advisorActivation);
+
+// Complete the current tutorial or phase
+void CompleteTutorial(Entity tutorial);
+void CompleteCurrentTutorialPhase();
+
+// Properties
+Entity activeTutorial { get; }
+Entity activeTutorialList { get; }
+bool tutorialEnabled { get; set; }
+TutorialMode mode { get; set; }</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Key Components &amp; Assemblies</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>Key Types</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Notifications</td>
+        <td>Icon, IconElement, IconCommandBuffer, IconCommandSystem, IconClusterSystem, IconAnimationSystem, IconPriority, IconClusterLayer, IconFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.PSI</td>
+        <td>NotificationSystem (static facade)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.UI.Menu</td>
+        <td>NotificationUISystem, NotificationInfo</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Triggers</td>
+        <td>Chirp, ChirpFlags, ChirpCreationData, CreateChirpSystem, ChirpLikeCountSystem, NotificationTriggerSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.UI.InGame</td>
+        <td>ChirperUISystem, ChirperPanel, NotificationsPanel, NotificationsSection, TutorialsUISystem, GameTutorialsUISystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Tutorials</td>
+        <td>TutorialSystem, TutorialActivationSystem (8 subtypes), TutorialDeactivationSystem (4 subtypes), TutorialTriggerSystem (8 subtypes)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>NotificationIconPrefab, NotificationIconData, NotificationIconDisplayData, IconConfigurationPrefab, ChirperAccount, ChirpData, TutorialPrefab family</td>
+      </tr>
+      <tr>
+        <td>Colossal.PSI.Common.dll</td>
+        <td>Colossal.PSI.Common</td>
+        <td>ProgressState</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow Overview</h2>
+
+  <div class="diagram">
+<pre>
+                    CS2 NOTIFICATION CHANNELS
+                    ========================
+
+CHANNEL 1: BUILDING PROBLEM ICONS (ECS)
+  Simulation System -&gt; IconCommandBuffer.Add(owner, prefab, priority)
+      -&gt; IconCommandSystem -&gt; Icon entity + IconElement buffer on owner
+      -&gt; IconClusterSystem -&gt; NotificationIconRenderSystem
+      -&gt; [Floating icon above building in 3D world]
+
+CHANNEL 2: BANNER NOTIFICATIONS (Managed)
+  Any code -&gt; NotificationSystem.Push(id, title, text, progressState)
+      -&gt; NotificationUISystem -&gt; NotificationInfo dictionary
+      -&gt; ValueBinding&lt;List&lt;NotificationInfo&gt;&gt;("notification", "notifications")
+      -&gt; [Pop-up banner at top of screen]
+
+CHANNEL 3: CHIRPER MESSAGES (ECS)
+  TriggerSystem -&gt; ChirpCreationData queue
+      -&gt; CreateChirpSystem -&gt; Chirp entity + PrefabRef + ChirpEntity buffer
+      -&gt; ChirperUISystem -&gt; RawValueBinding("chirper", "chirps")
+      -&gt; [Social media post in Chirper panel]
+
+CHANNEL 4: ADVISOR/TUTORIALS (ECS)
+  Activation Systems -&gt; TutorialActivated tag
+      -&gt; TutorialSystem -&gt; TutorialActive + TutorialPhaseActive tags
+      -&gt; TutorialsUISystem -&gt; RawValueBinding("tutorials", ...)
+      -&gt; [Advisor panel / balloon tooltip in UI]
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Push a Banner Notification</h3>
+
+  <p>
+    The simplest notification API. Uses the static <code>NotificationSystem</code> facade to
+    show and dismiss a banner notification. Works from any code on the main thread.
+  </p>
+
+  <pre><code class="language-csharp">using Game.PSI;
+using Game.UI.Localization;
+using Colossal.PSI.Common;
+
+public void ShowModNotification()
+{
+    // Push a notification with title, text, and progress state.
+    NotificationSystem.Push(
+        "my-mod.status",
+        title: LocalizedString.Value("My Mod"),
+        text: LocalizedString.Value("Processing complete!"),
+        progressState: ProgressState.Complete,
+        progress: 100
+    );
+
+    // Remove after 3 seconds (shows final state briefly before fading).
+    NotificationSystem.Pop(
+        "my-mod.status",
+        delay: 3f,
+        text: LocalizedString.Value("Done!")
+    );
+}
+
+public void ShowProgressNotification(int percent)
+{
+    NotificationSystem.Push(
+        "my-mod.progress",
+        title: LocalizedString.Value("My Mod"),
+        text: LocalizedString.Value($"Working... {percent}%"),
+        progressState: percent &lt; 100
+            ? ProgressState.Progressing
+            : ProgressState.Complete,
+        progress: percent
+    );
+
+    if (percent &gt;= 100)
+    {
+        NotificationSystem.Pop("my-mod.progress", delay: 2f);
+    }
+}</code></pre>
+
+  <h3>Example 2: Add a Building Problem Icon</h3>
+
+  <p>
+    Add a floating notification icon above a building using the <code>IconCommandBuffer</code>.
+    You need a reference to a <code>NotificationIconPrefab</code> entity -- either a vanilla one
+    (like "No Water") or a custom one registered through the prefab system.
+  </p>
+
+  <pre><code class="language-csharp">using Game.Notifications;
+using Game.Prefabs;
+using Unity.Entities;
+
+public partial class CustomBuildingIconSystem : GameSystemBase
+{
+    private IconCommandSystem _iconCommandSystem;
+    private PrefabSystem _prefabSystem;
+    private Entity _iconPrefabEntity;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _iconCommandSystem = World.GetOrCreateSystemManaged&lt;IconCommandSystem&gt;();
+        _prefabSystem = World.GetOrCreateSystemManaged&lt;PrefabSystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        // Resolve icon prefab entity once (lazy init)
+        if (_iconPrefabEntity == Entity.Null)
+        {
+            if (_prefabSystem.TryGetPrefab(new PrefabID(
+                    nameof(NotificationIconPrefab), "No Water"),
+                    out PrefabBase prefab))
+            {
+                _iconPrefabEntity = _prefabSystem.GetEntity(prefab);
+            }
+            else return;
+        }
+
+        // Get a command buffer from the icon system
+        IconCommandBuffer buffer = _iconCommandSystem.CreateCommandBuffer();
+
+        // Add icon with Problem priority
+        Entity building = GetBuildingWithProblem();
+        buffer.Add(
+            owner: building,
+            prefab: _iconPrefabEntity,
+            priority: IconPriority.Problem,
+            clusterLayer: IconClusterLayer.Default,
+            flags: IconFlags.IgnoreTarget
+        );
+
+        // To add an icon at a custom world position:
+        // buffer.Add(owner, prefab, new float3(x, y, z),
+        //     priority: IconPriority.Warning);
+
+        // To remove the icon later:
+        // buffer.Remove(building, _iconPrefabEntity);
+    }
+
+    private Entity GetBuildingWithProblem() =&gt; Entity.Null; // placeholder
+}</code></pre>
+
+  <h3>Example 3: Suppress Specific Notifications via Harmony</h3>
+
+  <p>
+    Use a Harmony prefix patch on <code>NotificationSystem.Push</code> to intercept and suppress
+    specific banner notifications by their identifier string.
+  </p>
+
+  <pre><code class="language-csharp">using HarmonyLib;
+using Game.PSI;
+
+[HarmonyPatch(typeof(NotificationSystem), nameof(NotificationSystem.Push))]
+public static class SuppressNotificationPatch
+{
+    /// &lt;summary&gt;
+    /// Return false to skip notifications matching a filter.
+    /// &lt;/summary&gt;
+    public static bool Prefix(string identifier)
+    {
+        // Suppress all mod download/install notifications
+        if (identifier.Contains("installation") ||
+            identifier.Contains("downloading"))
+        {
+            Mod.Log.Info($"Suppressed notification: {identifier}");
+            return false; // Skip original method
+        }
+        return true; // Allow all other notifications
+    }
+}</code></pre>
+
+  <h3>Example 4: Monitor Notification Icons on Entities</h3>
+
+  <p>
+    Query all active notification icons and count them by priority level.
+    Useful for building a custom notification dashboard or triggering mod logic
+    when specific problems accumulate.
+  </p>
+
+  <pre><code class="language-csharp">using Game.Notifications;
+using Game.Common;
+using Game.Prefabs;
+using Unity.Collections;
+using Unity.Entities;
+
+public partial class NotificationMonitorSystem : GameSystemBase
+{
+    private EntityQuery _iconQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _iconQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Icon&gt;(),
+            ComponentType.ReadOnly&lt;Owner&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _iconQuery.ToEntityArray(Allocator.Temp);
+        int problemCount = 0;
+        int warningCount = 0;
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            Icon icon = EntityManager.GetComponentData&lt;Icon&gt;(entities[i]);
+            if (icon.m_Priority &gt;= IconPriority.Warning)
+                warningCount++;
+            else if (icon.m_Priority &gt;= IconPriority.Problem)
+                problemCount++;
+        }
+
+        if (problemCount &gt; 0 || warningCount &gt; 0)
+        {
+            Mod.Log.Info($"Active icons: {problemCount} problems, " +
+                         $"{warningCount} warnings");
+        }
+
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 5: Toggle Notification Icon Visibility by Category</h3>
+
+  <p>
+    Disable or enable entire categories of notification icons by toggling the
+    <code>NotificationIconDisplayData</code> enableable component on prefab entities.
+    This is the same mechanism the game uses for info view filtering.
+  </p>
+
+  <pre><code class="language-csharp">using Game.Prefabs;
+using Unity.Collections;
+using Unity.Entities;
+
+public partial class ToggleNotificationCategorySystem : GameSystemBase
+{
+    private EntityQuery _iconPrefabQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _iconPrefabQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;NotificationIconData&gt;(),
+            ComponentType.ReadWrite&lt;NotificationIconDisplayData&gt;()
+        );
+    }
+
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Toggle all notification icons of a specific category.
+    /// &lt;/summary&gt;
+    public void SetCategoryVisible(IconCategory category, bool visible)
+    {
+        uint categoryBit = 1u &lt;&lt; (int)category;
+        var entities = _iconPrefabQuery.ToEntityArray(Allocator.Temp);
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var displayData = EntityManager
+                .GetComponentData&lt;NotificationIconDisplayData&gt;(entities[i]);
+
+            if ((displayData.m_CategoryMask &amp; categoryBit) != 0)
+            {
+                EntityManager.SetComponentEnabled
+                    &lt;NotificationIconDisplayData&gt;(entities[i], visible);
+            }
+        }
+
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Icon display size</td>
+        <td>NotificationIconPrefab.m_DisplaySize</td>
+        <td>Bounds1(3, 3)</td>
+        <td>World-space size of floating icon</td>
+      </tr>
+      <tr>
+        <td>Icon pulsate amplitude</td>
+        <td>NotificationIconPrefab.m_PulsateAmplitude</td>
+        <td>Bounds1(0.01, 0.1)</td>
+        <td>Pulsation animation amplitude</td>
+      </tr>
+      <tr>
+        <td>Icon enabled by default</td>
+        <td>NotificationIconPrefab.m_EnabledByDefault</td>
+        <td>true</td>
+        <td>Whether icon type is visible without explicit enable</td>
+      </tr>
+      <tr>
+        <td>Animation durations</td>
+        <td>IconAnimationElement buffer on IconConfigurationPrefab</td>
+        <td>Per AnimationType</td>
+        <td>Appear/resolve animation timing</td>
+      </tr>
+      <tr>
+        <td>Chirp dedup window</td>
+        <td>CreateChirpSystem (hardcoded)</td>
+        <td>18000 frames (~5 min)</td>
+        <td>Same chirp type blocked within this window</td>
+      </tr>
+      <tr>
+        <td>Banner notification binding group</td>
+        <td>NotificationUISystem (hardcoded)</td>
+        <td>"notification"</td>
+        <td>UI binding group for banner notifications</td>
+      </tr>
+      <tr>
+        <td>Chirper binding group</td>
+        <td>ChirperUISystem (hardcoded)</td>
+        <td>"chirper"</td>
+        <td>UI binding group for chirper messages</td>
+      </tr>
+      <tr>
+        <td>Tutorial activation delay</td>
+        <td>TutorialSystem.kActivationDelay</td>
+        <td>3.0 seconds</td>
+        <td>Delay before a new tutorial activates</td>
+      </tr>
+      <tr>
+        <td>Tutorial completion delay</td>
+        <td>TutorialSystem.kCompletionDelay</td>
+        <td>1.5 seconds</td>
+        <td>Delay after completion before advancing</td>
+      </tr>
+      <tr>
+        <td>Balloon completion delay</td>
+        <td>TutorialSystem.kBalloonCompletionDelay</td>
+        <td>0 seconds</td>
+        <td>Immediate for balloon tooltips</td>
+      </tr>
+      <tr>
+        <td>No-input cost limit</td>
+        <td>CompanyNotificationParameterPrefab</td>
+        <td>5.0</td>
+        <td>Threshold for "no inputs" company notification</td>
+      </tr>
+      <tr>
+        <td>No-customers service limit</td>
+        <td>CompanyNotificationParameterPrefab</td>
+        <td>0.9 (90%)</td>
+        <td>Threshold for "no customers" company notification</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Custom NotificationIconPrefab at runtime:</strong> Whether mods can create a new
+      <code>NotificationIconPrefab</code> with a custom texture at runtime without shipping a
+      Unity asset bundle. The prefab requires a <code>Texture2D</code> and an archetype.
+    </li>
+    <li>
+      <strong>Chirp queue access:</strong> Whether the <code>CreateChirpSystem</code>'s
+      <code>NativeQueue&lt;ChirpCreationData&gt;</code> is accessible from mod code for injecting
+      custom chirps, or whether a Harmony patch on <code>OnUpdate</code> is the only approach.
+    </li>
+    <li>
+      <strong>Icon clustering threshold:</strong> At what distance and count do nearby icons
+      merge into a cluster in <code>IconClusterSystem</code>.
+    </li>
+    <li>
+      <strong>Custom advisor content:</strong> Whether <code>TutorialSystem.ForceTutorial()</code>
+      can display custom advisor panels with mod-defined content, or only vanilla tutorials.
+    </li>
+    <li>
+      <strong>Thread safety:</strong> Whether <code>NotificationSystem.Push/Pop</code> is safe
+      to call from background tasks (async search, etc.) or must be called on the main thread.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled (systems): Game.Notifications.IconCommandSystem, Game.PSI.NotificationSystem, Game.UI.Menu.NotificationUISystem, Game.UI.InGame.ChirperUISystem, Game.Triggers.CreateChirpSystem, Game.Triggers.NotificationTriggerSystem, Game.Tutorials.TutorialSystem, Game.UI.InGame.TutorialsUISystem</li>
+    <li>Decompiled (components): Game.Notifications.Icon, IconElement, IconCommandBuffer; Game.Triggers.Chirp, ChirpCreationData, ChirpFlags; Game.Prefabs.NotificationIconPrefab, NotificationIconData, NotificationIconDisplayData, ChirpData, ChirperAccount</li>
+    <li>Decompiled (enums): IconPriority, IconClusterLayer, IconFlags, IconCategory, BuildingNotification, ChirpDataFlags, AnimationType, ProgressState</li>
+    <li>Related: <a href="mod-ui-buttons.html">Mod UI Buttons</a> (NotificationSystem.Push/Pop documented there), <a href="chirper-notifications.html">Chirper Notifications</a></li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll and Colossal.PSI.Common.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
