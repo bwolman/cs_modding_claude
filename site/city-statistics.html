@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>City Statistics &amp; Data Panels - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+    <a href="notifications-advisor.html">Notifications &amp; Advisor</a>
+    <a href="city-statistics.html" class="active">City Statistics</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>City Statistics &amp; Data Panels -- Deep Dive</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 collect, store, and display city-wide statistics
+      (population, money, crime, production, passengers, etc.), and how can a mod read, write,
+      or extend this system?
+    </p>
+    <p>
+      <strong>Verdict:</strong> All statistics flow through a single hub:
+      <code>CityStatisticsSystem</code>. Producer systems (crime, wealth, companies, etc.) enqueue
+      <code>StatisticsEvent</code> structs into a shared <code>NativeQueue</code>. Every 8,192
+      simulation frames (~32 times per in-game day), the hub dequeues all events, accumulates
+      them into per-statistic <code>DynamicBuffer&lt;CityStatistic&gt;</code> time-series buffers,
+      then advances to the next sample period. The <strong>simplest mod approach</strong> is to
+      call <code>GetStatisticValue()</code> or <code>GetStatisticDataArrayLong()</code> on the
+      <code>ICityStatisticsSystem</code> interface. To inject custom data, enqueue events via
+      <code>GetStatisticsEventQueue()</code>. To modify displayed values, Harmony-patch
+      <code>GetStatisticValue()</code>.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Individual service statistics internals (fire, police,
+      healthcare) are in their respective research topics. Electricity and water statistics
+      systems use independent tracking and are documented separately.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    The statistics system follows a <strong>producer-consumer event queue pattern</strong>. Multiple
+    simulation systems independently count things (population, crime, wealth, etc.) and push
+    <code>StatisticsEvent</code> structs into a shared thread-safe queue. The central
+    <code>CityStatisticsSystem</code> processes this queue on a fixed interval, accumulating values
+    into per-statistic time-series buffers that the UI reads for chart display.
+  </p>
+
+  <h3>The Three-Phase Update Cycle</h3>
+
+  <p>
+    <code>CityStatisticsSystem</code> runs every <strong>8,192 simulation frames</strong>
+    (32 times per in-game day). Each update executes three jobs in sequence:
+  </p>
+
+  <ol>
+    <li>
+      <strong>CityStatisticsJob:</strong> Enqueues core city metrics (population, money, tourism,
+      age distribution, education levels, health, wellbeing, household count, homeless count) by
+      reading <code>CountHouseholdDataSystem.HouseholdData</code> and the City entity's
+      <code>Tourism</code> component directly.
+    </li>
+    <li>
+      <strong>ProcessStatisticsJob:</strong> Dequeues ALL pending <code>StatisticsEvent</code>
+      entries from the shared queue. For each event, looks up the target entity via
+      <code>m_StatisticsLookup[type, parameter]</code> and adds <code>m_Change</code> to the
+      latest <code>CityStatistic.m_Value</code> in that entity's buffer.
+    </li>
+    <li>
+      <strong>ResetEntityJob:</strong> Iterates every statistic entity and appends a new
+      <code>CityStatistic</code> buffer element for the next period. The <code>m_TotalValue</code>
+      calculation depends on the <code>StatisticCollectionType</code>:
+      <ul>
+        <li><strong>Point:</strong> <code>m_TotalValue = previous.m_Value</code> (snapshot of what was collected)</li>
+        <li><strong>Cumulative:</strong> <code>m_TotalValue = previous.m_TotalValue + previous.m_Value</code> (running total)</li>
+        <li><strong>Daily:</strong> Rolling 32-sample window -- subtracts the value from 32 samples ago</li>
+      </ul>
+    </li>
+  </ol>
+
+  <p>
+    After the jobs complete, <code>eventStatisticsUpdated</code> fires, which
+    <code>StatisticsUISystem</code> uses to rebind chart data.
+  </p>
+
+  <h3>The Statistics Lookup</h3>
+
+  <p>
+    The key data structure is <code>m_StatisticsLookup</code>, a
+    <code>NativeParallelHashMap&lt;StatisticsKey, Entity&gt;</code> that maps
+    <code>(StatisticType, int parameter)</code> pairs to runtime entities. Each entity holds a
+    <code>DynamicBuffer&lt;CityStatistic&gt;</code> containing the full time-series history.
+    The lookup is built from <code>StatisticsPrefab</code> definitions during
+    <code>InitializeLookup()</code>.
+  </p>
+
+  <p>
+    <code>StatisticsKey</code> uses a hash of <code>(int)type * 311 + parameter</code>. The
+    parameter field allows a single <code>StatisticType</code> to have multiple sub-series
+    (e.g., <code>Age</code> with parameters 0=Children, 1=Teen, 2=Adult, 3=Senior).
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+PRODUCER SYSTEMS (run on their own schedules)
+    CityServiceStatisticsSystem ----+
+    CompanyStatisticsSystem ---------+
+    CrimeStatisticsSystem -----------+
+    WealthStatisticsSystem ----------+--&gt; NativeQueue&lt;StatisticsEvent&gt;
+    WorkProviderStatisticsSystem ----+     (shared, thread-safe)
+    [Any mod system using             |
+     GetStatisticsEventQueue()]  ----+
+                                      |
+CITY STATISTICS SYSTEM (every 8192 frames = 32/day)
+    |
+    v
+1. CityStatisticsJob
+    Enqueues: Population, Money, Tourism, HouseholdCount,
+    Age[0-3], Education[0-4], Health, Wellbeing, Workers,
+    Unemployed, Homeless, AdultsCount
+    (reads CountHouseholdDataSystem.HouseholdData directly)
+    |
+    v
+2. ProcessStatisticsJob
+    Dequeues ALL events from NativeQueue
+    For each event:
+      Look up entity via m_StatisticsLookup[type, parameter]
+      Add m_Change to latest CityStatistic.m_Value
+    |
+    v
+3. ResetEntityJob
+    For each statistic entity:
+      Append new CityStatistic buffer element
+      Point:       m_TotalValue = old.m_Value
+      Cumulative:  m_TotalValue = old.m_TotalValue + old.m_Value
+      Daily:       m_TotalValue = rolling 32-sample sum
+    |
+    v
+4. eventStatisticsUpdated fires
+    |
+    v
+StatisticsUISystem receives callback
+    Rebinds chart data via GetStatisticDataArrayLong()
+    |
+    v
+UI panel displays updated charts
+</pre>
+  </div>
+
+  <h3>Producer Systems</h3>
+
+  <p>
+    Each producer system obtains the queue via
+    <code>m_CityStatisticsSystem.GetStatisticsEventQueue(out deps)</code>, schedules its job,
+    then calls <code>m_CityStatisticsSystem.AddWriter(Dependency)</code> to register the
+    dependency. This ensures <code>ProcessStatisticsJob</code> waits for all producers to finish.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Producer System</th><th>StatisticTypes Written</th><th>Source Data</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>CityStatisticsSystem.CityStatisticsJob</code></td>
+        <td>Population, Money, LodgingTotal, LodgingUsed, HouseholdCount, TouristCount, AdultsCount, WorkerCount, Unemployed, Age[0-3], Wellbeing, Health, EducationCount[0-4], HomelessCount</td>
+        <td><code>CountHouseholdDataSystem</code>, <code>Tourism</code>, <code>CitySystem.moneyAmount</code></td>
+      </tr>
+      <tr>
+        <td><code>CityServiceStatisticsSystem</code></td>
+        <td>CityServiceWorkers, CityServiceMaxWorkers (by service index)</td>
+        <td><code>WorkProvider</code>, <code>Employee</code> buffers on service buildings</td>
+      </tr>
+      <tr>
+        <td><code>CompanyStatisticsSystem</code></td>
+        <td>ServiceCount/Workers/MaxWorkers, ProcessingCount/Workers/MaxWorkers, OfficeCount/Workers/MaxWorkers (by resource index)</td>
+        <td><code>WorkProvider</code>, <code>Employee</code>, <code>IndustrialProcessData</code></td>
+      </tr>
+      <tr>
+        <td><code>CrimeStatisticsSystem</code></td>
+        <td>CrimeRate</td>
+        <td><code>CrimeProducer</code> on buildings</td>
+      </tr>
+      <tr>
+        <td><code>WealthStatisticsSystem</code></td>
+        <td>HouseholdWealth, ServiceWealth, ProcessingWealth, OfficeWealth</td>
+        <td><code>Resources</code> buffers, <code>Household</code>, companies</td>
+      </tr>
+      <tr>
+        <td><code>WorkProviderStatisticsSystem</code></td>
+        <td>SeniorWorkerInDemandPercentage</td>
+        <td><code>WorkProvider</code>, <code>FreeWorkplaces</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.City</td>
+        <td>CityStatistic (buffer element), StatisticsEvent, StatisticParameter, Population, Tourism, StatisticType (64 values), StatisticUnitType, StatisticCollectionType</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>CityStatisticsSystem (hub), ICityStatisticsSystem (interface), CityServiceStatisticsSystem, CompanyStatisticsSystem, CrimeStatisticsSystem, WealthStatisticsSystem, WorkProviderStatisticsSystem, StatisticTriggerSystem, CountHouseholdDataSystem, CountVehicleDataSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.UI.InGame</td>
+        <td>StatisticsUISystem, StatisticsPanel</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>StatisticsPrefab, StatisticsData, StatisticParameterData, ParametricStatistic, UIStatisticsCategoryPrefab, UIStatisticsGroupPrefab, AgeStatistic, EducationStatistic, ResourceStatistic, IncomeStatistic, ExpenseStatistic, PassengerStatistic, CityServiceStatistic, LevelStatistic, MoveAwayStatistic, StatisticTriggerPrefab</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>StatisticType Enum (Game.City) -- All 64 Values</h3>
+
+  <table>
+    <thead>
+      <tr><th>Name</th><th>Value</th><th>Collection</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Population</td><td>0</td><td>Point</td><td>Total city population</td></tr>
+      <tr><td>Money</td><td>1</td><td>Point</td><td>City treasury balance</td></tr>
+      <tr><td>Income</td><td>2</td><td>Cumulative</td><td>Total income (parametric by IncomeSource)</td></tr>
+      <tr><td>Expense</td><td>3</td><td>Cumulative</td><td>Total expenses (parametric by ExpenseSource)</td></tr>
+      <tr><td>Trade</td><td>4</td><td>Cumulative</td><td>Trade value (parametric by resource)</td></tr>
+      <tr><td>HouseholdWealth</td><td>5</td><td>Point</td><td>Total household wealth</td></tr>
+      <tr><td>HouseholdCount</td><td>6</td><td>Point</td><td>Number of moved-in households</td></tr>
+      <tr><td>ServiceWealth</td><td>7</td><td>Point</td><td>Commercial company wealth (by resource)</td></tr>
+      <tr><td>ServiceCount</td><td>8</td><td>Point</td><td>Commercial company count (by resource)</td></tr>
+      <tr><td>ServiceWorkers</td><td>9</td><td>Point</td><td>Commercial workers (by resource)</td></tr>
+      <tr><td>ServiceMaxWorkers</td><td>10</td><td>Point</td><td>Commercial max workers (by resource)</td></tr>
+      <tr><td>ProcessingWealth</td><td>11</td><td>Point</td><td>Industrial company wealth (by resource)</td></tr>
+      <tr><td>ProcessingCount</td><td>12</td><td>Point</td><td>Industrial company count (by resource)</td></tr>
+      <tr><td>ProcessingWorkers</td><td>13</td><td>Point</td><td>Industrial workers (by resource)</td></tr>
+      <tr><td>ProcessingMaxWorkers</td><td>14</td><td>Point</td><td>Industrial max workers (by resource)</td></tr>
+      <tr><td>Wellbeing</td><td>15</td><td>Point</td><td>Total citizen wellbeing (divided by population for avg)</td></tr>
+      <tr><td>Health</td><td>16</td><td>Point</td><td>Total citizen health (divided by population for avg)</td></tr>
+      <tr><td>WorkerCount</td><td>17</td><td>Point</td><td>Employed city workers</td></tr>
+      <tr><td>Unemployed</td><td>18</td><td>Point</td><td>Unemployed citizens</td></tr>
+      <tr><td>EducationCount</td><td>19</td><td>Point</td><td>Citizens by education level (param 0-4)</td></tr>
+      <tr><td>TouristCount</td><td>20</td><td>Point</td><td>Current tourist citizens</td></tr>
+      <tr><td>TouristIncome</td><td>21</td><td>Cumulative</td><td>Income from tourism</td></tr>
+      <tr><td>LodgingUsed</td><td>22</td><td>Point</td><td>Occupied hotel/lodging rooms</td></tr>
+      <tr><td>LodgingTotal</td><td>23</td><td>Point</td><td>Total lodging capacity</td></tr>
+      <tr><td>DeathRate</td><td>24</td><td>Daily</td><td>Deaths per rolling window</td></tr>
+      <tr><td>CollectedMail</td><td>25</td><td>Daily</td><td>Mail collected per rolling window</td></tr>
+      <tr><td>DeliveredMail</td><td>26</td><td>Daily</td><td>Mail delivered per rolling window</td></tr>
+      <tr><td>BirthRate</td><td>27</td><td>Daily</td><td>Births per rolling window</td></tr>
+      <tr><td>CitizensMovedIn</td><td>28</td><td>Daily</td><td>Citizens moved in per window</td></tr>
+      <tr><td>CitizensMovedAway</td><td>29</td><td>Daily</td><td>Citizens moved away per window</td></tr>
+      <tr><td>PassengerCountBus</td><td>30</td><td>Daily</td><td>Bus passengers per window</td></tr>
+      <tr><td>PassengerCountSubway</td><td>31</td><td>Daily</td><td>Subway passengers per window</td></tr>
+      <tr><td>PassengerCountTram</td><td>32</td><td>Daily</td><td>Tram passengers per window</td></tr>
+      <tr><td>PassengerCountTrain</td><td>33</td><td>Daily</td><td>Train passengers per window</td></tr>
+      <tr><td>PassengerCountTaxi</td><td>34</td><td>Daily</td><td>Taxi passengers per window</td></tr>
+      <tr><td>PassengerCountAirplane</td><td>35</td><td>Daily</td><td>Airplane passengers per window</td></tr>
+      <tr><td>PassengerCountShip</td><td>36</td><td>Daily</td><td>Ship passengers per window</td></tr>
+      <tr><td>CrimeRate</td><td>37</td><td>Point</td><td>Average crime rate (0-100%)</td></tr>
+      <tr><td>CityServiceWorkers</td><td>38</td><td>Point</td><td>Service building workers (by service index)</td></tr>
+      <tr><td>CityServiceMaxWorkers</td><td>39</td><td>Point</td><td>Service building max workers (by service index)</td></tr>
+      <tr><td>OfficeWealth</td><td>40</td><td>Point</td><td>Office company wealth (by resource)</td></tr>
+      <tr><td>OfficeCount</td><td>41</td><td>Point</td><td>Office company count (by resource)</td></tr>
+      <tr><td>OfficeWorkers</td><td>42</td><td>Point</td><td>Office workers (by resource)</td></tr>
+      <tr><td>OfficeMaxWorkers</td><td>43</td><td>Point</td><td>Office max workers (by resource)</td></tr>
+      <tr><td>ResidentialTaxableIncome</td><td>44</td><td>Cumulative</td><td>Residential tax base</td></tr>
+      <tr><td>CommercialTaxableIncome</td><td>45</td><td>Cumulative</td><td>Commercial tax base</td></tr>
+      <tr><td>IndustrialTaxableIncome</td><td>46</td><td>Cumulative</td><td>Industrial tax base</td></tr>
+      <tr><td>OfficeTaxableIncome</td><td>47</td><td>Cumulative</td><td>Office tax base</td></tr>
+      <tr><td>CargoCountTruck</td><td>48</td><td>Daily</td><td>Truck cargo per window</td></tr>
+      <tr><td>CargoCountTrain</td><td>49</td><td>Daily</td><td>Train cargo per window</td></tr>
+      <tr><td>CargoCountShip</td><td>50</td><td>Daily</td><td>Ship cargo per window</td></tr>
+      <tr><td>CargoCountAirplane</td><td>51</td><td>Daily</td><td>Airplane cargo per window</td></tr>
+      <tr><td>SeniorWorkerInDemandPercentage</td><td>52</td><td>Point</td><td>Senior workplace demand %</td></tr>
+      <tr><td>CrimeCount</td><td>53</td><td>Daily</td><td>Total crime events per window</td></tr>
+      <tr><td>EscapedArrestCount</td><td>54</td><td>Daily</td><td>Escaped arrests per window</td></tr>
+      <tr><td>AdultsCount</td><td>55</td><td>Point</td><td>Adult citizen count</td></tr>
+      <tr><td>Age</td><td>56</td><td>Point</td><td>Citizens by age group (param 0-3)</td></tr>
+      <tr><td>WellbeingLevel</td><td>57</td><td>Point</td><td>Wellbeing level distribution</td></tr>
+      <tr><td>HealthLevel</td><td>58</td><td>Point</td><td>Health level distribution</td></tr>
+      <tr><td>HomelessCount</td><td>59</td><td>Point</td><td>Homeless citizens</td></tr>
+      <tr><td>PassengerCountFerry</td><td>60</td><td>Daily</td><td>Ferry passengers per window</td></tr>
+      <tr><td>MovedAwayReason</td><td>61</td><td>Daily</td><td>Move-away reasons (parametric)</td></tr>
+      <tr><td>Count</td><td>62</td><td>--</td><td>Sentinel (not a real stat)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CityStatistic (Game.City) -- Buffer Element</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Value</td><td>double</td><td>Current period's accumulated value (reset each period by ResetEntityJob)</td></tr>
+      <tr><td>m_TotalValue</td><td>double</td><td>Computed total -- what <code>GetStatisticValue()</code> returns (see collection type semantics above)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>StatisticsEvent (Game.City)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Statistic</td><td>StatisticType</td><td>Which statistic this event contributes to</td></tr>
+      <tr><td>m_Parameter</td><td>int</td><td>Sub-parameter (education level, age group, resource index, service index)</td></tr>
+      <tr><td>m_Change</td><td>float</td><td>Value to add to the period accumulator</td></tr>
+    </tbody>
+  </table>
+
+  <h3>StatisticsData (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Category</td><td>Entity</td><td>UIStatisticsCategoryPrefab entity (tab in Statistics panel)</td></tr>
+      <tr><td>m_Group</td><td>Entity</td><td>UIStatisticsGroupPrefab entity (group within tab)</td></tr>
+      <tr><td>m_StatisticType</td><td>StatisticType</td><td>Which StatisticType this prefab tracks</td></tr>
+      <tr><td>m_CollectionType</td><td>StatisticCollectionType</td><td>Point, Cumulative, or Daily</td></tr>
+      <tr><td>m_UnitType</td><td>StatisticUnitType</td><td>None, Money, Percent, Weight</td></tr>
+      <tr><td>m_Color</td><td>Color</td><td>Chart line/bar color</td></tr>
+      <tr><td>m_Stacked</td><td>bool</td><td>Whether chart area is stacked in grouped display</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Population (Game.City) -- City Singleton</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Population</td><td>int</td><td>Current total population</td></tr>
+      <tr><td>m_PopulationWithMoveIn</td><td>int</td><td>Population including citizens still moving in</td></tr>
+      <tr><td>m_AverageHappiness</td><td>int</td><td>City average happiness (0-100)</td></tr>
+      <tr><td>m_AverageHealth</td><td>int</td><td>City average health (0-100, default 50)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Tourism (Game.City) -- City Singleton</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_CurrentTourists</td><td>int</td><td>Currently visiting tourists</td></tr>
+      <tr><td>m_AverageTourists</td><td>int</td><td>Smoothed average tourist count</td></tr>
+      <tr><td>m_Attractiveness</td><td>int</td><td>City attractiveness score</td></tr>
+      <tr><td>m_Lodging</td><td>int2</td><td>x = used lodging, y = total lodging capacity</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>The Prefab Configuration Layer</h2>
+
+  <p>
+    Every statistic visible in the UI is defined by a <code>StatisticsPrefab</code> (managed
+    class). These prefabs are organized into a three-level hierarchy:
+  </p>
+
+  <ol>
+    <li><strong>Category</strong> (<code>UIStatisticsCategoryPrefab</code>): Top-level tabs like "Population", "Economy", "Services"</li>
+    <li><strong>Group</strong> (<code>UIStatisticsGroupPrefab</code>): Sections within a category, with shared unit type and color</li>
+    <li><strong>Statistic</strong> (<code>StatisticsPrefab</code> or <code>ParametricStatistic</code> subclass): Individual data series</li>
+  </ol>
+
+  <p>
+    <code>ParametricStatistic</code> is an abstract base for statistics with sub-parameters.
+    Concrete subclasses include <code>AgeStatistic</code> (Children/Teen/Adult/Senior),
+    <code>EducationStatistic</code> (5 education levels), <code>ResourceStatistic</code>
+    (trade by resource type), <code>IncomeStatistic</code>, <code>ExpenseStatistic</code>,
+    <code>PassengerStatistic</code>, <code>CityServiceStatistic</code>, <code>LevelStatistic</code>,
+    and <code>MoveAwayStatistic</code>.
+  </p>
+
+  <p>
+    Each parametric subclass provides a <code>GetParameters()</code> method returning
+    <code>IEnumerable&lt;StatisticParameterData&gt;</code> and a <code>GetParameterName(int)</code>
+    for display. The parameter data is stored as a <code>DynamicBuffer&lt;StatisticParameterData&gt;</code>
+    on the prefab entity.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>The Statistics UI System</h2>
+
+  <p>
+    <code>StatisticsUISystem</code> extends <code>UISystemBase</code> and provides all data
+    bindings for the Statistics panel under the <code>"statistics"</code> binding group.
+  </p>
+
+  <h3>UI Bindings</h3>
+
+  <table>
+    <thead>
+      <tr><th>Binding</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>statistics.categories</code></td><td>RawValueBinding</td><td>Array of category tabs (entity, name, locked status)</td></tr>
+      <tr><td><code>statistics.groups</code></td><td>RawMapBinding&lt;Entity&gt;</td><td>Groups/stats within a category, keyed by parent entity</td></tr>
+      <tr><td><code>statistics.data</code></td><td>RawValueBinding</td><td>Chart datasets for selected statistics (label, data points, colors)</td></tr>
+      <tr><td><code>statistics.selectedStatistics</code></td><td>RawValueBinding</td><td>Currently selected stat items</td></tr>
+      <tr><td><code>statistics.sampleRange</code></td><td>ValueBinding&lt;int&gt;</td><td>Visible time range (default 32 = 1 day)</td></tr>
+      <tr><td><code>statistics.sampleCount</code></td><td>ValueBinding&lt;int&gt;</td><td>Total available samples</td></tr>
+      <tr><td><code>statistics.updatesPerDay</code></td><td>GetterValueBinding&lt;int&gt;</td><td>Always returns 32</td></tr>
+      <tr><td><code>statistics.stacked</code></td><td>GetterValueBinding&lt;bool&gt;</td><td>Whether charts are stacked</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Trigger Bindings (UI Actions)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Trigger</th><th>Parameter</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>statistics.addStat</code></td><td>StatItem</td><td>Add a statistic to the chart display</td></tr>
+      <tr><td><code>statistics.addStatChildren</code></td><td>StatItem</td><td>Add all children of a group/parametric stat</td></tr>
+      <tr><td><code>statistics.removeStat</code></td><td>StatItem</td><td>Remove a statistic from the chart</td></tr>
+      <tr><td><code>statistics.clearStats</code></td><td>(none)</td><td>Clear all selected statistics</td></tr>
+      <tr><td><code>statistics.setSampleRange</code></td><td>int</td><td>Set the visible time range</td></tr>
+      <tr><td><code>statistics.setActiveCategory</code></td><td>Entity</td><td>Switch category tab</td></tr>
+      <tr><td><code>statistics.setActiveGroup</code></td><td>Entity</td><td>Switch group within category</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The chart data binding (<code>BindData</code>) formats data as
+    <code>statistics.ChartDataSets</code> objects with <code>label</code>, <code>data</code>
+    (array of <code>{x, y}</code> points where x is frame time and y is the value),
+    <code>borderColor</code> (hex), <code>backgroundColor</code> (rgba with 0.5 alpha),
+    and <code>fill</code> ("origin" when stacked, "false" otherwise).
+  </p>
+
+  <p>
+    For <strong>Wellbeing</strong> (type 15) and <strong>Health</strong> (type 16), the UI
+    divides the raw value by Population to compute an average before displaying.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Read City Population and Key Metrics</h3>
+
+  <p>
+    The simplest approach: use <code>ICityStatisticsSystem</code> to read current values.
+    No Harmony patches needed.
+  </p>
+
+  <pre><code class="language-csharp">public partial class ReadCityStatsSystem : GameSystemBase
+{
+    private CityStatisticsSystem m_StatisticsSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_StatisticsSystem = World.GetOrCreateSystemManaged&lt;CityStatisticsSystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        // Read current population (Point-type -- returns latest m_TotalValue)
+        int population = m_StatisticsSystem.GetStatisticValue(
+            StatisticType.Population);
+
+        // Read city treasury (can overflow int -- use long variant)
+        long money = m_StatisticsSystem.GetStatisticValueLong(
+            StatisticType.Money);
+
+        // Read crime rate (percentage 0-100)
+        int crimeRate = m_StatisticsSystem.GetStatisticValue(
+            StatisticType.CrimeRate);
+
+        // Read parametric stats -- parameter selects the sub-series
+        // Education: 0=Uneducated, 1=Poorly, 2=Educated, 3=Well, 4=Highly
+        int uneducated = m_StatisticsSystem.GetStatisticValue(
+            StatisticType.EducationCount, 0);
+        int highlyEducated = m_StatisticsSystem.GetStatisticValue(
+            StatisticType.EducationCount, 4);
+
+        // Age: 0=Children, 1=Teen, 2=Adult, 3=Senior
+        int seniors = m_StatisticsSystem.GetStatisticValue(
+            StatisticType.Age, 3);
+
+        Log.Info($"Pop: {population}, Money: {money}, Crime: {crimeRate}%");
+    }
+}</code></pre>
+
+  <h3>Example 2: Query Historical Statistics (Time-Series)</h3>
+
+  <p>
+    Retrieve the full time-series array to analyze trends over time. Each sample
+    represents ~8,192 frames of in-game time.
+  </p>
+
+  <pre><code class="language-csharp">public partial class HistoricalStatsSystem : GameSystemBase
+{
+    private CityStatisticsSystem m_StatisticsSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_StatisticsSystem = World.GetOrCreateSystemManaged&lt;CityStatisticsSystem&gt;();
+    }
+
+    protected override void OnUpdate() { }
+
+    public void AnalyzePopulationTrend(int lookback)
+    {
+        // Ensure all producer jobs have finished writing
+        m_StatisticsSystem.CompleteWriters();
+
+        // Get full time-series (each element is one sample's m_TotalValue)
+        NativeArray&lt;long&gt; history = m_StatisticsSystem.GetStatisticDataArrayLong(
+            StatisticType.Population);
+
+        int total = history.Length;
+        int start = math.max(0, total - lookback);
+
+        // Compute trend: compare first and last in window
+        if (total &gt; 1)
+        {
+            long oldest = history[start];
+            long newest = history[total - 1];
+            long change = newest - oldest;
+            Log.Info($"Population trend over {total - start} samples: " +
+                     $"{oldest} -&gt; {newest} (change: {change:+0;-0;0})");
+        }
+
+        // For raw CityStatistic data (both m_Value and m_TotalValue):
+        NativeArray&lt;CityStatistic&gt; raw = m_StatisticsSystem.GetStatisticArray(
+            StatisticType.Population);
+        if (raw.Length &gt; 0)
+        {
+            CityStatistic latest = raw[raw.Length - 1];
+            Log.Info($"Latest: Value={latest.m_Value}, " +
+                     $"Total={latest.m_TotalValue}");
+        }
+
+        history.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 3: Inject Events into the Statistics Queue</h3>
+
+  <p>
+    Write a producer system that feeds values into an <strong>existing</strong> statistic.
+    The event will be processed during the next <code>CityStatisticsSystem</code> update cycle.
+  </p>
+
+  <pre><code class="language-csharp">public partial class CustomStatProducerSystem : GameSystemBase
+{
+    private CityStatisticsSystem m_StatisticsSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_StatisticsSystem = World.GetOrCreateSystemManaged&lt;CityStatisticsSystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        // Get the shared event queue (thread-safe via ParallelWriter)
+        JobHandle deps;
+        NativeQueue&lt;StatisticsEvent&gt; queue =
+            m_StatisticsSystem.GetStatisticsEventQueue(out deps);
+
+        // Wait for pending writers
+        deps.Complete();
+
+        // Enqueue a value for an existing statistic type
+        // (e.g., add extra tourist income from a mod-created attraction)
+        queue.Enqueue(new StatisticsEvent
+        {
+            m_Statistic = StatisticType.TouristIncome,
+            m_Change = 5000f,
+            m_Parameter = 0
+        });
+
+        // Register our dependency so CityStatisticsSystem waits for us
+        m_StatisticsSystem.AddWriter(Dependency);
+    }
+}</code></pre>
+
+  <div class="warning">
+    <p>
+      <strong>Warning:</strong> Events for <code>StatisticType</code> values that do not have a
+      matching <code>StatisticsPrefab</code> in the lookup are silently dropped by
+      <code>ProcessStatisticsJob</code>. You cannot add truly new statistic types by just
+      enqueuing events -- you also need a prefab registration.
+    </p>
+  </div>
+
+  <h3>Example 4: Modify Reported Statistics via Harmony</h3>
+
+  <p>
+    Patch <code>GetStatisticValue</code> to adjust what the UI and other systems see.
+  </p>
+
+  <pre><code class="language-csharp">using HarmonyLib;
+using Game.City;
+using Game.Simulation;
+
+[HarmonyPatch(typeof(CityStatisticsSystem),
+    nameof(CityStatisticsSystem.GetStatisticValue),
+    new[] { typeof(StatisticType), typeof(int) })]
+public static class CrimeRateMultiplierPatch
+{
+    public static float CrimeMultiplier { get; set; } = 1.5f;
+
+    static void Postfix(ref int __result, StatisticType type)
+    {
+        if (type == StatisticType.CrimeRate)
+        {
+            __result = math.clamp(
+                (int)(__result * CrimeMultiplier), 0, 100);
+        }
+    }
+}</code></pre>
+
+  <h3>Example 5: Subscribe to Statistics Update Events</h3>
+
+  <p>
+    Listen for the statistics update callback to implement real-time monitoring
+    or trigger mod actions when thresholds are crossed.
+  </p>
+
+  <pre><code class="language-csharp">public partial class StatisticsMonitorSystem : GameSystemBase
+{
+    private ICityStatisticsSystem m_StatisticsSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_StatisticsSystem =
+            World.GetOrCreateSystemManaged&lt;CityStatisticsSystem&gt;();
+        m_StatisticsSystem.eventStatisticsUpdated += OnStatsUpdated;
+    }
+
+    protected override void OnDestroy()
+    {
+        m_StatisticsSystem.eventStatisticsUpdated -= OnStatsUpdated;
+        base.OnDestroy();
+    }
+
+    protected override void OnUpdate() { }
+
+    private void OnStatsUpdated()
+    {
+        int pop = m_StatisticsSystem.GetStatisticValue(
+            StatisticType.Population);
+        int crime = m_StatisticsSystem.GetStatisticValue(
+            StatisticType.CrimeRate);
+        long money = m_StatisticsSystem.GetStatisticValueLong(
+            StatisticType.Money);
+
+        // Trigger mod-specific actions at thresholds
+        if (crime &gt; 75)
+        {
+            Log.Warn($"High crime alert! Rate: {crime}%");
+        }
+        if (pop &gt; 0 &amp;&amp; money / pop &lt; 100)
+        {
+            Log.Warn($"Low per-capita funds: {money / pop}");
+        }
+
+        Log.Info($"[Stats] Pop={pop} Crime={crime}% Money={money} " +
+                 $"(sample #{m_StatisticsSystem.sampleCount})");
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Statistics update interval</td>
+        <td><code>CityStatisticsSystem.GetUpdateInterval()</code></td>
+        <td>8,192 frames</td>
+        <td>How often statistics are sampled (hardcoded)</td>
+      </tr>
+      <tr>
+        <td>Updates per in-game day</td>
+        <td><code>kUpdatesPerDay</code> constant</td>
+        <td>32</td>
+        <td>Number of samples collected per day</td>
+      </tr>
+      <tr>
+        <td>Default UI sample range</td>
+        <td><code>StatisticsUISystem.OnGameLoaded()</code></td>
+        <td>32 (1 day)</td>
+        <td>Initial visible chart range when panel opens</td>
+      </tr>
+      <tr>
+        <td>Lookup initial capacity</td>
+        <td><code>CityStatisticsSystem.OnCreate()</code></td>
+        <td>64 entries</td>
+        <td>Starting hash map capacity (grows dynamically)</td>
+      </tr>
+      <tr>
+        <td>Daily rolling window</td>
+        <td><code>ResetEntityJob</code> hardcoded</td>
+        <td>32 samples</td>
+        <td>Lookback depth for Daily collection type</td>
+      </tr>
+      <tr>
+        <td>StatisticsKey hash</td>
+        <td><code>StatisticsKey.GetHashCode()</code></td>
+        <td><code>(int)type * 311 + parameter</code></td>
+        <td>Hash distribution for the lookup</td>
+      </tr>
+      <tr>
+        <td>Wellbeing/Health averaging</td>
+        <td><code>StatisticsUISystem.GetStatisticData()</code></td>
+        <td>Divided by Population</td>
+        <td>UI shows per-capita average for types 15 and 16</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Custom StatisticType values beyond 63:</strong> The <code>StatisticType</code> enum
+      ends at <code>Count = 62</code>. The lookup uses a hash-based map, so values beyond the enum
+      range should work if a matching <code>StatisticsPrefab</code> exists. However, this is
+      untested and <code>ProcessStatisticsJob</code> explicitly skips
+      <code>StatisticType.Count</code>.
+    </li>
+    <li>
+      <strong>Runtime prefab registration:</strong> Creating a new <code>StatisticsPrefab</code>
+      at runtime requires it to be in <code>PrefabSystem</code> before
+      <code>CityStatisticsSystem.InitializeLookup()</code> runs. The exact timing for mod-added
+      prefabs vs the statistics initialization needs in-game testing.
+    </li>
+    <li>
+      <strong>UI extensibility without prefabs:</strong> Can Harmony patches on
+      <code>BindCategories</code> or <code>BindGroups</code> inject additional items into the
+      Statistics panel, or does the entire category/group system require proper prefab registration?
+    </li>
+    <li>
+      <strong>Thread safety of static GetStatisticValue:</strong> The instance method calls
+      <code>m_Writers.Complete()</code> which blocks. The static overload accepting explicit
+      lookup and stats parameters avoids this but requires the caller to manage synchronization.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled (systems): Game.Simulation.CityStatisticsSystem, Game.Simulation.CityServiceStatisticsSystem, Game.Simulation.CompanyStatisticsSystem, Game.Simulation.CrimeStatisticsSystem, Game.Simulation.WealthStatisticsSystem, Game.Simulation.WorkProviderStatisticsSystem, Game.Simulation.StatisticTriggerSystem, Game.Simulation.CountHouseholdDataSystem</li>
+    <li>Decompiled (UI): Game.UI.InGame.StatisticsUISystem, Game.UI.InGame.StatisticsPanel</li>
+    <li>Decompiled (components): Game.City.CityStatistic, StatisticsEvent, StatisticParameter, Population, Tourism, StatisticType, StatisticUnitType, StatisticCollectionType</li>
+    <li>Decompiled (prefabs): Game.Prefabs.StatisticsPrefab, StatisticsData, StatisticParameterData, ParametricStatistic, AgeStatistic, UIStatisticsCategoryPrefab, UIStatisticsGroupPrefab</li>
+    <li>Interface: Game.Simulation.ICityStatisticsSystem</li>
+    <li>Related: <a href="economy-budget.html">Economy &amp; Budget</a> (financial statistics), <a href="citizens-households.html">Citizens &amp; Households</a> (population data source)</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
