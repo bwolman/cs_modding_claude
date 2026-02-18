@@ -739,6 +739,152 @@ public static class WorkforceRebalancePatch
   </p>
 
   <!-- ============================================================ -->
+  <h2>Dynamic WorkProvider.m_MaxWorkers Modification</h2>
+
+  <p>
+    When modifying workplace counts at runtime, multiple components must be kept in sync. The entity
+    relationship chain for workplace modification:
+  </p>
+
+  <div class="diagram">
+<pre>
+Company Entity -&gt; PropertyRenter.m_Property -&gt; Building Entity
+Building Entity -&gt; PrefabRef.m_Prefab -&gt; Building Prefab Entity
+Building Prefab Entity -&gt; SubMesh buffer -&gt; MeshData -&gt; dimensions
+Company Entity -&gt; PrefabRef.m_Prefab -&gt; Company Prefab Entity
+Company Prefab Entity -&gt; WorkplaceData / ServiceCompanyData / IndustrialProcessData
+</pre>
+  </div>
+
+  <h3>Modification Pattern</h3>
+
+  <ol>
+    <li>Query company entities with <code>[PrefabRef, CompanyData, PropertyRenter, WorkProvider]</code></li>
+    <li>Look up the building prefab via <code>PropertyRenter.m_Property</code> -&gt; building entity -&gt; <code>PrefabRef.m_Prefab</code></li>
+    <li>Get mesh dimensions from building prefab to calculate realistic worker counts</li>
+    <li>Write new values to <code>WorkProvider.m_MaxWorkers</code> on the company entity</li>
+    <li>Also scale <code>WorkplaceData.m_MaxWorkers</code> on the company prefab entity</li>
+    <li>Also scale <code>ServiceCompanyData.m_WorkPerUnit</code> and <code>IndustrialProcessData.m_WorkPerUnit</code></li>
+  </ol>
+
+  <h3>Critical Sync Requirement</h3>
+
+  <p>
+    When modifying <code>m_MaxWorkers</code>, the <code>m_WorkPerUnit</code> on the company prefab must
+    also be scaled proportionally, or production per worker becomes unbalanced:
+  </p>
+
+  <pre><code class="language-csharp">// Scale worker count
+float scaleFactor = newMaxWorkers / (float)originalMaxWorkers;
+workProvider.m_MaxWorkers = newMaxWorkers;
+
+// MUST also scale production rate to maintain balance
+workplaceData.m_MaxWorkers = newMaxWorkers;
+serviceCompanyData.m_WorkPerUnit = (int)(originalWorkPerUnit * scaleFactor);
+industrialProcessData.m_WorkPerUnit = (int)(originalWorkPerUnit * scaleFactor);</code></pre>
+
+  <p><em>Source: RealisticWorkplacesAndHouseholds mod</em></p>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <h3>Candidate 1: EconomyUtils.CalculateNumberOfWorkplaces</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>static Workplaces CalculateNumberOfWorkplaces(int totalWorkers, WorkplaceComplexity complexity, int buildingLevel)</code></td></tr>
+      <tr><td>Patch type</td><td>Prefix (replace) or Postfix (modify result)</td></tr>
+      <tr><td>What it enables</td><td>Completely rebalance how education levels are distributed across workplaces. Could make all businesses need more educated workers, or flatten the distribution.</td></tr>
+      <tr><td>Risk level</td><td>Medium -- called by multiple systems (WorkProviderSystem, CountWorkplacesSystem, FindJobSystem)</td></tr>
+      <tr><td>Side effects</td><td>Affects building efficiency, job seeking, commuter spawning, and statistics</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 2: WorkProviderSystem.WorkProviderTickJob.RefreshFreeWorkplace</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>private void RefreshFreeWorkplace(int sortKey, Entity workplaceEntity, DynamicBuffer&lt;Employee&gt; employeeBuf, ref Workplaces freeWorkplaces)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix</td></tr>
+      <tr><td>What it enables</td><td>Modify layoff behavior, change when workers are removed, add custom logic when vacancies change</td></tr>
+      <tr><td>Risk level</td><td>Medium -- operates on per-entity basis, changes affect individual companies</td></tr>
+      <tr><td>Side effects</td><td>Incorrect layoff logic could cause infinite hiring/firing loops</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 3: FindJobSystem.FindJobJob.Execute</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex, bool useEnabledMask, in v128 chunkEnabledMask)</code></td></tr>
+      <tr><td>Patch type</td><td>Prefix (to filter job seekers) or Transpiler</td></tr>
+      <tr><td>What it enables</td><td>Change job matching logic (e.g., prevent overqualified workers from taking low-level jobs, prioritize certain areas)</td></tr>
+      <tr><td>Risk level</td><td>High -- Burst-compiled IJobChunk, complex inner logic</td></tr>
+      <tr><td>Side effects</td><td>Could break pathfinding pipeline if destination encoding changes</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 4: CommuterSpawnSystem.SpawnCommuterHouseholdJob.Execute</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>public void Execute()</code></td></tr>
+      <tr><td>Patch type</td><td>Prefix (to throttle spawning) or Postfix</td></tr>
+      <tr><td>What it enables</td><td>Control commuter influx rate, add requirements for commuter households, limit by outside connection type</td></tr>
+      <tr><td>Risk level</td><td>Low -- single-threaded IJob, simple spawn logic</td></tr>
+      <tr><td>Side effects</td><td>Too few commuters could starve educated job market</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 5: EconomyUtils.GetWorkerWorkforce</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>static float GetWorkerWorkforce(int happiness, int level)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix (modify return value)</td></tr>
+      <tr><td>What it enables</td><td>Rebalance the value of different education levels, make happiness matter more/less</td></tr>
+      <tr><td>Risk level</td><td>Low -- pure function, no side effects</td></tr>
+      <tr><td>Side effects</td><td>Affects building efficiency calculations and company production</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Mod Blueprint</h2>
+
+  <ul>
+    <li><strong>Systems to create:</strong>
+      <ul>
+        <li>Custom <code>WorkplaceBalancerSystem</code> extending <code>GameSystemBase</code> to monitor and
+        adjust workplace distribution.</li>
+        <li>Custom <code>CommuterControlSystem</code> to limit or enhance commuter spawning based on
+        configurable rules.</li>
+      </ul>
+    </li>
+    <li><strong>Components to add:</strong> Optional <code>CustomWorkplaceRules</code> component for
+    per-building overrides.</li>
+    <li><strong>Patches needed:</strong>
+      <ul>
+        <li><code>EconomyUtils.CalculateNumberOfWorkplaces</code> (Postfix) to adjust education distribution.</li>
+        <li><code>CommuterSpawnSystem.SpawnCommuterHouseholdJob.Execute</code> (Prefix) to control spawn rate.</li>
+      </ul>
+    </li>
+    <li><strong>Settings:</strong> Education level distribution multipliers per complexity type, commuter
+    spawn rate multiplier, maximum commuter-to-worker ratio override.</li>
+    <li><strong>UI changes:</strong> Statistics panel showing workplace breakdown by education level,
+    notification when educated worker shortage exceeds threshold.</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>

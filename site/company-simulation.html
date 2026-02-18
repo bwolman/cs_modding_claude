@@ -431,6 +431,243 @@
     </tbody>
   </table>
 
+  <h3>ServiceAvailable (Game.Companies)</h3>
+
+  <p>Tracks current service availability for commercial companies.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ServiceAvailable</td><td>int</td><td>Current service units available for customers</td></tr>
+      <tr><td>m_MeanPriority</td><td>float</td><td>Average priority of service requests</td></tr>
+    </tbody>
+  </table>
+
+  <h3>BuyingCompany (Game.Companies)</h3>
+
+  <p>Marks a company that is actively seeking to purchase input resources.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_LastTradePartner</td><td>Entity</td><td>Last entity this company traded with</td></tr>
+      <tr><td>m_MeanInputTripLength</td><td>float</td><td>Average distance for input resource deliveries</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CompanyNotifications (Game.Companies)</h3>
+
+  <p>Tracks notification state for "no inputs" and "no customers" warnings.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_NoInputCounter</td><td>short</td><td>Counter for consecutive no-input ticks</td></tr>
+      <tr><td>m_NoCustomersCounter</td><td>short</td><td>Counter for consecutive no-customers ticks</td></tr>
+      <tr><td>m_NoInputEntity</td><td>Entity</td><td>Entity where the no-input icon is displayed</td></tr>
+      <tr><td>m_NoCustomersEntity</td><td>Entity</td><td>Entity where the no-customers icon is displayed</td></tr>
+    </tbody>
+  </table>
+
+  <h3>StorageCompany (Game.Companies)</h3>
+
+  <p>Tag + data for warehouse companies.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_LastTradePartner</td><td>Entity</td><td>Last entity this warehouse traded with</td></tr>
+    </tbody>
+  </table>
+
+  <h3>StorageLimitData (Game.Companies)</h3>
+
+  <p>Storage capacity limit, combinable from building upgrades. Has <code>GetAdjustedLimitForWarehouse(spawnable, building)</code>
+  which returns <code>m_Limit * level * lotSizeX * lotSizeY</code>.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Limit</td><td>int</td><td>Base storage limit in resource units</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ResourceBuyer (Game.Companies)</h3>
+
+  <p>Active resource purchase request placed by a company.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Payer</td><td>Entity</td><td>Entity that will pay for the resources</td></tr>
+      <tr><td>m_Flags</td><td>SetupTargetFlags</td><td>Pathfinding flags for the delivery</td></tr>
+      <tr><td>m_ResourceNeeded</td><td>Resource</td><td>Which resource is being purchased</td></tr>
+      <tr><td>m_AmountNeeded</td><td>int</td><td>How much is needed</td></tr>
+      <tr><td>m_Location</td><td>float3</td><td>World position for delivery</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ResourceExporter (Game.Companies)</h3>
+
+  <p>Marks a company that has excess output ready for export/sale.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>Resource</td><td>Resource type to export</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Amount to export</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TradeCost (Game.Companies, buffer)</h3>
+
+  <p>Per-resource trade cost tracking. Buffer element on company entities.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>Resource</td><td>Resource type</td></tr>
+      <tr><td>m_BuyCost</td><td>float</td><td>Cost to buy this resource</td></tr>
+      <tr><td>m_SellCost</td><td>float</td><td>Revenue from selling this resource</td></tr>
+      <tr><td>m_LastTransferRequestTime</td><td>long</td><td>Timestamp of last transfer request</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CurrentTrading (Game.Companies, buffer)</h3>
+
+  <p>Active trade operations in progress. Buffer element.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TradingResourceAmount</td><td>int</td><td>Amount being traded</td></tr>
+      <tr><td>m_TradingResource</td><td>Resource</td><td>Resource type</td></tr>
+      <tr><td>m_TradingStartFrameIndex</td><td>uint</td><td>Frame when trade started</td></tr>
+      <tr><td>m_OutsideConnectionType</td><td>OutsideConnectionTransferType</td><td>Type of outside connection used</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Workplaces (Game.Companies)</h3>
+
+  <p>Breakdown of workplace slots by education level.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Uneducated</td><td>int</td><td>Slots for uneducated workers (level 0)</td></tr>
+      <tr><td>m_PoorlyEducated</td><td>int</td><td>Slots for poorly educated workers (level 1)</td></tr>
+      <tr><td>m_Educated</td><td>int</td><td>Slots for educated workers (level 2)</td></tr>
+      <tr><td>m_WellEducated</td><td>int</td><td>Slots for well-educated workers (level 3)</td></tr>
+      <tr><td>m_HighlyEducated</td><td>int</td><td>Slots for highly educated workers (level 4)</td></tr>
+    </tbody>
+  </table>
+
+  <p>Properties: <code>TotalCount</code>, <code>SimpleWorkplacesCount</code> (levels 0+1),
+  <code>ComplexWorkplacesCount</code> (levels 2+3+4).</p>
+
+  <h3>FreeWorkplaces (Game.Companies)</h3>
+
+  <p>Current free workplace slots, clamped to byte range.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Uneducated</td><td>byte</td><td>Free uneducated slots (0-255)</td></tr>
+      <tr><td>m_PoorlyEducated</td><td>byte</td><td>Free poorly educated slots</td></tr>
+      <tr><td>m_Educated</td><td>byte</td><td>Free educated slots</td></tr>
+      <tr><td>m_WellEducated</td><td>byte</td><td>Free well-educated slots</td></tr>
+      <tr><td>m_HighlyEducated</td><td>byte</td><td>Free highly educated slots</td></tr>
+    </tbody>
+  </table>
+
+  <p>Has <code>Refresh(employees, maxWorkers, complexity, level)</code> to recalculate from current employee buffer.</p>
+
+  <h3>LodgingProvider (Game.Companies)</h3>
+
+  <p>For hotel/lodging companies.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_FreeRooms</td><td>int</td><td>Number of available rooms</td></tr>
+      <tr><td>m_Price</td><td>int</td><td>Price per room</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TransportCompanyData (Game.Companies)</h3>
+
+  <p>Transport company capacity data.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_MaxTransports</td><td>int</td><td>Maximum number of transport vehicles</td></tr>
+    </tbody>
+  </table>
+
+  <h3>StorageTransfer (Game.Companies)</h3>
+
+  <p>Active storage transfer operation.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>Resource</td><td>Resource being transferred</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Amount being transferred</td></tr>
+    </tbody>
+  </table>
+
+  <h3>StorageTransferRequest (Game.Companies, buffer)</h3>
+
+  <p>Queued transfer request for a storage company.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Flags</td><td>StorageTransferFlags</td><td>Transfer method flags (Car=1, Transport=2, Track=4, Incoming=8)</td></tr>
+      <tr><td>m_Resource</td><td>Resource</td><td>Resource type</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Amount requested</td></tr>
+      <tr><td>m_Target</td><td>Entity</td><td>Target entity for the transfer</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Enums</h3>
+
+  <p><strong>Workshift</strong>: <code>Day</code> (0), <code>Evening</code> (1), <code>Night</code> (2)</p>
+
+  <p><strong>StorageTransferFlags</strong> (flags byte): <code>Car</code> (1), <code>Transport</code> (2),
+  <code>Track</code> (4), <code>Incoming</code> (8)</p>
+
   <h3>IndustrialProcessData (Game.Prefabs)</h3>
 
   <p>Defines the input-to-output recipe for a company. See <a href="resource-production.html">Resource Production</a> for full documentation.</p>
@@ -727,6 +964,159 @@ public static class PatchServiceCompanyInit
       </tr>
     </tbody>
   </table>
+
+  <!-- ============================================================ -->
+  <h2>Utility Methods</h2>
+
+  <h3>CompanyUtils (Game.Simulation)</h3>
+
+  <p>Static utility class with key company calculations:</p>
+
+  <ul>
+    <li><strong><code>GetCompanyMoveAwayChance()</code></strong> -- Returns percentage chance (0-100) based on:
+      <code>(taxRate - 10) * 5 / 2</code> (10% is neutral, above adds chance),
+      +5% if uneducated worker shortage, +20% if educated worker shortage.</li>
+    <li><strong><code>GetCommercialMaxFittingWorkers()</code></strong> --
+      <code>ceil(maxWorkersPerCell * lotX * lotY * (1 + 0.5 * level) * spaceMultiplier)</code></li>
+    <li><strong><code>GetIndustrialAndOfficeFittingWorkers()</code></strong> -- Same formula as commercial.</li>
+    <li><strong><code>GetExtractorFittingWorkers()</code></strong> --
+      <code>ceil(maxWorkersPerCell * area * spaceMultiplier / 2)</code></li>
+    <li><strong><code>GetCompanyProfitability()</code></strong> -- Maps profit to 0-255 byte using
+      <code>EconomyParameterData.m_ProfitabilityRange</code>.</li>
+  </ul>
+
+  <h3>EconomyUtils.GetCompanyTotalWorth (Game.Economy)</h3>
+
+  <p>Static utility method with two overloads for computing a company's total worth:</p>
+
+  <h4>Full overload (with vehicle data)</h4>
+  <p>
+    Sums the value of all resources in the company's <code>Resources</code> buffer plus the cargo value
+    of all owned delivery trucks (iterating <code>OwnedVehicle</code> -&gt; <code>LayoutElement</code>
+    -&gt; <code>DeliveryTruck.m_Resource</code> and <code>m_Amount</code>). Used by
+    <code>CompanyProfitabilitySystem</code> for the full worth calculation.
+  </p>
+
+  <h4>Simple overload (without vehicle data)</h4>
+  <p>
+    Sums only the value of resources in the company's <code>Resources</code> buffer, ignoring vehicle cargo.
+    Used in contexts where vehicle data is unavailable or not relevant.
+  </p>
+
+  <p>
+    The <code>isIndustrial</code> flag that determines which overload to use is computed as
+    <code>!ServiceAvailable.HasComponent(renter)</code> -- companies with a <code>ServiceAvailable</code>
+    component are commercial/service companies, while those without are industrial/processing companies.
+  </p>
+
+  <h3>StorageCompanySystem (Game.Simulation)</h3>
+
+  <p>
+    Handles warehouse companies. Runs at <code>EconomyUtils.kCompanyUpdatesPerDay</code> frequency.
+    Reads <code>StorageCompanyData.m_StoredResources</code> to determine which resources a warehouse handles,
+    computes adjusted storage limits from building level and lot size, processes incoming/outgoing
+    <code>StorageTransferRequest</code> buffers, dispatches delivery trucks via owned vehicles, and manages
+    trade costs per resource.
+  </p>
+
+  <h3>BuyingCompanySystem (Game.Simulation)</h3>
+
+  <p>
+    Handles resource acquisition for all companies. Runs at <code>EconomyUtils.kCompanyUpdatesPerDay</code>
+    frequency. Reads <code>IndustrialProcessData</code> for input requirements, calculates resource need
+    based on storage limit and current stock (splitting capacity evenly among input/output resources), checks
+    if owned trucks are already transporting needed resources, and adds <code>ResourceBuyer</code> component
+    to trigger resource acquisition pathfinding. Manages "no input" notifications via
+    <code>CompanyNotificationParameterData.m_NoInputCostLimit</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <h3>CompanyUtils.GetCompanyMoveAwayChance</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>static int GetCompanyMoveAwayChance(Entity company, Entity companyPrefab, Entity property, ...)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix</td></tr>
+      <tr><td>What it enables</td><td>Override or modify the move-away probability. A mod could reduce bankruptcy risk for certain company types or eliminate tax-driven moves.</td></tr>
+      <tr><td>Risk level</td><td>Low -- pure calculation method, no side effects</td></tr>
+      <tr><td>Side effects</td><td>Changing return value directly affects company retention rates</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CompanyDividendSystem.OnUpdate</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td>Inner <code>DividendJob.Execute</code> is Burst-compiled. Patch <code>CompanyDividendSystem.OnUpdate()</code> instead.</td></tr>
+      <tr><td>Patch type</td><td>Prefix on OnUpdate</td></tr>
+      <tr><td>What it enables</td><td>Modify dividend calculations, add progressive taxation, or redirect dividends</td></tr>
+      <tr><td>Risk level</td><td>Medium -- affects household income flow</td></tr>
+      <tr><td>Side effects</td><td>Altering dividends changes household wealth and indirectly affects residential demand</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CompanyProfitabilitySystem.OnUpdate</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>protected override void OnUpdate()</code></td></tr>
+      <tr><td>Patch type</td><td>Prefix/Postfix</td></tr>
+      <tr><td>What it enables</td><td>Modify how profitability is calculated or add custom profitability factors</td></tr>
+      <tr><td>Risk level</td><td>Medium -- profitability drives move-away decisions</td></tr>
+      <tr><td>Side effects</td><td>Incorrect values can cause mass company exodus or permanent companies</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ExtractorCompanySystem.GetEffectiveConcentration</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>static float GetEffectiveConcentration(ExtractorParameterData extractorParameters, MapFeature feature, float concentration)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix</td></tr>
+      <tr><td>What it enables</td><td>Modify resource extraction efficiency. Could boost or nerf specific resource types.</td></tr>
+      <tr><td>Risk level</td><td>Low -- static method, clear inputs/outputs</td></tr>
+      <tr><td>Side effects</td><td>Changes extraction rates which affects supply chain downstream</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ServiceCompany.Initialize</h3>
+  <table>
+    <thead>
+      <tr><th>Property</th><th>Details</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>override void Initialize(EntityManager entityManager, Entity entity)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix</td></tr>
+      <tr><td>What it enables</td><td>Modify initial service company parameters (max service, worker density)</td></tr>
+      <tr><td>Risk level</td><td>Low -- only runs during prefab initialization</td></tr>
+      <tr><td>Side effects</td><td>Affects all service companies of that prefab type</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Mod Blueprint</h2>
+
+  <ul>
+    <li><strong>Systems to create:</strong> Custom <code>GameSystemBase</code> that reads company statistics
+    and applies balance adjustments.</li>
+    <li><strong>Components to add:</strong> Optional custom component for mod-specific tracking (e.g.,
+    <code>ModCompanyBonus</code>).</li>
+    <li><strong>Patches needed:</strong> <code>CompanyUtils.GetCompanyMoveAwayChance</code> for tax/bankruptcy
+    tuning, <code>ServiceCompany.Initialize</code> for service parameter tweaks.</li>
+    <li><strong>Settings:</strong> Tax sensitivity multiplier, bankruptcy threshold, dividend ratio,
+    extraction rate multiplier.</li>
+    <li><strong>UI changes:</strong> Optional info panel additions showing detailed company statistics.</li>
+  </ul>
 
   <!-- ============================================================ -->
   <h2>Open Questions</h2>

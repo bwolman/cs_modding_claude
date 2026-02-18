@@ -316,6 +316,33 @@
     </tbody>
   </table>
 
+  <h3>GroupAmbienceData (Game.Prefabs) -- Residential Building Classification</h3>
+
+  <p>
+    <code>GroupAmbienceData</code> is a prefab component on residential buildings that classifies
+    their housing type. It has a single field <code>m_AmbienceType</code> of type
+    <code>GroupAmbienceType</code> enum.
+  </p>
+
+  <p><strong>Known GroupAmbienceType values:</strong></p>
+  <ul>
+    <li><code>GroupAmbienceType.ResidentialLowRent</code> -- subsidized/affordable housing (low-rent rowhouses, etc.)</li>
+    <li>Other values include standard residential types at various densities.</li>
+  </ul>
+
+  <p>
+    This component is present on building prefabs alongside <code>SpawnableBuildingData</code> and
+    <code>BuildingPropertyData</code>. It can be used to differentiate between affordable/subsidized
+    housing and market-rate housing:
+  </p>
+
+  <pre><code class="language-csharp">if (groupAmbienceData.m_AmbienceType != GroupAmbienceType.ResidentialLowRent)
+{
+    // Market-rate housing -- apply luxury apartment adjustments at higher levels
+    if (spawnBuildingData.m_Level == 4) apartmentArea *= (1 + level4Increase);
+    if (spawnBuildingData.m_Level == 5) apartmentArea *= (1 + level5Increase);
+}</code></pre>
+
   <!-- ============================================================ -->
   <h2>Data Flow</h2>
 
@@ -430,6 +457,36 @@ bool shouldMoveAway = random.NextInt(1000) &lt;
 
   <p>Other systems update <code>m_Delta</code> when citizens enter or leave a building. This system
     smooths those discrete events into a continuous occupancy metric.</p>
+
+  <h3>CheckBuildingsSystem Eviction Pattern (Game.Simulation)</h3>
+
+  <p>
+    Handles eviction when a building's residential capacity changes at runtime (e.g., a mod modifying
+    <code>BuildingPropertyData.m_ResidentialProperties</code>).
+  </p>
+
+  <p><strong>Query:</strong> Entities with <code>[Building, ResidentialProperty, PrefabRef, Renter]</code>.</p>
+
+  <p><strong>Logic:</strong></p>
+  <ol>
+    <li>Compares the current renter count (length of the <code>Renter</code> buffer) to the building's
+    <code>BuildingPropertyData.m_ResidentialProperties</code> value.</li>
+    <li>If the renter count exceeds the property count, excess households are evicted.</li>
+    <li>Eviction is performed by adding the <code>Evicted</code> component to excess household entities.</li>
+    <li>A <code>RentersUpdated</code> event is fired on the building entity to notify other systems.</li>
+  </ol>
+
+  <p>
+    <strong>Grace period:</strong> After a game load, there is a grace period before eviction checks are
+    enforced. This prevents spurious evictions when mods modify <code>m_ResidentialProperties</code> during
+    initialization -- the system waits for property values to stabilize before comparing against renter counts.
+  </p>
+
+  <p>
+    <strong>Modding relevance:</strong> Any mod that changes <code>BuildingPropertyData.m_ResidentialProperties</code>
+    at runtime must account for this eviction pipeline. Reducing a building's residential capacity below its
+    current renter count will trigger evictions after the grace period expires.
+  </p>
 
   <h3>LeaveHouseholdSystem (Game.Simulation)</h3>
 

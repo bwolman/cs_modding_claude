@@ -205,6 +205,47 @@
     </tbody>
   </table>
 
+  <h3>BicycleOwner (Game.Citizens)</h3>
+
+  <p>
+    Implements <code>IEnableableComponent</code>, allowing per-entity toggling of bicycle ownership
+    without adding/removing the component (avoids archetype changes).
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Bicycle</td><td>Entity</td><td>Reference to the owned bicycle entity</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Enable/disable pattern:</strong></p>
+
+  <pre><code class="language-csharp">// Toggle bicycle ownership on a citizen entity
+EntityCommandBuffer ecb = m_EndFrameBarrier.CreateCommandBuffer();
+
+// Grant bicycle ownership
+ecb.SetComponentEnabled&lt;BicycleOwner&gt;(citizenEntity, true);
+ecb.SetComponent(citizenEntity, new BicycleOwner { m_Bicycle = bicycleEntity });
+
+// Revoke bicycle ownership (component stays, but is disabled)
+ecb.SetComponentEnabled&lt;BicycleOwner&gt;(citizenEntity, false);</code></pre>
+
+  <p>
+    <strong>Deterministic ownership:</strong> The game uses a deterministic hash based on the citizen
+    entity's index for consistent per-entity decisions about bicycle ownership. This ensures the same
+    citizen always gets the same ownership result for a given game state.
+  </p>
+
+  <p>
+    <strong>Age-based ownership rate:</strong> <code>AgingSystem</code> enables <code>BicycleOwner</code>
+    on citizens transitioning from Child to Teen (day 21+). Children do not own bicycles, while teens
+    and adults can. The <code>CitizenFlags.BicycleUser</code> flag (0x2000) indicates the citizen
+    prefers bicycle transport.
+  </p>
+
   <h3>PersonalCarFlags</h3>
 
   <table>
@@ -325,6 +366,86 @@ DELETION
       </tr>
     </tbody>
   </table>
+
+  <!-- ============================================================ -->
+  <h2>PersonalCarAISystem Parking Logic</h2>
+
+  <p>
+    The <code>PersonalCarAISystem.PersonalCarTickJob</code> handles tick-by-tick driving simulation
+    including parking space validation and rerouting.
+  </p>
+
+  <h3>Parking Space Validation (CheckParkingSpace)</h3>
+
+  <ol>
+    <li>Calls <code>VehicleUtils.ValidateParkingSpace()</code> to check if current target parking spot is still available.</li>
+    <li>If not available, scans ahead in the path up to <code>num</code> nodes (vanilla: 40000).</li>
+    <li>For each <code>PathElement</code>, checks:
+      <ul>
+        <li>If target is a <code>ParkingLane</code>: calls <code>VehicleUtils.FindFreeParkingSpace()</code>
+        with car size, curve position, and lane objects.</li>
+        <li>If target is a <code>GarageLane</code>: checks
+        <code>garageLane.m_VehicleCount &lt; garageLane.m_VehicleCapacity</code> and
+        <code>ConnectionLaneFlags.Disabled</code> not set.</li>
+      </ul>
+    </li>
+    <li>If no parking found, marks path as <code>PathFlags.Obsolete</code> to trigger rerouting.</li>
+  </ol>
+
+  <h3>Key VehicleUtils Methods</h3>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>ValidateParkingSpace(...)</code></td><td>Validates if a parking space is still available</td></tr>
+      <tr><td><code>FindFreeParkingSpace(...)</code></td><td>Searches for free space on a parking lane</td></tr>
+      <tr><td><code>GetParkingSize(...)</code></td><td>Returns car parking dimensions</td></tr>
+      <tr><td><code>SetParkingCurvePos(...)</code></td><td>Sets the curve position for parking</td></tr>
+      <tr><td><code>IsParkingLane(...)</code></td><td>Checks if a path element target is a parking lane</td></tr>
+      <tr><td><code>GetParkingSource(...)</code></td><td>Gets parking source for pathfinding</td></tr>
+      <tr><td><code>ParkingSpaceReached(...)</code></td><td>Checks if vehicle reached parking</td></tr>
+      <tr><td><code>PathEndReached(...)</code></td><td>Checks if vehicle reached path end</td></tr>
+      <tr><td><code>WaypointReached(...)</code></td><td>Checks if vehicle reached a waypoint</td></tr>
+      <tr><td><code>ResetParkingLaneStatus(...)</code></td><td>Resets parking lane status after path reset</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Rerouting Distance</h3>
+
+  <p>
+    The vanilla reroute distance is <strong>40000 path nodes ahead</strong>. Vehicles can sense parking
+    availability from very far away, causing unrealistic U-turns on highways. Mods like RealisticParking
+    make this configurable (default: 5 nodes).
+  </p>
+
+  <h3>Parking Fee Collection</h3>
+
+  <p>When a vehicle disembarks at a parking lane or garage, the <code>StartDisembarking</code> method:</p>
+  <ol>
+    <li>Reads <code>ParkingLane.m_ParkingFee</code> or <code>GarageLane.m_ParkingFee</code></li>
+    <li>Creates a <code>MoneyTransfer</code> from household to city</li>
+    <li>Creates a <code>ServiceFeeSystem.FeeEvent</code> with <code>PlayerResource.Parking</code></li>
+  </ol>
+
+  <h3>MovingToParked Transition</h3>
+
+  <p>
+    When parking, the system removes 11 components (<code>Moving</code>, <code>TransformFrame</code>,
+    <code>InterpolatedTransform</code>, <code>Swaying</code>, <code>CarNavigation</code>,
+    <code>CarNavigationLane</code>, <code>CarCurrentLane</code>, <code>PathOwner</code>,
+    <code>Target</code>, <code>Blocker</code>, <code>PathElement</code>) and adds 3
+    (<code>ParkedCar</code>, <code>Stopped</code>, <code>Updated</code>).
+  </p>
+
+  <h3>Parking Harmony Patch Points</h3>
+
+  <ul>
+    <li><code>PersonalCarAISystem.OnUpdate</code> -- replace entire parking logic</li>
+    <li>Target the <code>CheckParkingSpace</code> method to adjust reroute scan distance</li>
+    <li>Target <code>StartDisembarking</code> to modify parking fee amounts</li>
+  </ul>
 
   <!-- ============================================================ -->
   <h2>Examples</h2>
@@ -657,6 +778,29 @@ public class ParkingInspectorSystem : GameSystemBase
 
     return false;
 }</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Mod Blueprint</h2>
+
+  <ul>
+    <li><strong>Systems to create:</strong>
+      <ul>
+        <li><code>VehicleCounterSystem</code> -- track vehicle counts by type/state</li>
+        <li><code>CustomSpawnRateSystem</code> -- modify spawn timing based on mod settings</li>
+      </ul>
+    </li>
+    <li><strong>Components to add:</strong> <code>TrackedVehicle</code> (IComponentData) -- marker for
+    vehicles being monitored.</li>
+    <li><strong>Patches needed:</strong>
+      <ul>
+        <li><code>VehicleSpawnSystem</code> (Transpiler) -- modify spawn timer decrement rate</li>
+        <li><code>VehicleUtils.DeleteVehicle</code> (Prefix) -- log deletions</li>
+      </ul>
+    </li>
+    <li><strong>Settings:</strong> <code>SpawnRateMultiplier</code> (scale spawn timer speed),
+    <code>MaxVehicles</code> (cap total vehicle count).</li>
+    <li><strong>UI changes:</strong> Vehicle statistics panel showing counts by type and state.</li>
+  </ul>
 
   <!-- ============================================================ -->
   <h2>Open Questions</h2>

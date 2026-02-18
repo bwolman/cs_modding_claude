@@ -326,12 +326,17 @@ int rentPerRenter = Round(totalRent / renterCount);</code></pre>
       <tr>
         <td>Game.dll</td>
         <td>Game.Buildings</td>
-        <td>PropertyRenter, Renter (buffer), RentAction, RentersUpdated, PropertyOnMarket, BuildingCondition, PropertyUtils</td>
+        <td>PropertyRenter, Renter (buffer), RentAction, RentersUpdated, PropertyOnMarket, BuildingCondition, PropertyUtils, ResourceNeeding, GoodsDeliveryRequest</td>
       </tr>
       <tr>
         <td>Game.dll</td>
         <td>Game.Prefabs</td>
-        <td>LandValueParameterData, LandValuePrefab, BuildingPropertyData, BuildingConfigurationData, EconomyParameterData</td>
+        <td>LandValueParameterData, LandValuePrefab, BuildingPropertyData, BuildingConfigurationData, ZoneLevelUpResourceData, SignatureBuildingData, SpawnableBuildingData, ZoneData, EconomyParameterData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Vehicles</td>
+        <td>DeliveryTruck, DeliveryTruckFlags</td>
       </tr>
     </tbody>
   </table>
@@ -473,6 +478,258 @@ int rentPerRenter = Round(totalRent / renterCount);</code></pre>
       <tr><td>m_Flags</td><td>RentActionFlags</td><td>Storage (1) = storage company, Remove (2) = eviction</td></tr>
     </tbody>
   </table>
+
+  <h3>RentersUpdated (Game.Buildings)</h3>
+
+  <p>Tag component added as an event entity when renters change on a building.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Property</td><td>Entity</td><td>The building whose renters list changed</td></tr>
+    </tbody>
+  </table>
+
+  <h3>BuildingConfigurationData (Game.Prefabs)</h3>
+
+  <p>Global singleton controlling building condition and level-up configuration.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_BuildingConditionDecrement</td><td>int</td><td>Base condition decrement per tick when building cannot afford upkeep</td></tr>
+      <tr><td>m_AbandonedNotification</td><td>Entity</td><td>Notification prefab entity displayed when a building is abandoned</td></tr>
+      <tr><td>m_HighRentNotification</td><td>Entity</td><td>Notification prefab entity displayed when &gt;70% of renters overpay</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ZoneLevelUpResourceData (Game.Prefabs, buffer)</h3>
+
+  <p>
+    Buffer element on zone prefab entities defining per-level resource requirements for building
+    level-ups. Each zone type prefab (residential, commercial, industrial) has a buffer of these
+    elements specifying which resources must be delivered at each level threshold. The
+    <code>ResourceNeedingUpkeepJob</code> reads these entries to populate the
+    <code>ResourceNeeding</code> buffer on buildings that have crossed the <code>levelingCost</code>
+    condition threshold.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Level</td><td>int</td><td>The building level this entry applies to</td></tr>
+      <tr><td>m_LevelUpResource</td><td>Resource</td><td>The resource type required to level up to this level</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>BuildingUpkeepSystem Deep Dive</h2>
+
+  <p>
+    <code>Game.Simulation.BuildingUpkeepSystem</code> is a large system (~103KB decompiled) handling
+    building condition, level-up/level-down, resource consumption, and upkeep payments. It operates
+    as a scheduled update with the following responsibilities:
+  </p>
+
+  <ol>
+    <li><strong>Building upkeep payments</strong> -- deducting maintenance costs from building resources</li>
+    <li><strong>Level-up logic</strong> -- buildings upgrade when conditions are met (land value, services, etc.)</li>
+    <li><strong>Level-down logic</strong> -- buildings downgrade when conditions deteriorate</li>
+    <li><strong>Resource delivery</strong> -- requesting electricity, water, and material deliveries</li>
+    <li><strong>Level-up material tracking</strong> -- buildings need specific resources to level up</li>
+  </ol>
+
+  <h3>Key System Dependencies</h3>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Role</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>SimulationSystem</td><td>Frame timing</td></tr>
+      <tr><td>ClimateSystem</td><td>Heating multiplier for resource consumption</td></tr>
+      <tr><td>ResourceSystem</td><td>Resource availability</td></tr>
+      <tr><td>CitySystem</td><td>City-level state</td></tr>
+      <tr><td>IconCommandSystem</td><td>Level-up/down notification icons</td></tr>
+      <tr><td>TriggerSystem</td><td>Event triggers</td></tr>
+      <tr><td>ZoneBuiltRequirementSystem</td><td>Zone completion checks</td></tr>
+      <tr><td>ZoneSearchSystem</td><td>Zone lookup</td></tr>
+      <tr><td>ElectricityRoadConnectionGraphSystem</td><td>Power grid connectivity</td></tr>
+      <tr><td>WaterPipeRoadConnectionGraphSystem</td><td>Water network connectivity</td></tr>
+      <tr><td>CityProductionStatisticSystem</td><td>Production stats</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Key Components Read/Written</h3>
+
+  <ul>
+    <li><code>BuildingCondition</code> (Game.Buildings) -- read/write for condition tracking</li>
+    <li><code>Efficiency</code> (Game.Buildings, IBufferElementData) -- read/write for building efficiency factors</li>
+    <li><code>ResourceNeeding</code> (Game.Buildings) -- write to request level-up materials</li>
+    <li><code>GoodsDeliveryRequest</code> (Game.Simulation) -- write to trigger material delivery trucks</li>
+  </ul>
+
+  <p>
+    <strong>Modding note:</strong> The tight coupling of BuildingUpkeepSystem means it cannot be
+    easily patched with Harmony -- community mods (RealisticWorkplacesAndHouseholds, UrbanInequality)
+    fully replace it with <code>Enabled = false</code> and a custom system.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Advanced Patterns</h2>
+
+  <h3>Education/Income-Based Building Leveling Penalty</h3>
+
+  <p>
+    A mod can compute custom leveling penalty multipliers by reading per-building citizen data.
+    The pattern traverses from building to individual citizen attributes:
+  </p>
+
+  <ol>
+    <li>Read the <code>Renter</code> buffer on the building entity to get all renter entities</li>
+    <li>For each renter (household), read the <code>HouseholdCitizen</code> buffer to get citizen entities</li>
+    <li>For each citizen, call <code>Citizen.GetEducationLevel()</code> and <code>Citizen.GetAge()</code> to read education and demographics</li>
+    <li>Read the renter's <code>Resources</code> buffer and call <code>EconomyUtils.GetResources(Resource.Money)</code> to get household wealth</li>
+    <li>Aggregate education levels and income across all building occupants to compute a custom penalty multiplier</li>
+  </ol>
+
+  <p>
+    This enables mods like UrbanInequality that penalize or boost leveling speed based on the actual
+    education profile and income distribution of a building's residents, rather than using the vanilla
+    flat condition scaling.
+  </p>
+
+  <h3>Building Level Cap Distribution</h3>
+
+  <p>
+    Query buildings to enforce level distribution caps or gate level-ups by zone type:
+  </p>
+
+  <ol>
+    <li>Query entities with <code>BuildingCondition</code> + <code>PrefabRef</code> + <code>UpdateFrame</code> (matching the vanilla update frame pattern)</li>
+    <li>Read <code>SpawnableBuildingData.m_Level</code> from the prefab to get the current building level</li>
+    <li>Read <code>ZoneData.m_AreaType</code> from the zone prefab to categorize by residential/commercial/industrial</li>
+    <li>Count buildings per level per zone type to build a distribution histogram</li>
+    <li>Gate level-ups by checking if the target level's count exceeds a configured cap before allowing <code>BuildingCondition</code> to cross the <code>levelingCost</code> threshold</li>
+  </ol>
+
+  <p>
+    This pattern allows mods to enforce realistic level distributions (e.g., limiting the number
+    of level-5 buildings city-wide) rather than allowing unrestricted leveling.
+  </p>
+
+  <h3>BuildingUpkeepSystem as Replacement Target</h3>
+
+  <p>
+    Both the RealisticWorkplaceHouseholds and UrbanInequality community mods independently replace
+    <code>BuildingUpkeepSystem</code> with custom implementations. This confirms
+    <code>BuildingUpkeepSystem</code> as a high-value system replacement target for mods that need
+    to alter building condition logic, leveling thresholds, or abandonment behavior. Replacing rather
+    than patching is preferred here because the system's inner jobs (<code>BuildingUpkeepJob</code>,
+    <code>ResourceNeedingUpkeepJob</code>, <code>LevelupJob</code>, <code>LeveldownJob</code>) are
+    Burst-compiled and cannot be directly Harmony-patched.
+  </p>
+
+  <h3>Level-Up Material Delivery Pipeline</h3>
+
+  <p>
+    When <code>BuildingCondition.m_Condition</code> crosses the <code>levelingCost</code> threshold,
+    the system initiates a material delivery request before the actual level-up occurs:
+  </p>
+
+  <ol>
+    <li><strong>ResourceNeeding</strong> (buffer on building entity): Each element defines a required
+    resource delivery.
+      <ul>
+        <li><code>m_Resource</code> (Resource): The resource type needed</li>
+        <li><code>m_Amount</code> (int): The amount required</li>
+        <li><code>m_Flags</code> (ResourceNeedingFlags): Tracks delivery state -- <code>Requested</code> when a delivery truck has been dispatched, <code>Delivered</code> when the resource has arrived</li>
+      </ul>
+    </li>
+    <li><strong>GoodsDeliveryRequest</strong> (component): Created to dispatch a delivery truck for the needed resource.
+      <ul>
+        <li><code>m_ResourceNeeder</code> (Entity): The building entity requesting the resource</li>
+        <li><code>m_Amount</code> (int): The amount to deliver</li>
+        <li><code>m_Resource</code> (Resource): The resource type to deliver</li>
+      </ul>
+    </li>
+    <li><strong>Delivery-complete check flow</strong>: <code>ResourceNeedingUpkeepJob</code> iterates
+    the <code>ResourceNeeding</code> buffer and checks if all elements have the <code>Delivered</code>
+    flag set. Only when every required resource has been delivered does the system queue the actual
+    <code>LevelupJob</code> to select a higher-level prefab and begin construction.</li>
+  </ol>
+
+  <h3>Signature Building Immunity</h3>
+
+  <p>
+    <code>SignatureBuildingData</code> (Game.Prefabs) acts as an immunity flag for signature and
+    landmark buildings. When <code>BuildingUpkeepJob</code> processes a building, it checks for
+    <code>SignatureBuildingData</code> on the building's prefab. Buildings with this component skip
+    the level-down and abandonment checks entirely -- they never accumulate negative condition or
+    receive the <code>Abandoned</code> component regardless of renter wealth or upkeep shortfalls.
+  </p>
+
+  <h3>Delivery Truck Upkeep State</h3>
+
+  <p>
+    The <code>Game.Vehicles.DeliveryTruck</code> component tracks delivery truck state including
+    upkeep deliveries:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_State</td><td>DeliveryTruckFlags</td><td>Current truck state flags</td></tr>
+      <tr><td>m_Resource</td><td>Resource</td><td>Resource being transported</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Amount being transported</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The <code>DeliveryTruckFlags.UpkeepDelivery</code> flag identifies trucks delivering upkeep
+    materials for building level-ups (as opposed to commercial/industrial resource deliveries).
+    When a delivery request becomes stale (e.g., the target building was demolished or abandoned
+    before delivery), the system performs cleanup by removing the <code>GoodsDeliveryRequest</code>
+    component and resetting the corresponding <code>ResourceNeeding</code> entry's
+    <code>Requested</code> flag, freeing the truck for reassignment.
+  </p>
+
+  <h3>Zone Type Detection and Tenant WorkProvider Access</h3>
+
+  <p>
+    <code>BuildingPropertyData.CountProperties(AreaType)</code> returns the number of properties
+    (units) for a given zone type. This is the standard method for determining what zone type a
+    building serves -- it checks the residential, commercial, and industrial property counts internally.
+  </p>
+
+  <p>
+    To find <code>WorkProvider</code> components on building tenants, iterate the <code>Renter</code>
+    buffer on the building entity and check each renter for the <code>WorkProvider</code> component:
+  </p>
+
+  <pre><code class="language-csharp">DynamicBuffer&lt;Renter&gt; renters = EntityManager.GetBuffer&lt;Renter&gt;(building, isReadOnly: true);
+for (int i = 0; i &lt; renters.Length; i++)
+{
+    Entity renter = renters[i].m_Renter;
+    if (EntityManager.HasComponent&lt;WorkProvider&gt;(renter))
+    {
+        WorkProvider wp = EntityManager.GetComponentData&lt;WorkProvider&gt;(renter);
+        // Access wp.m_MaxWorkers, etc.
+    }
+}</code></pre>
+
+  <p>
+    This pattern is used by systems that need to aggregate employment data across all companies in a
+    building (e.g., for computing building-level efficiency or worker density).
+  </p>
 
   <!-- ============================================================ -->
   <h2>Data Flow</h2>
@@ -711,6 +968,125 @@ public static class RentPricePatch
         entities.Dispose();
     }
 }</code></pre>
+
+  <h3>Remove Abandonment and Restore Building</h3>
+
+  <p>The reverse of <code>LeveldownJob</code> -- programmatically removes abandonment and
+  restores a building to functional state. Key components to restore:
+  <code>GarbageProducer</code>, <code>MailProducer</code>, <code>ElectricityConsumer</code>,
+  <code>WaterConsumer</code>. The <code>PropertyToBeOnMarket</code> tag triggers the property
+  market system to re-list the building. <code>BuildingCondition.m_Condition = 0</code> gives
+  the building a neutral starting state.</p>
+
+  <pre><code class="language-csharp">public void RemoveAbandonment(EntityManager em, Entity buildingEntity)
+{
+    // 1. Remove abandoned status
+    em.RemoveComponent&lt;Abandoned&gt;(buildingEntity);
+
+    // 2. Reset market listing (PropertyToBeOnMarket triggers re-listing)
+    em.AddComponent&lt;PropertyToBeOnMarket&gt;(buildingEntity);
+    if (em.HasComponent&lt;PropertyOnMarket&gt;(buildingEntity))
+        em.RemoveComponent&lt;PropertyOnMarket&gt;(buildingEntity);
+
+    // 3. Reset building condition to zero
+    em.SetComponentData(buildingEntity, new BuildingCondition { m_Condition = 0 });
+
+    // 4. Restore utility consumers removed during abandonment
+    em.AddComponentData(buildingEntity, default(GarbageProducer));
+    em.AddComponentData(buildingEntity, default(MailProducer));
+    em.AddComponentData(buildingEntity, default(ElectricityConsumer));
+    em.AddComponentData(buildingEntity, default(WaterConsumer));
+
+    // 5. Remove abandoned notification icon
+    // (requires IconCommandBuffer from BuildingConfigurationData)
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <h3>Candidate 1: PropertyUtils.GetRentPricePerRenter</h3>
+
+  <table>
+    <tbody>
+      <tr><td><strong>Signature</strong></td><td><code>static int GetRentPricePerRenter(BuildingPropertyData, int buildingLevel, int lotSize, float landValueBase, AreaType areaType, ref EconomyParameterData, bool ignoreLandValue)</code></td></tr>
+      <tr><td><strong>Patch type</strong></td><td>Prefix or Postfix</td></tr>
+      <tr><td><strong>What it enables</strong></td><td>Override rent prices with custom formulas. A postfix can modify the result; a prefix can replace the entire calculation.</td></tr>
+      <tr><td><strong>Risk level</strong></td><td>Low -- static utility method called from AdjustRentJob</td></tr>
+      <tr><td><strong>Side effects</strong></td><td>Changes rent for all buildings. Must consider that this runs in Burst-compiled jobs (patch on managed wrapper only).</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 2: LandValueSystem.OnUpdate</h3>
+
+  <table>
+    <tbody>
+      <tr><td><strong>Signature</strong></td><td><code>protected override void OnUpdate()</code></td></tr>
+      <tr><td><strong>Patch type</strong></td><td>Prefix (skip) or Postfix (modify results)</td></tr>
+      <tr><td><strong>What it enables</strong></td><td>Disable or modify land value updates entirely. A postfix could modify the cell map data after the jobs complete.</td></tr>
+      <tr><td><strong>Risk level</strong></td><td>Medium -- affects the entire land value grid</td></tr>
+      <tr><td><strong>Side effects</strong></td><td>Skipping updates freezes land values. Must ensure job handles are properly managed.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 3: BuildingUpkeepSystem.OnUpdate</h3>
+
+  <table>
+    <tbody>
+      <tr><td><strong>Signature</strong></td><td><code>protected override void OnUpdate()</code></td></tr>
+      <tr><td><strong>Patch type</strong></td><td>Prefix or Postfix</td></tr>
+      <tr><td><strong>What it enables</strong></td><td>Modify building condition change rates, level-up/level-down thresholds</td></tr>
+      <tr><td><strong>Risk level</strong></td><td>Medium -- affects all building leveling</td></tr>
+      <tr><td><strong>Side effects</strong></td><td>Could prevent buildings from ever leveling up or down</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 4: BuildingUtils.GetLevelingCost</h3>
+
+  <table>
+    <tbody>
+      <tr><td><strong>Signature</strong></td><td><code>static int GetLevelingCost(AreaType areaType, BuildingPropertyData propertyData, int level, ref CityModifier cityModifier)</code></td></tr>
+      <tr><td><strong>Patch type</strong></td><td>Postfix</td></tr>
+      <tr><td><strong>What it enables</strong></td><td>Override the condition threshold required for a building to level up. A postfix can scale the cost per zone type or level to make leveling easier or harder.</td></tr>
+      <tr><td><strong>Risk level</strong></td><td>Low -- static utility method, no side effects</td></tr>
+      <tr><td><strong>Side effects</strong></td><td>Lowering the cost accelerates leveling city-wide; raising it slows leveling and may cause condition overflow at extreme values</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 5: BuildingUtils.GetAbandonCost</h3>
+
+  <table>
+    <tbody>
+      <tr><td><strong>Signature</strong></td><td><code>static int GetAbandonCost(AreaType areaType, BuildingPropertyData propertyData, int level, ref CityModifier cityModifier)</code></td></tr>
+      <tr><td><strong>Patch type</strong></td><td>Postfix</td></tr>
+      <tr><td><strong>What it enables</strong></td><td>Override the negative condition threshold that triggers building abandonment. Raising the cost makes buildings more resilient to neglect; lowering it makes them abandon faster.</td></tr>
+      <tr><td><strong>Risk level</strong></td><td>Low -- static utility method, no side effects</td></tr>
+      <tr><td><strong>Side effects</strong></td><td>Extreme values can prevent abandonment entirely or cause instant abandonment</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 6: BuildingUtils.GetBuildingConditionChange</h3>
+
+  <table>
+    <tbody>
+      <tr><td><strong>Signature</strong></td><td><code>static int GetBuildingConditionChange(BuildingConfigurationData configData, ...)</code></td></tr>
+      <tr><td><strong>Patch type</strong></td><td>Postfix</td></tr>
+      <tr><td><strong>What it enables</strong></td><td>Override the per-tick condition increment/decrement rate. Controls the base speed of building condition accumulation in both positive and negative directions.</td></tr>
+      <tr><td><strong>Risk level</strong></td><td>Low -- static utility method</td></tr>
+      <tr><td><strong>Side effects</strong></td><td>Changes affect all buildings uniformly. Combined with the exponential level scaling (<code>pow(2, level)</code>), even small changes to the base rate have amplified effects at higher building levels.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 7: RentAdjustSystem.OnUpdate</h3>
+
+  <table>
+    <tbody>
+      <tr><td><strong>Signature</strong></td><td><code>protected override void OnUpdate()</code></td></tr>
+      <tr><td><strong>Patch type</strong></td><td>Prefix or Postfix</td></tr>
+      <tr><td><strong>What it enables</strong></td><td>Override the PropertySeeker enable/disable logic, modify high rent warning thresholds</td></tr>
+      <tr><td><strong>Risk level</strong></td><td>Medium -- affects renter movement decisions</td></tr>
+      <tr><td><strong>Side effects</strong></td><td>May impact household/company relocation patterns</td></tr>
+    </tbody>
+  </table>
 
   <!-- ============================================================ -->
   <h2>Configuration</h2>

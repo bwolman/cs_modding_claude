@@ -456,6 +456,45 @@ return math.max(0f, 0.01f * value);</code></pre>
     (<code>Patient</code> or <code>Student</code> buffer), excluding <code>OutsideConnection</code>.
   </p>
 
+  <h3>ServiceFeeSystem.FeeEvent (Game.Simulation)</h3>
+
+  <p>Internal struct representing a single fee collection event within the <code>ServiceFeeSystem</code> pipeline.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Resource</td><td>PlayerResource</td><td>Which service resource (Electricity, Water, Healthcare, Parking, etc.)</td></tr>
+      <tr><td>m_Amount</td><td>float</td><td>Fee amount collected (positive = revenue, negative = import cost)</td></tr>
+      <tr><td>m_Outside</td><td>bool</td><td>Whether the fee involves an outside connection</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    <code>FeeEvent</code> items are queued during the update cycle and consumed by <code>FeeToCityJob</code>,
+    which aggregates them into <code>CollectedCityServiceFeeData</code> buffers. The fee event queue is
+    accessible via <code>ServiceFeeSystem.GetFeeQueue()</code>, which returns a
+    <code>NativeQueue&lt;FeeEvent&gt;</code>. Mods can read this queue to monitor fee events in real time,
+    but must complete the system's <code>m_Writers</code> dependency first to avoid race conditions.
+  </p>
+
+  <p><strong>Parking fee tracking:</strong> Parking fees use <code>PlayerResource.Parking</code> as the
+  resource identifier. When <code>PersonalCarAISystem</code> processes a parking payment (via
+  <code>MoneyTransfer</code> queue), a <code>FeeEvent</code> with <code>m_Resource = PlayerResource.Parking</code>
+  is enqueued. This feeds into the <code>IncomeSource.FeeParking</code> budget line.</p>
+
+  <pre><code class="language-csharp">// Reading parking fee revenue from the budget system
+CityServiceBudgetSystem budgetSys = World.GetOrCreateSystemManaged&lt;CityServiceBudgetSystem&gt;();
+int parkingRevenue = budgetSys.GetIncome(IncomeSource.FeeParking);
+
+// Or read the fee queue for real-time parking events (advanced usage)
+ServiceFeeSystem feeSystem = World.GetOrCreateSystemManaged&lt;ServiceFeeSystem&gt;();
+// Must complete dependencies before accessing the queue
+NativeQueue&lt;ServiceFeeSystem.FeeEvent&gt; feeQueue = feeSystem.GetFeeQueue();
+// Note: the queue is consumed each update by FeeToCityJob,
+// so reading it requires careful synchronization with the system's update cycle.</code></pre>
+
   <h3>CollectedCityServiceFeeData (Game.Simulation)</h3>
   <table>
     <thead>
@@ -679,6 +718,67 @@ public static class PatchGetTotalExpenses
 }</code></pre>
 
   <!-- ============================================================ -->
+  <h2>EconomyParameterData Full Field Table</h2>
+
+  <p>
+    <code>EconomyParameterData</code> is a singleton ECS component on the economy prefab entity,
+    containing all core economic tuning values. This is the complete field listing:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ExtractorCompanyExportMultiplier</td><td>float</td><td>Multiplier for extractor company exports</td></tr>
+      <tr><td>m_Wage0 through m_Wage4</td><td>int</td><td>Base wages per job level (0-4)</td></tr>
+      <tr><td>m_CommuterWageMultiplier</td><td>float</td><td>Wage multiplier for commuters</td></tr>
+      <tr><td>m_CompanyBankruptcyLimit</td><td>int</td><td>Money threshold for company bankruptcy</td></tr>
+      <tr><td>m_ResidentialMinimumEarnings</td><td>int</td><td>Minimum residential household earnings</td></tr>
+      <tr><td>m_UnemploymentBenefit</td><td>int</td><td>Unemployment benefit payment</td></tr>
+      <tr><td>m_Pension</td><td>int</td><td>Pension payment amount</td></tr>
+      <tr><td>m_FamilyAllowance</td><td>int</td><td>Family allowance payment amount</td></tr>
+      <tr><td>m_ResourceConsumptionMultiplier</td><td>float2</td><td>Resource consumption range multiplier</td></tr>
+      <tr><td>m_ResourceConsumptionPerCitizen</td><td>float</td><td>Base resource consumption per citizen</td></tr>
+      <tr><td>m_TouristConsumptionMultiplier</td><td>float</td><td>Tourist spending multiplier</td></tr>
+      <tr><td>m_TouristInitialWealthRange</td><td>int</td><td>Tourist starting wealth range</td></tr>
+      <tr><td>m_TouristInitialWealthOffset</td><td>int</td><td>Tourist starting wealth offset</td></tr>
+      <tr><td>m_WorkDayStart</td><td>float</td><td>Work day start time (fraction of day)</td></tr>
+      <tr><td>m_WorkDayEnd</td><td>float</td><td>Work day end time (fraction of day)</td></tr>
+      <tr><td>m_IndustrialEfficiency</td><td>float</td><td>Industrial production efficiency</td></tr>
+      <tr><td>m_CommercialEfficiency</td><td>float</td><td>Commercial production efficiency</td></tr>
+      <tr><td>m_ExtractorProductionEfficiency</td><td>float</td><td>Extractor production efficiency</td></tr>
+      <tr><td>m_OfficeResourceConsumedPerIndustrialUnit</td><td>int</td><td>Office resource per industrial unit</td></tr>
+      <tr><td>m_TrafficReduction</td><td>float</td><td>Traffic reduction factor</td></tr>
+      <tr><td>m_MaxCitySpecializationBonus</td><td>float</td><td>Maximum city specialization bonus</td></tr>
+      <tr><td>m_ResourceProductionCoefficient</td><td>int</td><td>Resource production coefficient</td></tr>
+      <tr><td>m_LandValueModifier</td><td>float3</td><td>Land value modifier (3 components)</td></tr>
+      <tr><td>m_RentPriceBuildingZoneTypeBase</td><td>float3</td><td>Base rent per building zone type</td></tr>
+      <tr><td>m_MixedBuildingCompanyRentPercentage</td><td>float</td><td>Mixed building company rent percentage</td></tr>
+      <tr><td>m_ResidentialUpkeepLevelExponent</td><td>float</td><td>Residential upkeep level scaling exponent</td></tr>
+      <tr><td>m_CommercialUpkeepLevelExponent</td><td>float</td><td>Commercial upkeep level scaling exponent</td></tr>
+      <tr><td>m_IndustrialUpkeepLevelExponent</td><td>float</td><td>Industrial upkeep level scaling exponent</td></tr>
+      <tr><td>m_CityServiceWageAdjustment</td><td>float</td><td>Wage multiplier for city service jobs</td></tr>
+      <tr><td>m_PlayerStartMoney</td><td>int</td><td>Starting money for new games</td></tr>
+      <tr><td>m_BuildRefundPercentage</td><td>float3</td><td>Building refund percentage curve</td></tr>
+      <tr><td>m_BuildRefundTimeRange</td><td>float3</td><td>Building refund time range</td></tr>
+      <tr><td>m_RelocationCostMultiplier</td><td>float</td><td>Relocation cost multiplier</td></tr>
+      <tr><td>m_RoadRefundPercentage</td><td>float3</td><td>Road refund percentage curve</td></tr>
+      <tr><td>m_RoadRefundTimeRange</td><td>float3</td><td>Road refund time range</td></tr>
+      <tr><td>m_TreeCostMultipliers</td><td>int3</td><td>Tree cost multipliers</td></tr>
+      <tr><td>m_MapTileUpkeepCostMultiplier</td><td>AnimationCurve1</td><td>Map tile upkeep cost curve</td></tr>
+      <tr><td>m_LoanMinMaxInterestRate</td><td>float2</td><td>Loan interest rate range (min, max)</td></tr>
+      <tr><td>m_ProfitabilityRange</td><td>int2</td><td>Company profitability range</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    <code>GetWage(jobLevel, cityServiceJob)</code> returns wages scaled by
+    <code>m_CityServiceWageAdjustment</code> for city service jobs. The <code>m_LoanMinMaxInterestRate</code>
+    field feeds directly into <code>LoanSystem.GetTargetInterest()</code>.
+  </p>
+
+  <!-- ============================================================ -->
   <h2>EconomyParameterData Runtime Modification</h2>
 
   <p>
@@ -731,6 +831,74 @@ public static class PatchGetTotalExpenses
     <li>Changes persist only until next game load unless separately serialized</li>
     <li>Subscribe to <code>LoadGameSystem.onOnSaveGameLoaded</code> to reset baseline cache</li>
     <li>Multiple mods modifying the same singleton will conflict (last writer wins)</li>
+  </ul>
+
+  <h3>Direct Wage Override Pattern</h3>
+
+  <p>
+    As a simpler alternative to baseline-caching, mods can directly overwrite the <code>m_Wage0</code>
+    through <code>m_Wage4</code> fields on <code>EconomyParameterData</code> to set absolute wage
+    values per job level:
+  </p>
+
+  <pre><code class="language-csharp">public partial class DirectWageOverrideSystem : GameSystemBase
+{
+    private EntityQuery m_EconParamQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_EconParamQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;EconomyParameterData&gt;()
+        );
+        RequireForUpdate(m_EconParamQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        var data = m_EconParamQuery.GetSingleton&lt;EconomyParameterData&gt;();
+
+        // Set absolute wage values per job level (0=uneducated through 4=highly educated)
+        data.m_Wage0 = 15;
+        data.m_Wage1 = 20;
+        data.m_Wage2 = 28;
+        data.m_Wage3 = 38;
+        data.m_Wage4 = 50;
+
+        m_EconParamQuery.SetSingleton(data);
+    }
+}</code></pre>
+
+  <p><strong>Tradeoffs vs. baseline-caching:</strong></p>
+  <ul>
+    <li><strong>Simpler implementation:</strong> No need to track original values or handle game load events --
+    just set desired values each frame.</li>
+    <li><strong>Prevents relative adjustments:</strong> Other mods applying multipliers (e.g.,
+    <code>originalWage * 1.2f</code>) will be overwritten since this sets absolute values.</li>
+    <li><strong>No mod interop:</strong> In a multi-mod environment, last writer wins. Baseline-caching
+    preserves the ability for mods to apply relative adjustments if they coordinate on read timing.</li>
+  </ul>
+
+  <p>
+    Use the direct override pattern when the mod is the sole authority on wage values. Use the
+    baseline-caching pattern when interoperability with other economy mods is a concern.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Modding Notes</h2>
+
+  <ul>
+    <li><strong>Read player money:</strong> Get <code>PlayerMoney</code> from <code>CitySystem.City</code> entity</li>
+    <li><strong>Read/set tax rates:</strong> Use <code>ITaxSystem</code> interface or access <code>TaxRates</code> buffer on City entity</li>
+    <li><strong>Read/set service fees:</strong> Access <code>ServiceFee</code> buffer on City entity; use <code>ServiceFeeSystem.SetFee()</code></li>
+    <li><strong>Take/give loans:</strong> Use <code>ILoanSystem.ChangeLoan(amount)</code> -- pass 0 to repay fully</li>
+    <li><strong>Custom income/expense:</strong> Patch <code>BudgetApplySystem</code> or directly call <code>PlayerMoney.Add()</code> on the City entity</li>
+    <li><strong>Service fee effects:</strong> Electricity and water fees affect consumption multiplier and citizen happiness</li>
+    <li><strong>Trade balance:</strong> <code>BudgetSystem.GetTrade(resource)</code> returns net trade for a resource</li>
+    <li><strong>Service budget slider:</strong> <code>CityServiceBudgetSystem.SetServiceBudget(servicePrefab, percentage)</code> sets the budget slider (default 100). Upkeep is scaled by <code>budget / 100</code>. Efficiency is evaluated via <code>BuildingEfficiencyParameterData.m_ServiceBudgetEfficiencyFactor</code> curve. Inactive buildings pay 10% upkeep.</li>
+    <li><strong>Government subsidy:</strong> Only active when <code>ModeSettingData.m_EnableGovernmentSubsidies</code> is true. Scales linearly from 0% to <code>MaxMoneyCoverPercentage</code> of total expenses based on how far <code>PlayerMoney</code> drops below <code>MoneyCoverThreshold.x</code>.</li>
+    <li><strong>Tax paid multiplier:</strong> <code>ModeSettingData.m_TaxPaidMultiplier</code> (float3) scales tax collection per sector (x=residential, y=commercial, z=industrial). Defaults to (1, 1, 1).</li>
+    <li>All budget systems use the <code>GameSystemBase</code> ECS pattern with Burst-compiled jobs.</li>
   </ul>
 
   <!-- ============================================================ -->
