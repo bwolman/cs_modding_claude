@@ -1176,6 +1176,86 @@ public static class RentPricePatch
   </table>
 
   <!-- ============================================================ -->
+  <h2>Mod Blueprint: Building Leveling/Inequality Rebalancing</h2>
+
+  <p>A building leveling mod modifies how buildings accumulate condition, level up, and interact with the
+    economy. This archetype enables income inequality simulation, education-based leveling penalties, and
+    configurable city presets.</p>
+
+  <p><strong>Reference implementation:</strong>
+    <a href="https://github.com/ruzbeh0/UrbanInequality">UrbanInequality</a></p>
+
+  <h3>Systems to Create</h3>
+  <ol>
+    <li><strong>Custom BuildingUpkeepSystem replacement</strong> -- disables vanilla <code>BuildingUpkeepSystem</code>
+      (<code>Enabled = false</code>) and registers a replacement that modifies condition accumulation based on
+      custom factors (education profile, income distribution)</li>
+    <li><strong>ResidentialLevelCapSystem</strong> -- counts residential buildings per level across the city and
+      enforces configurable level distribution caps</li>
+    <li><strong>CommercialLevelCapSystem</strong> -- same pattern for commercial/industrial buildings with separate
+      cap parameters</li>
+    <li><strong>Wage override system</strong> -- queries <code>EconomyParameterData</code> singleton at runtime to
+      override wage tables, creating income differentiation by education level</li>
+  </ol>
+
+  <h3>Components to Create</h3>
+  <p>No new custom ECS components required -- this archetype primarily operates by modifying existing prefab
+    singletons (<code>EconomyParameterData</code>) and replacing <code>BuildingUpkeepSystem</code> with custom
+    logic that reads existing component data differently.</p>
+
+  <h3>Key Game Components</h3>
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Namespace</th><th>Role</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>BuildingCondition</code></td><td>Game.Buildings</td><td><code>m_Condition</code> -- the accumulator that drives level-up/level-down</td></tr>
+      <tr><td><code>SpawnableBuildingData</code></td><td>Game.Prefabs</td><td><code>m_Level</code> -- current building level (1-5)</td></tr>
+      <tr><td><code>ZoneData</code></td><td>Game.Prefabs</td><td><code>m_AreaType</code> -- zone type for per-category caps</td></tr>
+      <tr><td><code>EconomyParameterData</code></td><td>Game.Prefabs</td><td>Wage tables and economy parameters to override</td></tr>
+      <tr><td><code>Renter</code> (buffer)</td><td>Game.Buildings</td><td>Building-to-renter linkage for reading occupant data</td></tr>
+      <tr><td><code>HouseholdCitizen</code> (buffer)</td><td>Game.Citizens</td><td>Household-to-citizen linkage for reading education/income</td></tr>
+      <tr><td><code>Citizen</code></td><td>Game.Citizens</td><td><code>GetEducationLevel()</code> and <code>GetAge()</code> for per-citizen attributes</td></tr>
+      <tr><td><code>ConsumptionData</code></td><td>Game.Prefabs</td><td>Upkeep cost data read by the replacement upkeep system</td></tr>
+      <tr><td><code>BuildingPropertyData</code></td><td>Game.Prefabs</td><td><code>CountProperties(AreaType)</code> for zone type detection</td></tr>
+      <tr><td><code>WorkProvider</code></td><td>Game.Companies</td><td><code>m_MaxWorkers</code> accessed through building renter chain</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Harmony Patches Needed</h3>
+  <p><strong>No Harmony patches required</strong> -- the primary pattern is full system replacement of
+    <code>BuildingUpkeepSystem</code> because its inner jobs are Burst-compiled and cannot be directly patched.</p>
+
+  <h3>Implementation Patterns</h3>
+
+  <p><strong>System replacement pattern:</strong></p>
+  <pre><code class="language-csharp">// In Mod.OnLoad or system OnCreate:
+World.GetOrCreateSystemManaged&lt;BuildingUpkeepSystem&gt;().Enabled = false;
+World.GetOrCreateSystemManaged&lt;CustomBuildingUpkeepSystem&gt;();</code></pre>
+
+  <p><strong>Education/income chain traversal</strong> (building -&gt; renter -&gt; citizen):</p>
+  <ol>
+    <li>Read <code>Renter</code> buffer on building entity</li>
+    <li>For each renter (household), read <code>HouseholdCitizen</code> buffer</li>
+    <li>For each citizen, call <code>Citizen.GetEducationLevel()</code> to aggregate education profile</li>
+    <li>Read renter <code>Resources</code> buffer for household wealth</li>
+    <li>Compute custom leveling penalty multiplier from aggregated data</li>
+  </ol>
+
+  <p><strong>City preset pattern</strong> (enum-driven default values):</p>
+  <pre><code class="language-csharp">public enum CityPreset { Balanced, HighInequality, LowInequality, Custom }
+// Settings UI exposes preset selector; selecting a preset populates
+// all individual sliders with preset-specific defaults</code></pre>
+
+  <p><strong>Settings UI pattern:</strong> Use <code>ModSetting</code> with <code>SettingsUISlider</code>
+    attributes for configurable parameters (wage multipliers, level cap percentages, condition scaling factors).</p>
+
+  <h3>Build Configuration Note</h3>
+  <p>The UrbanInequality mod targets <code>net472</code> (not <code>netstandard2.1</code>) and uses
+    <code>LangVersion 12</code>. This is an alternative valid build target for CS2 mods, as the game's
+    Unity Mono runtime supports both .NET Standard 2.1 and .NET Framework 4.7.2 assemblies.</p>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
