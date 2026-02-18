@@ -984,6 +984,435 @@ if (_obsoleteIdentifiers.TryGetValue(newPrefab.name, out var identifiers))
 
 *Source: Decompiled from `Game.dll` -- `Game.Prefabs.ObsoleteIdentifiers`, `Game.Prefabs.PrefabIdentifierInfo`. Community usage: [FindIt-CSII by JadHajjar](https://github.com/JadHajjar/FindIt-CSII).*
 
+## Custom ISerializable Components for Mod Save Data
+
+### When to Use ISerializable vs Plain Tag Components
+
+Not every custom component needs serialization. Choose the right interface based on whether data must survive save/load:
+
+| Scenario | Interface | Persisted? | Notes |
+|----------|-----------|-----------|-------|
+| Per-entity data that must survive save/load | `IComponentData, ISerializable` | Yes | Fields written to save file |
+| Per-entity data with query support | `IComponentData, IQueryTypeParameter, ISerializable` | Yes | Also usable with `SystemAPI.QueryBuilder` |
+| Zero-data marker that must survive save/load | `IComponentData, IEmptySerializable` | Yes (presence only) | No data written, just component existence |
+| Temporary runtime marker (cleared on load) | `IComponentData` (no serialization interface) | No | Lost on save/load -- use for transient state |
+| Temporary processing flag | Tag struct with no interfaces | No | Exists only during current session |
+
+**Rule of thumb**: If the player would lose meaningful state by saving and reloading, the component needs `ISerializable` or `IEmptySerializable`. If the component is only used for in-session processing (e.g., "needs recalculation" flags, frame-local markers), leave it as a plain `IComponentData` with no serialization interface.
+
+### Concrete ISerializable Component Pattern
+
+The full interface combination for a persistent mod component that supports SystemAPI queries:
+
+```csharp
+using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+namespace MyMod.Components
+{
+    /// <summary>
+    /// Per-entity mod data that persists across save/load.
+    /// IQueryTypeParameter enables SystemAPI.QueryBuilder compatibility.
+    /// </summary>
+    public struct MyModEntityData : IComponentData, IQueryTypeParameter, ISerializable
+    {
+        public int m_CustomLevel;
+        public float m_Efficiency;
+        public bool m_IsActive;
+
+        private const byte kCurrentVersion = 1;
+
+        public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+        {
+            writer.Write(kCurrentVersion);
+            writer.Write(m_CustomLevel);
+            writer.Write(m_Efficiency);
+            writer.Write(m_IsActive);
+        }
+
+        public void Deserialize<TReader>(TReader reader) where TReader : IReader
+        {
+            reader.Read(out byte version);
+            reader.Read(out m_CustomLevel);
+            reader.Read(out m_Efficiency);
+            reader.Read(out m_IsActive);
+        }
+    }
+}
+```
+
+### Save Compatibility Warnings
+
+**Adding fields**: Safe if you use version-byte branching. New fields get defaults when loading older saves. See the versioning pattern below.
+
+**Removing fields**: **Dangerous**. If an older save contains bytes for a removed field, the deserializer will read those bytes into the wrong fields (byte misalignment). To safely remove a field:
+1. Bump the version number.
+2. In `Deserialize`, read and discard the old field's bytes for older versions: `reader.Read(out int _);`
+3. Never simply delete a `reader.Read()` call without accounting for the bytes in existing saves.
+
+**Reordering fields**: **Dangerous**. Serialization is positional (not named). Changing the order of `Write`/`Read` calls breaks existing saves. Always append new fields at the end.
+
+**Changing field types**: **Dangerous**. Changing a field from `int` to `float` (or any type change) corrupts deserialization because the byte sizes differ. Use a new version and read the old type, then convert.
+
+## ISerializable Data Versioning and Migration
+
+### Version-Byte Pattern
+
+The standard pattern for safe mod updates is to write a version number as the first serialized field, then branch deserialization logic by version:
+
+```csharp
+public struct MigratingData : IComponentData, ISerializable
+{
+    // v1 fields
+    public int m_BaseValue;
+
+    // v2 fields (added in mod update 1.1.0)
+    public float m_Multiplier;
+    public bool m_IsOverridden;
+
+    // v3 fields (added in mod update 1.2.0)
+    public int m_Category;
+
+    private const byte kCurrentVersion = 3;
+
+    public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+    {
+        // Always write current version first
+        writer.Write(kCurrentVersion);
+
+        // Write ALL fields (current version)
+        writer.Write(m_BaseValue);
+        writer.Write(m_Multiplier);
+        writer.Write(m_IsOverridden);
+        writer.Write(m_Category);
+    }
+
+    public void Deserialize<TReader>(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+
+        // v1 fields (always present)
+        reader.Read(out m_BaseValue);
+
+        if (version >= 2)
+        {
+            reader.Read(out m_Multiplier);
+            reader.Read(out m_IsOverridden);
+        }
+        else
+        {
+            // Defaults for saves created before v2
+            m_Multiplier = 1.0f;
+            m_IsOverridden = false;
+        }
+
+        if (version >= 3)
+        {
+            reader.Read(out m_Category);
+        }
+        else
+        {
+            // Default for saves created before v3
+            m_Category = 0;
+        }
+    }
+}
+```
+
+### FormerlySerializedAs for Type Renames
+
+When renaming a component struct or changing its namespace, use `[FormerlySerializedAs]` so the serialization system can resolve the old type name in existing saves. Combine this with versioning when the rename coincides with field changes:
+
+```csharp
+using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+namespace MyMod.Components
+{
+    /// <summary>
+    /// Renamed from MyMod.OldNamespace.LegacyBuildingData in v2.0.0.
+    /// FormerlySerializedAs maps the old fully-qualified type name to this struct.
+    /// </summary>
+    [FormerlySerializedAs("MyMod.OldNamespace.LegacyBuildingData, MyModAssembly")]
+    public struct BuildingData : IComponentData, ISerializable
+    {
+        public int m_Level;
+        public float m_Bonus;
+
+        private const byte kCurrentVersion = 2;
+
+        public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+        {
+            writer.Write(kCurrentVersion);
+            writer.Write(m_Level);
+            writer.Write(m_Bonus);
+        }
+
+        public void Deserialize<TReader>(TReader reader) where TReader : IReader
+        {
+            reader.Read(out byte version);
+            reader.Read(out m_Level);
+
+            if (version >= 2)
+            {
+                reader.Read(out m_Bonus);
+            }
+            else
+            {
+                m_Bonus = 1.0f;
+            }
+        }
+    }
+}
+```
+
+### Migration Best Practices
+
+1. **Never skip a version number**. If you release v1, v2, v3, the deserialization chain must handle all transitions: v1->current, v2->current, v3->current.
+2. **Test with old saves**. Keep save files from each version to verify migration paths.
+3. **Document version history** in XML comments on the component struct, noting which fields were added in which version.
+4. **Use `FormerlySerializedAs` proactively**. Add it at the time of rename so you do not have to retroactively fix saves. Multiple attributes are supported for types that have been renamed more than once.
+
+## Temporary Entity Pattern for Arbitrary Save Data
+
+### Problem
+
+Sometimes a mod needs to persist data that does not belong to any existing game entity -- for example, global configuration snapshots, computed caches, or mod metadata. The `IDefaultSerializable` system approach works for simple fields, but if you need structured per-record data (like a list of entries), you can use the **temporary entity pattern**: create entities solely to carry `ISerializable` components during the serialize phase, then clean them up after load.
+
+### Pattern
+
+1. **At `SystemUpdatePhase.Serialize`**: Create temporary entities with your custom `IComponentData, ISerializable` component. The serialization system writes them to the save file like any other entity.
+2. **After load**: Query for those temporary entities, extract the data you need, then destroy them so they do not affect gameplay.
+
+### Implementation
+
+```csharp
+using Colossal.Serialization.Entities;
+using Game;
+using Unity.Entities;
+
+namespace MyMod.Components
+{
+    /// <summary>
+    /// Carrier component for arbitrary mod data in save files.
+    /// Attached to temporary entities created during serialization.
+    /// </summary>
+    public struct ModSaveRecord : IComponentData, ISerializable
+    {
+        public int m_RecordId;
+        public float m_Value;
+
+        private const byte kCurrentVersion = 1;
+
+        public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+        {
+            writer.Write(kCurrentVersion);
+            writer.Write(m_RecordId);
+            writer.Write(m_Value);
+        }
+
+        public void Deserialize<TReader>(TReader reader) where TReader : IReader
+        {
+            reader.Read(out byte version);
+            reader.Read(out m_RecordId);
+            reader.Read(out m_Value);
+        }
+    }
+
+    /// <summary>
+    /// Tag component to identify temporary save-only entities.
+    /// </summary>
+    public struct TempSaveEntity : IComponentData, IEmptySerializable { }
+}
+```
+
+```csharp
+using Game;
+using Game.Serialization;
+using Unity.Entities;
+
+namespace MyMod.Systems
+{
+    /// <summary>
+    /// Creates temporary entities at serialize time to embed mod data in the save file.
+    /// Runs at SystemUpdatePhase.Serialize to create carriers before the save is written.
+    /// </summary>
+    public partial class ModDataSerializeSystem : GameSystemBase
+    {
+        // In-memory data to persist (populated during gameplay)
+        internal Dictionary<int, float> TrackedValues = new();
+
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+            // Register to run during serialization phase
+            // This system must be updated at SystemUpdatePhase.Serialize
+        }
+
+        protected override void OnUpdate()
+        {
+            // Create a temporary entity for each record
+            foreach (var kvp in TrackedValues)
+            {
+                var entity = EntityManager.CreateEntity();
+                EntityManager.AddComponentData(entity, new TempSaveEntity());
+                EntityManager.AddComponentData(entity, new ModSaveRecord
+                {
+                    m_RecordId = kvp.Key,
+                    m_Value = kvp.Value
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// After load, extracts data from temporary entities and destroys them.
+    /// Subscribes to LoadGameSystem.onOnSaveGameLoaded for post-load cleanup.
+    /// </summary>
+    public partial class ModDataDeserializeSystem : GameSystemBase
+    {
+        private LoadGameSystem m_LoadGameSystem;
+        private ModDataSerializeSystem m_SerializeSystem;
+        private EntityQuery m_TempEntityQuery;
+
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+            m_LoadGameSystem = World.GetOrCreateSystemManaged<LoadGameSystem>();
+            m_SerializeSystem = World.GetOrCreateSystemManaged<ModDataSerializeSystem>();
+            m_LoadGameSystem.onOnSaveGameLoaded += OnGameLoaded;
+            m_TempEntityQuery = GetEntityQuery(
+                ComponentType.ReadOnly<TempSaveEntity>(),
+                ComponentType.ReadOnly<ModSaveRecord>());
+        }
+
+        protected override void OnDestroy()
+        {
+            m_LoadGameSystem.onOnSaveGameLoaded -= OnGameLoaded;
+            base.OnDestroy();
+        }
+
+        private void OnGameLoaded(Context context)
+        {
+            // Extract data from temporary entities
+            var entities = m_TempEntityQuery.ToEntityArray(Unity.Collections.Allocator.Temp);
+            foreach (var entity in entities)
+            {
+                var record = EntityManager.GetComponentData<ModSaveRecord>(entity);
+                m_SerializeSystem.TrackedValues[record.m_RecordId] = record.m_Value;
+            }
+            entities.Dispose();
+
+            // Destroy temporary entities so they don't affect gameplay
+            EntityManager.DestroyEntity(m_TempEntityQuery);
+        }
+
+        protected override void OnUpdate() { }
+    }
+}
+```
+
+### Key Points
+
+- Register `ModDataSerializeSystem` at `SystemUpdatePhase.Serialize` so it runs during the save pipeline.
+- The temporary entities must have at least one `ISerializable` or `IEmptySerializable` component, or the serialization system will not persist them.
+- Always tag temporary entities (e.g., with `TempSaveEntity`) so they can be queried and destroyed after load.
+- Destroy temporary entities in the post-load callback, not during deserialization itself, to avoid interfering with the deserialization pipeline.
+
+## IPreDeserialize Interface
+
+### Purpose
+
+The `IPreDeserialize` interface (from `Colossal.Serialization.Entities`) provides a hook that runs **before** entity data is loaded during deserialization. This is used for pre-load initialization tasks such as creating fake prefabs, registering default values, or preparing data structures that the deserialized entities will reference.
+
+### Interface Definition
+
+```csharp
+public interface IPreDeserialize
+{
+    void PreDeserialize(Context context);
+}
+```
+
+*Source: `Colossal.Core.dll` -> `Colossal.Serialization.Entities.IPreDeserialize`*
+
+### When It Runs
+
+During the load pipeline, before `SerializerSystem` begins calling `Deserialize` on components and systems, the serialization infrastructure invokes `PreDeserialize(context)` on all systems that implement `IPreDeserialize`. This happens after the `ReadSystem` has read the binary data but before any entity components are populated.
+
+### Use Cases
+
+1. **Creating fake prefabs**: If your mod adds custom prefab-like entities that deserialized data will reference, create them in `PreDeserialize` so entity references resolve correctly.
+2. **Registering defaults**: Pre-populate lookup tables or dictionaries that your `Deserialize` methods will consult.
+3. **Clearing stale state**: Reset in-memory caches that should not carry over from a previous session.
+
+### Implementation
+
+```csharp
+using Colossal.Serialization.Entities;
+using Game;
+
+namespace MyMod.Systems
+{
+    /// <summary>
+    /// Prepares mod state before entity data is loaded from the save file.
+    /// IPreDeserialize.PreDeserialize runs before any ISerializable.Deserialize calls.
+    /// </summary>
+    public partial class ModPreloadSystem : GameSystemBase, IPreDeserialize, IDefaultSerializable
+    {
+        private bool m_Initialized;
+
+        public void PreDeserialize(Context context)
+        {
+            // Runs BEFORE entity components are deserialized.
+            // Create any prefabs or lookup data that deserialized
+            // components will reference.
+            InitializeLookupTables();
+            CreateFakePrefabs();
+            m_Initialized = true;
+        }
+
+        public void Serialize<TWriter>(TWriter writer) where TWriter : IWriter
+        {
+            writer.Write(m_Initialized);
+        }
+
+        public void Deserialize<TReader>(TReader reader) where TReader : IReader
+        {
+            // This runs AFTER PreDeserialize, during the normal
+            // deserialization pass with all other systems.
+            reader.Read(out m_Initialized);
+        }
+
+        public void SetDefaults(Context context)
+        {
+            m_Initialized = false;
+            InitializeLookupTables();
+        }
+
+        private void InitializeLookupTables()
+        {
+            // Populate lookup data that deserialized components depend on
+        }
+
+        private void CreateFakePrefabs()
+        {
+            // Create placeholder prefab entities so that entity references
+            // in deserialized components can resolve correctly
+        }
+
+        protected override void OnUpdate() { }
+    }
+}
+```
+
+### Key Points
+
+- `IPreDeserialize` is **not** a substitute for `IDefaultSerializable`. Use `IPreDeserialize` for initialization that must happen before entity data loads. Use `IDefaultSerializable` for providing defaults on new game creation.
+- A system can implement both `IPreDeserialize` and `IDefaultSerializable`. `PreDeserialize` runs on load; `SetDefaults` runs on new game.
+- The `Context` parameter tells you the purpose (`LoadGame`, `LoadMap`, etc.) so you can branch logic accordingly.
+- If your mod creates custom prefab entities, `PreDeserialize` is the correct place to create them so that entity references in the save file can be remapped to valid entities during deserialization.
+
 ## Open Questions
 
 - [ ] How does the serialization handle entity references in custom components when the referenced entity doesn't exist in an older save? (Likely remapped to Entity.Null)

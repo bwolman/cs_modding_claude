@@ -309,6 +309,148 @@ When multiple mods might replace the same system, mods should detect each other 
 
 3. **Shared marker component**: Define a tag component that replacement systems add to a well-known entity, allowing other mods to detect which systems have been replaced.
 
+### Full System Replacement: ResidentAISystem Example
+
+Complex vanilla systems like `ResidentAISystem` use `NativeQueue` producer/consumer patterns internally. When replacing these, the replacement must replicate the queue interface so that other systems interacting with those queues continue to function:
+
+```csharp
+public class Mod : IMod
+{
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // 1. Disable the vanilla system
+        var vanillaSystem = World.DefaultGameObjectInjectionWorld
+            .GetOrCreateSystemManaged<Game.Simulation.ResidentAISystem>();
+        vanillaSystem.Enabled = false;
+
+        // 2. Register replacement with explicit ordering
+        updateSystem.UpdateAfter<CustomResidentAISystem,
+            Game.Simulation.ResidentAISystem>(
+            SystemUpdatePhase.GameSimulation);
+    }
+}
+
+public partial class CustomResidentAISystem : GameSystemBase
+{
+    // Replicate the NativeQueue producer/consumer interface
+    // that other systems (e.g., HouseholdBehaviorSystem) write to
+    private NativeQueue<SetupQueueItem> m_SetupQueue;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_SetupQueue = new NativeQueue<SetupQueueItem>(Allocator.Persistent);
+    }
+
+    protected override void OnDestroy()
+    {
+        m_SetupQueue.Dispose();
+        base.OnDestroy();
+    }
+
+    // Expose the queue writer so producer systems can enqueue work
+    public NativeQueue<SetupQueueItem>.ParallelWriter GetSetupQueueWriter()
+        => m_SetupQueue.AsParallelWriter();
+
+    protected override void OnUpdate()
+    {
+        // Drain the queue and process items
+        while (m_SetupQueue.TryDequeue(out var item))
+        {
+            // Custom processing logic replacing vanilla behavior
+        }
+    }
+}
+```
+
+### Disabling with Enabled=false in OnCreate
+
+An alternative to disabling vanilla systems in `IMod.OnLoad()` is to disable them from within the replacement system's `OnCreate()`. This keeps the disable logic co-located with the replacement:
+
+```csharp
+public partial class CustomZoneSpawnSystem : GameSystemBase
+{
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Disable the vanilla system from within the replacement
+        var vanillaSystem = World.DefaultGameObjectInjectionWorld
+            .GetOrCreateSystemManaged<Game.Simulation.ZoneSpawnSystem>();
+        vanillaSystem.Enabled = false;
+    }
+
+    protected override void OnUpdate()
+    {
+        // Replacement logic
+    }
+}
+
+// In IMod.OnLoad -- register with UpdateAfter to maintain ordering
+updateSystem.UpdateAfter<CustomZoneSpawnSystem,
+    Game.Simulation.ZoneSpawnSystem>(SystemUpdatePhase.GameSimulation);
+```
+
+### Handling Inner Systems
+
+Some vanilla systems contain inner system classes that must also be disabled. Check the decompiled source for nested `GameSystemBase` subclasses:
+
+```csharp
+protected override void OnCreate()
+{
+    base.OnCreate();
+
+    // Disable main system
+    var mainSystem = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<Game.Simulation.SomeSystem>();
+    mainSystem.Enabled = false;
+
+    // Also disable inner systems that the main system delegates to
+    var innerSystem = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged<Game.Simulation.SomeSystem.InnerUpdateSystem>();
+    innerSystem.Enabled = false;
+}
+```
+
+### When NOT to Use Enabled=false Replacement
+
+The full system replacement pattern is not always appropriate:
+
+- **Simple calculation tweaks**: If you only need to change one formula or constant, a Harmony patch is simpler than reimplementing the entire system
+- **UI-only modifications**: Patching a UI method is lower risk than replacing the whole UI system
+- **Systems with many dependents**: If dozens of other systems read from the vanilla system's public properties, replicating the entire interface is error-prone
+- **Frequently updated systems**: Vanilla systems that change every game patch require constant maintenance of the full replacement
+
+### Harmony Prefix as System Replacement Alternative
+
+Instead of disabling vanilla systems in `OnLoad` or `OnCreate`, a Harmony prefix on `OnUpdate` can both disable the system and skip execution in a single patch:
+
+```csharp
+[HarmonyPatch(typeof(Game.Simulation.SomeVanillaSystem), "OnUpdate")]
+public static class SomeVanillaSystemPatch
+{
+    public static bool Prefix(Game.Simulation.SomeVanillaSystem __instance)
+    {
+        // Disable the system so it won't be scheduled again
+        __instance.Enabled = false;
+        // Return false to skip the original OnUpdate execution
+        return false;
+    }
+}
+```
+
+**Trade-offs vs Enabled=false in OnLoad**:
+
+| Aspect | Harmony Prefix | Enabled=false in OnLoad |
+|--------|---------------|------------------------|
+| Timing | Runs on first OnUpdate tick | Runs before any simulation |
+| First frame | Vanilla system runs once before patch fires | Never runs |
+| Dependencies | Requires Harmony library | No extra dependencies |
+| Discoverability | Patch is in a separate class | Disable logic is in OnLoad |
+| Reversibility | Can unpatch cleanly | Must re-enable manually |
+
+Use the Harmony prefix approach when you need the vanilla system to complete its first `OnCreate`/`OnUpdate` cycle before being replaced, or when you want to conditionally disable based on runtime state inspected during the first tick.
+
 ### Caveats
 
 - The disabled vanilla system's `OnCreate` still runs (it was created before your mod loaded). Only `OnUpdate` is skipped.
@@ -999,7 +1141,68 @@ cameraSystem.activeCameraController = cameraSystem.orbitCameraController;
 
 This smoothly transitions the camera to follow a specific entity, useful for "Find and Navigate" features.
 
-## Cross-Mod API via Reflection
+## Cross-Mod Interop via Reflection
+
+### Mod Presence Detection
+
+The simplest form of cross-mod interop is checking whether another mod is loaded. Use `GameManager.instance.modManager` to iterate loaded mods:
+
+```csharp
+// Simple presence check via ModManager iteration
+bool isOtherModPresent = false;
+foreach (ModManager.ModInfo modInfo in GameManager.instance.modManager)
+{
+    if (modInfo.asset.name.Equals("OtherModName"))
+    {
+        isOtherModPresent = true;
+        break;
+    }
+}
+```
+
+### Assembly Scanning with AppDomain
+
+For discovering types and reading static fields from other mods without a direct assembly reference, scan `AppDomain.CurrentDomain.GetAssemblies()`:
+
+```csharp
+private static Lazy<Type> s_OtherModApi = new Lazy<Type>(() =>
+{
+    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+    {
+        if (assembly.GetName().Name != "OtherModAssembly")
+            continue;
+
+        try
+        {
+            return assembly.GetType("OtherMod.PublicApi");
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            // Some types may fail to load if their dependencies
+            // are missing. Log and continue with partial results.
+            Log.Warn($"Partial type load from {assembly.GetName().Name}: "
+                + $"{ex.LoaderExceptions.Length} failures");
+            return ex.Types.FirstOrDefault(t =>
+                t?.FullName == "OtherMod.PublicApi");
+        }
+    }
+    return null;
+});
+
+// Read a static field from the discovered type
+public static int GetOtherModValue()
+{
+    var apiType = s_OtherModApi.Value;
+    if (apiType == null)
+        return 100; // Fallback to neutral/default value
+
+    var field = apiType.GetField("SomeStaticValue",
+        BindingFlags.Static | BindingFlags.Public);
+    return field != null ? (int)field.GetValue(null) : 100;
+}
+```
+
+### Discovering API Methods via ModManager
 
 Pattern for discovering public static API methods from other mods by scanning all loaded mod assemblies:
 
@@ -1025,10 +1228,13 @@ foreach (var item in GameManager.instance.modManager)
 ```
 
 **Key considerations**:
+- Handle `ReflectionTypeLoadException` when scanning assemblies -- some types may fail to load if their dependencies are missing
+- Use `Lazy<T>` initialization to cache discovered types and avoid repeated assembly scanning
+- Always provide fallback/neutral values when the other mod is not present
 - Use `GetTypesDerivedFrom<IMod>()` on `item.asset.assembly` to find the mod's main type
 - Validate method signatures before invoking (return type + parameters)
 - Defer registration via `GameManager.instance.RegisterUpdater()` if timing matters
-- This is fragile — API methods may change between mod versions
+- This is fragile -- API methods may change between mod versions
 
 ## PDX Mods Metadata Access
 
@@ -1048,8 +1254,539 @@ DateTime lastUpdate = details.Mod.LatestUpdate;
 
 **Simpler checks**: `prefab.asset?.database == AssetDatabase<ParadoxMods>.instance` for PDX Mods detection, `prefab.asset.GetMeta().platformID` for the mod's platform identifier.
 
+## Burst Native Library Loading
+
+### BurstRuntime.LoadAdditionalLibrary
+
+Mods that include Burst-compiled jobs can ship platform-specific native libraries. Use `BurstRuntime.LoadAdditionalLibrary(string path)` to load them at runtime:
+
+```csharp
+public void OnLoad(UpdateSystem updateSystem)
+{
+    string modDir = GetModDirectory();
+    string libraryPath;
+
+    switch (Application.platform)
+    {
+        case RuntimePlatform.WindowsPlayer:
+            libraryPath = Path.Combine(modDir, "lib_burst_generated.dll");
+            break;
+        case RuntimePlatform.OSXPlayer:
+            libraryPath = Path.Combine(modDir, "lib_burst_generated.bundle");
+            break;
+        case RuntimePlatform.LinuxPlayer:
+            libraryPath = Path.Combine(modDir, "lib_burst_generated.so");
+            break;
+        default:
+            Log.Warn($"Unsupported platform: {Application.platform}");
+            return;
+    }
+
+    if (File.Exists(libraryPath))
+    {
+        BurstRuntime.LoadAdditionalLibrary(libraryPath);
+        Log.Info($"Loaded Burst library: {libraryPath}");
+    }
+    else
+    {
+        Log.Warn($"Burst library not found: {libraryPath}");
+    }
+}
+```
+
+**Relationship to `ExecutableAsset.isBursted`**: The `isBursted` property on `ExecutableAsset` indicates whether the mod DLL was compiled with Burst. When `isBursted` is true, the game expects a companion native library. `LoadAdditionalLibrary` is the mechanism for loading that library when it ships alongside the mod rather than in the default search path.
+
+**Platform file extensions**:
+- Windows: `.dll`
+- macOS: `.bundle`
+- Linux: `.so`
+
+## GameSystemBase.OnGameLoaded Callback
+
+### Purpose
+
+`OnGameLoaded(Context context)` is a virtual callback on `GameSystemBase` that fires after save deserialization completes but before the first simulation frame runs. It provides a safe point to initialize system state that depends on loaded game data:
+
+```csharp
+public partial class MyModSystem : GameSystemBase
+{
+    private bool m_Initialized;
+
+    protected override void OnGameLoaded(Context context)
+    {
+        base.OnGameLoaded(context);
+
+        // Safe to query entities here -- deserialization is complete
+        var query = GetEntityQuery(ComponentType.ReadOnly<MyComponent>());
+        if (!query.IsEmpty)
+        {
+            InitializeFromExistingData(query);
+        }
+
+        m_Initialized = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        // Guard against running before game data is loaded
+        if (!m_Initialized)
+            return;
+
+        // Normal update logic
+    }
+}
+```
+
+### Frame-Skip Pattern for Race Conditions
+
+Some systems need to wait an additional frame after `OnGameLoaded` to ensure all other systems have processed the loaded data. Use a frame-skip counter:
+
+```csharp
+public partial class DeferredInitSystem : GameSystemBase
+{
+    private int m_SkipFrames;
+
+    protected override void OnGameLoaded(Context context)
+    {
+        base.OnGameLoaded(context);
+        // Skip 2 frames to let dependent systems process loaded data
+        m_SkipFrames = 2;
+    }
+
+    protected override void OnUpdate()
+    {
+        if (m_SkipFrames > 0)
+        {
+            m_SkipFrames--;
+            return;
+        }
+
+        // All systems have had time to process loaded data
+        ProcessData();
+    }
+}
+```
+
+### Init Flag Pattern
+
+For systems that require both `OnGameLoaded` and `OnCreate` initialization, use an explicit flag to track readiness:
+
+```csharp
+public partial class TwoPhaseInitSystem : GameSystemBase
+{
+    private bool m_SystemReady;
+    private NativeArray<float> m_CachedData;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_CachedData = new NativeArray<float>(1024, Allocator.Persistent);
+        // System exists but is not ready until game data loads
+    }
+
+    protected override void OnGameLoaded(Context context)
+    {
+        base.OnGameLoaded(context);
+        // Populate cached data from loaded entities
+        PopulateCacheFromEntities();
+        m_SystemReady = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        if (!m_SystemReady) return;
+        // Use m_CachedData safely
+    }
+}
+```
+
+**`OnGameLoaded` vs `OnGameLoadingComplete`**: `OnGameLoaded` fires in the serialization context, after deserialization but before the first simulation frame. `OnGameLoadingComplete` fires later, after the full loading process including UI setup. Use `OnGameLoaded` for data initialization; use `OnGameLoadingComplete` for UI and input setup.
+
+## Static Asset Deployment
+
+### MSBuild AfterBuild Targets
+
+Non-code files (SVGs, PNGs, JSON, localization files) can be automatically deployed alongside the mod DLL using MSBuild `AfterBuild` targets. These files are then accessible at runtime via `coui://` host locations:
+
+```xml
+<!-- In .csproj -->
+<PropertyGroup>
+  <DeployDir>$(CSII_TOOLPATH)\Mods\$(AssemblyName)</DeployDir>
+</PropertyGroup>
+
+<ItemGroup>
+  <!-- Include all files from the Resources folder -->
+  <ModAssets Include="Resources\**\*.*" />
+</ItemGroup>
+
+<Target Name="DeployAssets" AfterTargets="Build">
+  <MakeDir Directories="$(DeployDir)" />
+  <Copy SourceFiles="@(ModAssets)"
+        DestinationFolder="$(DeployDir)\%(RecursiveDir)"
+        SkipUnchangedFiles="true" />
+</Target>
+```
+
+### Runtime Access via coui:// Protocol
+
+Deployed assets are available at runtime through the `coui://` protocol. The host location maps to the mod's deployment directory:
+
+```csharp
+// In your UI module or system:
+// SVG icons deployed to Mods/MyMod/icons/
+string iconUrl = "coui://ui-mods/icons/my-icon.svg";
+
+// JSON configuration deployed to Mods/MyMod/config/
+string configUrl = "coui://ui-mods/config/defaults.json";
+```
+
+**Key details**:
+- The `coui://` host location is registered by the game's `InitializeUIModules()` phase during mod loading
+- Assets must be in the mod's deployment directory to be accessible
+- SVG files are commonly used for toolbar icons and UI elements
+- The `SkipUnchangedFiles="true"` attribute prevents unnecessary copies during incremental builds
+
+## Shared Resource Library Pattern
+
+### Purpose
+
+A mod can exist solely to provide shared assets (icons, localization, utilities) to other mods. This avoids duplicating common resources across multiple mods:
+
+```
+SharedResources/
+├── SharedResources.csproj
+├── Resources/
+│   ├── icons/           # SVG icons shared by multiple mods
+│   ├── localization/    # Shared localization strings
+│   └── styles/          # Shared CSS/styling
+└── PublishConfiguration.xml
+```
+
+### Cross-Mod Dependency Declaration
+
+Mods that depend on the shared resource library declare it in their `PublishConfiguration.xml`:
+
+```xml
+<!-- In the consuming mod's PublishConfiguration.xml -->
+<PublishConfiguration>
+  <ModId value="12345" />
+  <DisplayName value="My Feature Mod" />
+  <Dependency id="67890" displayName="Shared Resources" />
+</PublishConfiguration>
+```
+
+The `Dependency` element ensures the shared resource mod is installed before the consuming mod loads. The `id` value is the PDX Mods platform ID of the dependency.
+
+### How It Works
+
+1. The shared resource mod is published to PDX Mods as a regular mod (it may or may not have an `IMod` implementation)
+2. Its `ExecutableAsset` has `isReference = true` if it contains no `IMod` class (pure library)
+3. Consuming mods reference the shared assembly and declare the PDX Mods dependency
+4. The game resolves the dependency during `ExecutableAsset.ResolveModAssets()` and loads the shared library first
+5. Assets deployed by the shared mod are available via `coui://` to all consuming mods
+
+## PublishConfiguration.xml Schema
+
+### Full Schema
+
+The `PublishConfiguration.xml` file controls mod metadata for PDX Mods publishing:
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<PublishConfiguration>
+  <!-- PDX Mods platform ID. Empty or -1 for unpublished mods.
+       Auto-populated on first publish. -->
+  <ModId value="12345" />
+
+  <!-- Display name on PDX Mods -->
+  <DisplayName value="My Mod Name" />
+
+  <!-- Short description -->
+  <ShortDescription value="Brief description of the mod" />
+
+  <!-- Long description (supports markdown) -->
+  <LongDescription value="Detailed description..." />
+
+  <!-- Game version compatibility. Supports wildcards:
+       "1.2.*" matches any patch version of 1.2 -->
+  <GameVersion value="1.2.*" />
+
+  <!-- Thumbnail image path (relative to project root) -->
+  <Thumbnail value="Properties/Thumbnail.png" />
+
+  <!-- Screenshots -->
+  <Screenshot value="Properties/Screenshot1.png" />
+  <Screenshot value="Properties/Screenshot2.png" />
+
+  <!-- Tags for PDX Mods categorization -->
+  <Tag value="Code Mod" />
+
+  <!-- Mod dependencies by PDX Mods platform ID -->
+  <Dependency id="67890" displayName="Required Mod" />
+  <Dependency id="11111" displayName="Another Dependency" />
+
+  <!-- External links -->
+  <ExternalLink url="https://github.com/user/repo"
+                displayName="Source Code" type="github" />
+  <ExternalLink url="https://discord.gg/invite"
+                displayName="Discord" type="discord" />
+
+  <!-- Changelog for current version -->
+  <ChangeLog value="- Fixed bug X\n- Added feature Y" />
+
+  <!-- Forum topic ID (auto-populated) -->
+  <ForumLink value="https://forum.paradoxplaza.com/..." />
+</PublishConfiguration>
+```
+
+### GameVersion Wildcards
+
+The `GameVersion` element supports wildcard patterns:
+- `"1.2.3"` -- exact version match only
+- `"1.2.*"` -- any patch version of 1.2
+- `"1.*"` -- any version in the 1.x series
+- Omitting `GameVersion` means the mod is compatible with any version (not recommended)
+
+### XmlPoke Auto-Population Pattern
+
+Use MSBuild `XmlPoke` tasks to auto-populate `PublishConfiguration.xml` during build, keeping version numbers and metadata in sync with the project:
+
+```xml
+<!-- In .csproj -->
+<Target Name="UpdatePublishConfig" BeforeTargets="Build">
+  <XmlPoke XmlInputPath="PublishConfiguration.xml"
+           Query="/PublishConfiguration/GameVersion/@value"
+           Value="$(GameVersion)" />
+  <XmlPoke XmlInputPath="PublishConfiguration.xml"
+           Query="/PublishConfiguration/ShortDescription/@value"
+           Value="$(Description)" />
+</Target>
+```
+
+This keeps the publish configuration in sync with `.csproj` properties, avoiding manual duplication.
+
+## Build Infrastructure: CSII_TOOLPATH and Mod.props/Mod.targets
+
+### CSII_TOOLPATH Environment Variable
+
+The `CSII_TOOLPATH` environment variable points to the Cities: Skylines II installation directory. This is the standard way to locate game assemblies for building and to determine the mod deployment directory:
+
+```xml
+<!-- Typical value -->
+<!-- Windows: C:\Program Files (x86)\Steam\steamapps\common\Cities Skylines II -->
+<!-- macOS: /Volumes/steamapps/common/Cities Skylines II -->
+<!-- Linux: ~/.steam/steam/steamapps/common/Cities Skylines II -->
+```
+
+### Mod.props and Mod.targets
+
+Community-maintained build infrastructure uses shared MSBuild files that standardize the build process across mods:
+
+**Mod.props** -- Defines common properties:
+
+```xml
+<!-- Mod.props -->
+<Project>
+  <PropertyGroup>
+    <GamePath>$(CSII_TOOLPATH)</GamePath>
+    <ManagedPath>$(GamePath)/Cities2_Data/Managed</ManagedPath>
+    <DeployDir>$(LOCALAPPDATA)/Colossal Order/Cities Skylines II/Mods/$(AssemblyName)</DeployDir>
+  </PropertyGroup>
+</Project>
+```
+
+**References.csproj** -- Centralizes game assembly references with `Private="false"` (Copy Local = No):
+
+```xml
+<!-- References.csproj or shared props file -->
+<ItemGroup>
+  <Reference Include="Game">
+    <HintPath>$(ManagedPath)/Game.dll</HintPath>
+    <Private>false</Private>
+  </Reference>
+  <Reference Include="Colossal.Core">
+    <HintPath>$(ManagedPath)/Colossal.Core.dll</HintPath>
+    <Private>false</Private>
+  </Reference>
+  <Reference Include="Unity.Entities">
+    <HintPath>$(ManagedPath)/Unity.Entities.dll</HintPath>
+    <Private>false</Private>
+  </Reference>
+  <!-- Additional game assemblies as needed -->
+</ItemGroup>
+```
+
+**Mod.targets** -- Defines build targets including deployment and cleanup:
+
+```xml
+<!-- Mod.targets -->
+<Project>
+  <!-- Deploy mod DLL and assets to game's Mods folder -->
+  <Target Name="DeployMod" AfterTargets="Build">
+    <MakeDir Directories="$(DeployDir)" />
+    <Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(DeployDir)"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Clean deployed files -->
+  <Target Name="CleanupMod" AfterTargets="Clean">
+    <RemoveDir Directories="$(DeployDir)" />
+  </Target>
+</Project>
+```
+
+### Usage in a Mod .csproj
+
+```xml
+<Project Sdk="Microsoft.NET.Sdk">
+  <Import Project="$(SolutionDir)Mod.props" />
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <AssemblyName>MyMod</AssemblyName>
+  </PropertyGroup>
+
+  <Import Project="$(SolutionDir)References.csproj" />
+  <Import Project="$(SolutionDir)Mod.targets" />
+</Project>
+```
+
+The `DeployDir` property automatically places the built mod DLL into the game's local mods directory, enabling the build-deploy-test loop described in the project setup.
+
+## BepInEx Plugin Pattern
+
+### Alternative to IMod
+
+BepInEx is an alternative mod loading framework used by some CS2 mods. Instead of implementing `IMod`, mods extend `BaseUnityPlugin`:
+
+```csharp
+using BepInEx;
+using HarmonyLib;
+
+[BepInPlugin("com.myname.mymod", "My Mod", "1.0.0")]
+public class MyPlugin : BaseUnityPlugin
+{
+    private Harmony _harmony;
+
+    private void Awake()
+    {
+        _harmony = new Harmony("com.myname.mymod");
+        _harmony.PatchAll(typeof(MyPlugin).Assembly);
+
+        Logger.LogInfo("My BepInEx mod loaded");
+    }
+
+    private void OnDestroy()
+    {
+        _harmony?.UnpatchAll("com.myname.mymod");
+    }
+}
+```
+
+### System Injection via SystemOrder.Initialize
+
+BepInEx plugins cannot use `UpdateSystem` directly (it is passed only to `IMod.OnLoad`). Instead, they inject systems using a Harmony postfix on `SystemOrder.Initialize`:
+
+```csharp
+[HarmonyPatch(typeof(SystemOrder), "Initialize")]
+public static class SystemOrderPatch
+{
+    public static void Postfix(UpdateSystem updateSystem)
+    {
+        // Now we have access to the UpdateSystem instance
+        updateSystem.UpdateAt<MyCustomSystem>(SystemUpdatePhase.GameSimulation);
+    }
+}
+```
+
+### OnCreateWorld vs OnLoad Distinction
+
+| Aspect | IMod.OnLoad | BepInEx Awake + SystemOrder Postfix |
+|--------|------------|-------------------------------------|
+| When it runs | After ModManager initializes mods | Awake: early in Unity lifecycle; Postfix: when SystemOrder initializes |
+| UpdateSystem access | Direct parameter | Via Harmony postfix on SystemOrder.Initialize |
+| Mod settings | Full ModSetting integration | Must implement custom settings handling |
+| PDX Mods support | Native | Not natively supported |
+| Game lifecycle | Managed by ModManager | Managed by BepInEx chain loader |
+
+**When to use BepInEx**: When you need very early initialization (before the mod manager runs), when porting from other Unity games that use BepInEx, or when using BepInEx-specific features like configuration files and plugin dependencies.
+
+**When to use IMod**: For standard CS2 mods distributed via PDX Mods. The `IMod` pattern is the officially supported approach and provides full integration with mod settings, the options UI, and the mod manager lifecycle.
+
+## EntityManager.CreateSingleton for Mod-Global ECS State
+
+### Purpose
+
+`EntityManager.CreateSingleton<T>()` creates an entity with a single component that serves as mod-global state accessible from any ECS system. This is the ECS-idiomatic way to share configuration or state across multiple systems without static fields:
+
+```csharp
+// Define the singleton component
+public struct MyModConfig : IComponentData
+{
+    public float SpeedMultiplier;
+    public int MaxEntities;
+    public bool FeatureEnabled;
+}
+
+// Create the singleton in OnCreate of a primary system
+public partial class MyModConfigSystem : GameSystemBase
+{
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        EntityManager.CreateSingleton(new MyModConfig
+        {
+            SpeedMultiplier = 1.0f,
+            MaxEntities = 100,
+            FeatureEnabled = true
+        });
+    }
+
+    protected override void OnUpdate() { }
+}
+```
+
+### Accessing from Other Systems
+
+Any system can read or write the singleton using `SystemAPI.GetSingleton<T>()` and `SystemAPI.SetSingleton<T>()`:
+
+```csharp
+public partial class MySimulationSystem : GameSystemBase
+{
+    protected override void OnUpdate()
+    {
+        // Read the singleton
+        var config = SystemAPI.GetSingleton<MyModConfig>();
+        if (!config.FeatureEnabled) return;
+
+        float speed = config.SpeedMultiplier;
+        // Use speed in simulation logic...
+    }
+}
+
+public partial class MySettingsSyncSystem : GameSystemBase
+{
+    protected override void OnUpdate()
+    {
+        // Write to the singleton (e.g., when mod settings change)
+        var config = SystemAPI.GetSingleton<MyModConfig>();
+        config.SpeedMultiplier = ModSettings.Instance.SpeedMultiplier;
+        SystemAPI.SetSingleton(config);
+    }
+}
+```
+
+### Key Considerations
+
+- **One entity per singleton type**: `CreateSingleton<T>` creates exactly one entity. Calling it again with the same type will throw an exception.
+- **Burst-compatible**: Singleton components are plain `IComponentData` structs, fully compatible with Burst-compiled jobs via `GetSingleton`/`SetSingleton` in job code.
+- **Not for Harmony patches**: Singletons are ECS-only. Harmony patches operate outside the ECS world and should use static fields instead.
+- **Lifecycle**: The singleton entity persists until explicitly destroyed or the World is disposed. It does not survive save/load unless the component implements `ISerializable`.
+
 ## Sources
 
-- Decompiled from: Game.dll — Game.Modding.IMod, Game.Modding.ModManager, Game.Modding.ModSetting, Game.UpdateSystem, Game.SystemUpdatePhase
-- Asset system: Colossal.IO.AssetDatabase.dll — Colossal.IO.AssetDatabase.ExecutableAsset
+- Decompiled from: Game.dll -- Game.Modding.IMod, Game.Modding.ModManager, Game.Modding.ModSetting, Game.UpdateSystem, Game.SystemUpdatePhase
+- Asset system: Colossal.IO.AssetDatabase.dll -- Colossal.IO.AssetDatabase.ExecutableAsset
 - CS2 Code Modding Dev Diary: https://www.paradoxinteractive.com/games/cities-skylines-ii/modding/dev-diary-3-code-modding

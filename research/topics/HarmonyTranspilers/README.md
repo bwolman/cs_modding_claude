@@ -621,6 +621,251 @@ Key techniques:
 
 This pattern is commonly paired with a transpiler that removes the original jobs, creating a "job replacement" architecture where the vanilla system still populates the queues but a custom system processes them.
 
+### Example 7: Reverse Patch for Calling Original Methods
+
+When a prefix patch returns `false` to skip the original method, but you still need to call the original logic from within the prefix (e.g., conditionally), use `[HarmonyReversePatch]`. A reverse patch creates a callable stub that invokes the **unpatched** original method.
+
+```csharp
+using HarmonyLib;
+using System.Runtime.CompilerServices;
+
+[HarmonyPatch(typeof(Game.Simulation.SomeSystem), "OnUpdate")]
+public static class ConditionalReplacePatch
+{
+    /// <summary>
+    /// Prefix that conditionally replaces OnUpdate.
+    /// Returns false to skip the original when custom logic should run.
+    /// Returns true to let the original run normally.
+    /// </summary>
+    [HarmonyPrefix]
+    public static bool Prefix(Game.Simulation.SomeSystem __instance)
+    {
+        if (ModSettings.Instance.UseCustomLogic)
+        {
+            // Run custom logic instead of original
+            CustomOnUpdate(__instance);
+            return false; // Skip original
+        }
+
+        // Let original run
+        return true;
+    }
+
+    /// <summary>
+    /// Reverse patch stub that calls the ORIGINAL (unpatched) OnUpdate.
+    /// The body is replaced at patch time -- the stub content is never executed.
+    /// </summary>
+    [HarmonyReversePatch]
+    [HarmonyPatch(typeof(Game.Simulation.SomeSystem), "OnUpdate")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void OriginalOnUpdate(Game.Simulation.SomeSystem instance)
+    {
+        // Stub body -- replaced by Harmony with the original method's IL.
+        // NoInlining prevents the JIT from inlining this empty body before
+        // Harmony has a chance to replace it.
+        throw new NotImplementedException("Reverse patch stub");
+    }
+
+    private static void CustomOnUpdate(Game.Simulation.SomeSystem instance)
+    {
+        // Do custom pre-processing
+        PreProcess(instance);
+
+        // Call the ORIGINAL unpatched method via the reverse patch
+        OriginalOnUpdate(instance);
+
+        // Do custom post-processing
+        PostProcess(instance);
+    }
+
+    private static void PreProcess(Game.Simulation.SomeSystem instance) { /* ... */ }
+    private static void PostProcess(Game.Simulation.SomeSystem instance) { /* ... */ }
+}
+```
+
+**When to use reverse patches**:
+- A prefix returns `false` (skipping the original) but still needs the original logic in some code paths.
+- You want to wrap the original method with pre/post logic without using a transpiler.
+- You need to call the original from a completely different context (e.g., a helper method).
+
+**Key requirements**:
+1. `[HarmonyReversePatch]` + `[HarmonyPatch]` targeting the same method.
+2. `[MethodImpl(MethodImplOptions.NoInlining)]` prevents the JIT from inlining the empty stub before Harmony replaces it.
+3. The stub method must be `static` and take the instance as the first parameter (for instance methods).
+4. The stub body is never executed -- Harmony replaces it with the original method's IL at patch time.
+
+### Example 8: Reflection-Based Private Field Access for Prefix Replacements
+
+When a prefix fully replaces `OnUpdate` (returns `false`), the replacement code often needs to read or write the system's private fields. Use reflection-based utility methods for clean, type-safe access.
+
+```csharp
+using HarmonyLib;
+using System.Reflection;
+
+/// <summary>
+/// Utility extensions for accessing private members via reflection.
+/// Used by prefix patches that fully replace system methods.
+/// </summary>
+public static class ReflectionUtils
+{
+    /// <summary>
+    /// Gets the value of a private field or property on an object.
+    /// </summary>
+    public static T GetMemberValue<T>(this object obj, string memberName)
+    {
+        var type = obj.GetType();
+
+        // Try field first
+        var field = type.GetField(memberName,
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (field != null)
+            return (T)field.GetValue(obj);
+
+        // Try property
+        var prop = type.GetProperty(memberName,
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (prop != null)
+            return (T)prop.GetValue(obj);
+
+        throw new MissingMemberException(type.Name, memberName);
+    }
+
+    /// <summary>
+    /// Sets the value of a private field or property on an object.
+    /// </summary>
+    public static void SetMemberValue<T>(this object obj, string memberName, T value)
+    {
+        var type = obj.GetType();
+
+        var field = type.GetField(memberName,
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (field != null)
+        {
+            field.SetValue(obj, value);
+            return;
+        }
+
+        var prop = type.GetProperty(memberName,
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (prop != null)
+        {
+            prop.SetValue(obj, value);
+            return;
+        }
+
+        throw new MissingMemberException(type.Name, memberName);
+    }
+}
+```
+
+Usage in a prefix that fully replaces `OnUpdate`:
+
+```csharp
+[HarmonyPatch(typeof(Game.Simulation.SomeSystem), "OnUpdate")]
+public static class FullReplacePatch
+{
+    [HarmonyPrefix]
+    public static bool Prefix(Game.Simulation.SomeSystem __instance)
+    {
+        // Access private fields via reflection utilities
+        var query = __instance.GetMemberValue<EntityQuery>("m_BuildingQuery");
+        var counter = __instance.GetMemberValue<int>("m_ProcessedCount");
+
+        // Custom logic using private state
+        counter++;
+        __instance.SetMemberValue("m_ProcessedCount", counter);
+
+        return false; // Skip original
+    }
+}
+```
+
+**Comparison with `AccessTools.Field`/`AccessTools.Property`**:
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| `GetMemberValue<T>` utility | Type-safe generic, concise call-site, searches fields and properties | Reflection cost per call, no caching by default |
+| `AccessTools.Field(type, name)` | Harmony-native, well-tested, handles edge cases | Returns `FieldInfo` (requires `.GetValue()` cast), fields only |
+| `AccessTools.FieldRefAccess<TClass, TField>` | Zero-cost after setup (returns ref), best for hot paths | Fields only, more complex setup |
+
+For prefix replacements that run every frame (e.g., `OnUpdate`), prefer `AccessTools.FieldRefAccess` to avoid per-call reflection overhead. For one-time setup in `OnCreate`, `GetMemberValue<T>` or `AccessTools.Field` are both fine.
+
+### Example 9: EntityQuery Modification via OnCreate Postfix
+
+Sometimes you need to modify which entities a vanilla system processes without replacing the entire system. Patch the system's `OnCreate` with a postfix to replace its private `EntityQuery` with a modified version.
+
+```csharp
+using HarmonyLib;
+using System.Reflection;
+using Unity.Entities;
+
+/// <summary>
+/// Modifies a vanilla system's EntityQuery to add or remove component filters.
+/// Patches OnCreate to replace the query after the system initializes.
+/// </summary>
+[HarmonyPatch(typeof(Game.Simulation.TargetSystem), "OnCreate")]
+public static class ModifyEntityQueryPatch
+{
+    /// <summary>
+    /// Fast field accessor for the private m_SomeQuery field.
+    /// AccessTools.FieldRefAccess returns a ref to the field, avoiding
+    /// per-call reflection overhead.
+    /// </summary>
+    private static readonly AccessTools.FieldRef<Game.Simulation.TargetSystem, EntityQuery>
+        s_QueryRef = AccessTools.FieldRefAccess<Game.Simulation.TargetSystem, EntityQuery>(
+            "m_SomeQuery");
+
+    /// <summary>
+    /// Cached MethodInfo for the protected GetEntityQuery method.
+    /// Systems inherit this from SystemBase but it is not public.
+    /// </summary>
+    private static readonly MethodInfo s_GetEntityQueryMethod =
+        typeof(SystemBase).GetMethod("GetEntityQuery",
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            null,
+            new[] { typeof(EntityQueryDesc[]) },
+            null);
+
+    [HarmonyPostfix]
+    public static void Postfix(Game.Simulation.TargetSystem __instance)
+    {
+        // Build a modified query that excludes our custom component
+        var queryDesc = new EntityQueryDesc
+        {
+            All = new[]
+            {
+                ComponentType.ReadOnly<Game.Buildings.Building>(),
+                ComponentType.ReadOnly<Game.Common.Updated>()
+            },
+            None = new[]
+            {
+                // Add a filter: skip entities that have our mod component
+                ComponentType.ReadOnly<MyMod.Components.ExcludeFromProcessing>()
+            }
+        };
+
+        // Call the protected GetEntityQuery via reflection
+        var newQuery = (EntityQuery)s_GetEntityQueryMethod.Invoke(
+            __instance, new object[] { new[] { queryDesc } });
+
+        // Replace the system's private query field using the fast ref accessor
+        s_QueryRef(__instance) = newQuery;
+    }
+}
+```
+
+**Key techniques**:
+1. **`AccessTools.FieldRefAccess<TClass, TField>`**: Creates a delegate that returns a `ref` to a private field. Zero overhead after initial setup -- ideal for fields accessed repeatedly.
+2. **Reflection to call `GetEntityQuery`**: `GetEntityQuery` is a protected method on `SystemBase`. Use `MethodInfo.Invoke` to call it from the postfix.
+3. **Postfix on `OnCreate`**: The postfix runs after the system has fully initialized, so you can safely replace queries that were set up in the original `OnCreate`.
+
+**When to use this pattern**:
+- You want to **filter out** certain entities from a vanilla system's processing (add components to `None`).
+- You want to **expand** which entities a system processes (add components to `Any`).
+- You want to modify entity filtering without replacing the entire `OnUpdate` method, which is fragile and breaks when the game updates.
+
+**Rationale over full replacement**: Replacing `OnUpdate` via a prefix (returning `false`) requires duplicating the entire method body and keeping it in sync with game updates. Modifying the `EntityQuery` instead lets the original `OnUpdate` logic run unmodified but on a different set of entities. This is far more resilient to game patches.
+
 ## Open Questions
 
 - [ ] **HarmonyX vs Harmony 2.x in CS2**: CS2 may use HarmonyX (BepInEx fork) rather than vanilla Harmony 2.x. The API is nearly identical but there may be minor differences in transpiler behavior.

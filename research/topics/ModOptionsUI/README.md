@@ -905,6 +905,98 @@ private void LoadLocalization(ModSetting settings)
 }
 ```
 
+## Reacting to Settings Changes in ECS Systems
+
+### ModSetting.onSettingsApplied Event
+
+`ModSetting.onSettingsApplied` is an event that fires whenever the user clicks Apply in the options menu, or when `ApplyAndSave()` is called programmatically. ECS systems can subscribe to this event to react to settings changes at runtime without polling.
+
+### Subscription Pattern in OnCreate
+
+Subscribe in `OnCreate` and unsubscribe in `OnDestroy` to match the system lifecycle:
+
+```csharp
+public partial class MySimulationSystem : GameSystemBase
+{
+    // Cache settings as local fields for Burst job compatibility.
+    // Burst jobs cannot access managed objects (class instances),
+    // so copy values to value-type fields.
+    private float m_SpeedMultiplier;
+    private int m_MaxIterations;
+    private bool m_FeatureEnabled;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Subscribe to settings changes
+        Mod.Settings.onSettingsApplied += OnSettingsApplied;
+
+        // Initialize cached values from current settings
+        SyncSettingsToFields(Mod.Settings);
+    }
+
+    private void OnSettingsApplied(Setting setting)
+    {
+        // Type-check: onSettingsApplied fires for ALL settings,
+        // not just your mod's. Filter to your settings class.
+        if (setting is MyModSettings modSettings)
+        {
+            SyncSettingsToFields(modSettings);
+        }
+    }
+
+    private void SyncSettingsToFields(MyModSettings settings)
+    {
+        m_SpeedMultiplier = settings.SpeedMultiplier;
+        m_MaxIterations = settings.MaxIterations;
+        m_FeatureEnabled = settings.FeatureEnabled;
+    }
+
+    protected override void OnUpdate()
+    {
+        if (!m_FeatureEnabled) return;
+
+        // Use cached value-type fields in Burst jobs
+        var job = new MyProcessingJob
+        {
+            SpeedMultiplier = m_SpeedMultiplier,
+            MaxIterations = m_MaxIterations
+        };
+        Dependency = job.ScheduleParallel(m_Query, Dependency);
+    }
+
+    protected override void OnDestroy()
+    {
+        // Always unsubscribe to prevent memory leaks
+        Mod.Settings.onSettingsApplied -= OnSettingsApplied;
+        base.OnDestroy();
+    }
+}
+
+[BurstCompile]
+public partial struct MyProcessingJob : IJobChunk
+{
+    // These are value types copied from the system --
+    // safe for Burst compilation
+    public float SpeedMultiplier;
+    public int MaxIterations;
+
+    public void Execute(in ArchetypeChunk chunk, int unfilteredChunkIndex,
+        bool useEnabledMask, in v128 chunkEnabledMask)
+    {
+        // Use SpeedMultiplier and MaxIterations in computation
+    }
+}
+```
+
+### Key Details
+
+- **Type-checking is required**: The `onSettingsApplied` event fires with a `Setting` base class parameter. Multiple mods' settings may fire through the same event. Always check `setting is YourSettingsClass` before processing.
+- **Cache as value-type fields**: Burst-compiled jobs cannot access managed objects (classes, strings, reference types). Copy settings values to `float`, `int`, `bool`, etc. fields on the system, then pass those to jobs.
+- **Thread safety**: `onSettingsApplied` fires on the main thread. Updating cached fields in the handler is safe because `OnUpdate` also runs on the main thread. The Burst job receives a snapshot of the values at schedule time.
+- **Multiple systems**: Each system that needs settings values should subscribe independently and maintain its own cached copies. This avoids hidden coupling between systems.
+
 ## AssetDatabase.global.LoadSettings
 
 `Colossal.IO.AssetDatabase.AssetDatabase.global.LoadSettings()` loads persisted mod settings from disk. The pattern uses an `asDefault` boolean to distinguish live vs defaults instances:
@@ -946,7 +1038,7 @@ public class ModSettings : ModSetting
 - [ ] What is the exact behavior of `[SettingsUIValueVersion]` -- when does the version getter get called to trigger a widget refresh?
 - [ ] Can mods add localization for multiple languages, and how does the fallback work when a key is missing?
 - [ ] How does `[SettingsUIPlatform]` interact with CS2's platform support? What platforms are available?
-- [ ] Is there a way to listen for setting changes from another mod's settings (cross-mod communication)?
+- [x] Is there a way to listen for setting changes from another mod's settings (cross-mod communication)? Yes -- `onSettingsApplied` fires for ALL settings instances. Subscribe and type-check for the other mod's settings class (requires assembly reference or reflection). See "Reacting to Settings Changes in ECS Systems" section above.
 - [ ] What is `DropdownItem<T>` -- where is it defined and what fields does it have besides `value` and `displayName`?
 
 ## Sources

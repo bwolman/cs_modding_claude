@@ -902,6 +902,148 @@ Key techniques:
 3. At runtime, copy `path` and `modifiers` from the vanilla action using `InputManager.instance.FindAction`
 4. Call `InputManager.instance.SetBinding()` to apply the copied binding
 
+### Example 9: Mirroring Vanilla Keybindings with ProxyBinding.Watcher
+
+Use `ProxyBinding.Watcher` to automatically keep a mod action in sync with a vanilla keybinding. When the player rebinds the vanilla action, the watcher fires a callback so you can copy the new binding to your mod's action.
+
+```csharp
+using Game.Input;
+using Game.Modding;
+
+public partial class MirrorBindingSystem : GameSystemBase
+{
+    private ProxyAction _modApplyAction;
+    private ProxyBinding.Watcher _vanillaWatcher;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _modApplyAction = Mod.Settings.GetAction("ModApply");
+
+        // Find the vanilla Apply action to mirror
+        var vanillaApply = InputManager.instance.FindAction(
+            InputManager.kToolMap, "Apply");
+
+        // Get the vanilla action's current mouse binding
+        var vanillaBinding = vanillaApply.bindings
+            .FirstOrDefault(b => b.m_Device == InputManager.DeviceType.Mouse);
+
+        // Copy it to our mod action immediately
+        CopyBindingToModAction(vanillaBinding);
+
+        // Create a watcher that fires whenever the vanilla binding changes
+        _vanillaWatcher = new ProxyBinding.Watcher(
+            vanillaBinding,
+            OnVanillaBindingChanged);
+    }
+
+    private void OnVanillaBindingChanged(ProxyBinding updatedBinding)
+    {
+        // Player rebinds the vanilla Apply action -- mirror it to our action
+        CopyBindingToModAction(updatedBinding);
+    }
+
+    private void CopyBindingToModAction(ProxyBinding sourceBinding)
+    {
+        // Find our mod action's corresponding binding
+        var modBinding = _modApplyAction.bindings
+            .FirstOrDefault(b => b.m_Device == sourceBinding.m_Device);
+
+        if (modBinding.isSet || sourceBinding.isSet)
+        {
+            // Use ProxyBinding.Copy() to clone path and modifiers
+            var copied = ProxyBinding.Copy(sourceBinding, modBinding);
+
+            // Apply the copied binding via InputManager
+            InputManager.instance.SetBinding(copied, out _);
+        }
+    }
+
+    protected override void OnDestroy()
+    {
+        // Dispose the watcher to stop receiving callbacks
+        _vanillaWatcher?.Dispose();
+        _vanillaWatcher = null;
+        base.OnDestroy();
+    }
+
+    protected override void OnUpdate() { }
+}
+```
+
+**Key techniques**:
+1. **`ProxyBinding.Watcher`**: Watches a specific binding for changes. The constructor takes the binding to watch and a callback delegate.
+2. **`ProxyBinding.Copy(source, target)`**: Creates a new `ProxyBinding` that copies `path` and `modifiers` from the source into the target's map/action/device context.
+3. **`InputManager.instance.SetBinding(binding, out result)`**: Applies a binding change. Must be called after modifying binding properties.
+4. **Disposal lifecycle**: Always dispose the watcher in `OnDestroy()` to prevent callbacks on a destroyed system. Watchers hold references that prevent garbage collection if not disposed.
+
+**When to use this pattern**:
+- Your mod adds a tool that should use the same mouse button as the vanilla Apply/Cancel actions.
+- You want the mod's binding to stay in sync when the player rebinds the vanilla action, without requiring the player to manually rebind the mod's action too.
+
+### Example 10: Raw Unity InputAction for Modifier+Mouse Combos
+
+The `ProxyAction`/`ModSettings` attribute system does not support modifier key + mouse button combinations (e.g., Ctrl+Right Click). For these cases, fall back to Unity's `InputAction` API directly with a `ButtonWithOneModifier` composite.
+
+```csharp
+using Game;
+using UnityEngine.InputSystem;
+
+/// <summary>
+/// Registers a raw Unity InputAction for Ctrl+Right Click.
+/// This bypasses the CO ProxyAction system because ProxyAction does not
+/// support modifier+mouse button composites.
+/// </summary>
+public partial class CtrlClickSystem : GameSystemBase
+{
+    private InputAction _ctrlRightClick;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Create a raw Unity InputAction with a ButtonWithOneModifier composite.
+        // "modifier" is the modifier key, "button" is the primary input.
+        _ctrlRightClick = new InputAction("CtrlRightClick", type: InputActionType.Button);
+        _ctrlRightClick.AddCompositeBinding("ButtonWithOneModifier")
+            .With("modifier", "<Keyboard>/ctrl")
+            .With("button", "<Mouse>/rightButton");
+
+        _ctrlRightClick.Enable();
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_ctrlRightClick.WasPressedThisFrame())
+        {
+            // Ctrl+Right Click detected
+            Mod.Log.Info("Ctrl+Right Click pressed");
+        }
+    }
+
+    protected override void OnDestroy()
+    {
+        // Always disable and dispose raw InputActions
+        _ctrlRightClick?.Disable();
+        _ctrlRightClick?.Dispose();
+        _ctrlRightClick = null;
+        base.OnDestroy();
+    }
+}
+```
+
+**Key points**:
+- **`ButtonWithOneModifier`** is a Unity Input System composite that requires one modifier key to be held while the button is pressed. For two modifiers, use `ButtonWithTwoModifiers`.
+- **Modifier path**: Use Unity input paths like `<Keyboard>/ctrl`, `<Keyboard>/shift`, `<Keyboard>/alt`.
+- **Button path**: Use `<Mouse>/leftButton`, `<Mouse>/rightButton`, `<Mouse>/middleButton`, or any other input path.
+- **No rebinding UI**: Raw `InputAction` objects are not registered with `InputManager` and will not appear in the game's Options screen. Players cannot rebind them. Use this only as a last resort when `ProxyAction` cannot express the desired binding.
+- **Lifecycle**: Always call `Disable()` and `Dispose()` on raw `InputAction` objects in `OnDestroy()`. Unlike `ProxyAction`, these are not managed by the CO input framework.
+
+**When to use this pattern**:
+- You need a modifier key + mouse button combination (e.g., Ctrl+Click, Shift+Right Click).
+- The `[SettingsUIKeyboardBinding]` / `[SettingsUIMouseBinding]` attribute system cannot express the combo (it does not support cross-device composites).
+- You do not need the binding to appear in the Options UI or be player-rebindable.
+
 ## Open Questions
 
 - [ ] How does `shouldBeEnabled` interact with the automatic enabling done by `RegisterKeyBindings()`? Is it necessary to explicitly set it for mod actions?
