@@ -393,12 +393,16 @@ Vehicle AI System (e.g. TransportCarAISystem)
       <tr><td>Boarding</td><td>0x4</td><td>Vehicle at stop, loading passengers</td></tr>
       <tr><td>Arriving</td><td>0x8</td><td>Vehicle approaching a stop</td></tr>
       <tr><td>Launched</td><td>0x10</td><td>Vehicle has been launched (aircraft)</td></tr>
+      <tr><td>Evacuating</td><td>0x20</td><td>Emergency evacuation mode</td></tr>
+      <tr><td>PrisonerTransport</td><td>0x40</td><td>Transporting prisoners</td></tr>
       <tr><td>RequiresMaintenance</td><td>0x80</td><td>Vehicle needs maintenance</td></tr>
       <tr><td>Refueling</td><td>0x100</td><td>Vehicle refueling at stop</td></tr>
       <tr><td>AbandonRoute</td><td>0x200</td><td>Vehicle flagged to leave route</td></tr>
       <tr><td>Testing</td><td>0x800</td><td>Vehicle testing a stop</td></tr>
       <tr><td>RequireStop</td><td>0x1000</td><td>Vehicle requires a stop</td></tr>
       <tr><td>DummyTraffic</td><td>0x2000</td><td>Non-real traffic vehicle</td></tr>
+      <tr><td>StopLeft</td><td>0x4000</td><td>Stop is on left side</td></tr>
+      <tr><td>StopRight</td><td>0x8000</td><td>Stop is on right side</td></tr>
       <tr><td>Disabled</td><td>0x10000</td><td>Vehicle disabled</td></tr>
       <tr><td>Full</td><td>0x20000</td><td>Vehicle at capacity</td></tr>
     </tbody>
@@ -427,6 +431,187 @@ Vehicle AI System (e.g. TransportCarAISystem)
       <tr><td>13</td><td>Car</td><td>Private car routes</td></tr>
     </tbody>
   </table>
+
+  <h3>WaitingPassengers (Game.Routes)</h3>
+
+  <p>Attached to waypoint entities at transit stops. Tracks passenger accumulation and average wait time.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_AverageWaitingTime</td><td>ushort</td><td>Average waiting time at this stop in seconds</td></tr>
+      <tr><td>m_Count</td><td>int</td><td>Number of passengers currently waiting at this stop</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Use <code>m_Count</code> to measure stop utilization and calculate crowding signals. A high
+    <code>m_Count</code> relative to vehicle capacity indicates the stop is underserved. Combine with
+    <code>m_AverageWaitingTime</code> to detect chronic overcrowding vs. transient peaks.
+  </p>
+
+  <h3>TaxiStand (Game.Routes)</h3>
+
+  <p>Attached to taxi stand entities. Defines the base fare for taxis dispatched from this stand.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_StartingFee</td><td>ushort</td><td>Base fare charged when a taxi departs from this stand</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Modify <code>m_StartingFee</code> to implement dynamic fare pricing. Cache the baseline fee
+    before applying adjustments, then scale based on <code>WaitingPassengers.m_Count</code> at the
+    connected stop to implement surge pricing.
+  </p>
+
+  <h3>PublicTransportVehicleData (Game.Prefabs)</h3>
+
+  <p>Prefab component on vehicle prefabs defining transport type and capacity.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_TransportType</td><td>TransportType</td><td>The transport mode this vehicle serves (Bus, Train, etc.)</td></tr>
+      <tr><td>m_PassengerCapacity</td><td>int</td><td>Maximum number of passengers this vehicle can carry</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Vehicle resolution chain:</strong> To get vehicle capacity from a route, follow <code>RouteVehicle</code> buffer &rarr; vehicle entity &rarr; <code>PrefabRef</code> &rarr; <code>PublicTransportVehicleData</code>.</p>
+
+  <pre><code class="language-csharp">DynamicBuffer&lt;RouteVehicle&gt; vehicles =
+    em.GetBuffer&lt;RouteVehicle&gt;(routeEntity);
+for (int i = 0; i &lt; vehicles.Length; i++)
+{
+    Entity vehicleEntity = vehicles[i].m_Vehicle;
+    PrefabRef prefabRef = em.GetComponentData&lt;PrefabRef&gt;(vehicleEntity);
+    PublicTransportVehicleData vtd =
+        em.GetComponentData&lt;PublicTransportVehicleData&gt;(prefabRef.m_Prefab);
+    Log.Info($"Vehicle {vehicleEntity}: type={vtd.m_TransportType}, "
+        + $"capacity={vtd.m_PassengerCapacity}");
+}</code></pre>
+
+  <h3>TransportLineData (Game.Prefabs)</h3>
+
+  <p>Prefab component on transport line prefabs defining default scheduling and transport configuration.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_DefaultVehicleInterval</td><td>float</td><td>Default interval between vehicle dispatches (seconds)</td></tr>
+      <tr><td>m_TransportType</td><td>TransportType</td><td>Transport mode for this line type</td></tr>
+      <tr><td>m_StopDuration</td><td>float</td><td>Default stop dwell time (seconds)</td></tr>
+      <tr><td>m_DefaultUnbunchingFactor</td><td>float</td><td>Default unbunching factor for spacing vehicles</td></tr>
+      <tr><td>m_PassengerTransport</td><td>bool</td><td>True if this line type carries passengers</td></tr>
+      <tr><td>m_CargoTransport</td><td>bool</td><td>True if this line type carries cargo</td></tr>
+    </tbody>
+  </table>
+
+  <h3>RouteModifier (Game.Routes) [Buffer]</h3>
+
+  <p>Per-route modifier buffer, analogous to <code>DistrictModifier</code> for districts. Indexed by <code>RouteModifierType</code> enum value.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_Delta</td><td>float2</td><td>x = absolute delta, y = relative delta. Index corresponds to RouteModifierType enum value</td></tr>
+    </tbody>
+  </table>
+
+  <h3>RouteModifierData (Game.Prefabs) [Buffer]</h3>
+
+  <p>Prefab buffer defining which simulation values a route policy modifies and how.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_Type</td><td>RouteModifierType</td><td>Which route simulation value to modify</td></tr>
+      <tr><td>m_Mode</td><td>ModifierValueMode</td><td>Relative, Absolute, or InverseRelative</td></tr>
+      <tr><td>m_Range</td><td>Bounds1</td><td>Min/max effect range (interpolated by slider position)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>RouteOptionData (Game.Prefabs)</h3>
+
+  <p>Prefab component defining which route options a policy activates.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_OptionMask</td><td>uint</td><td>Bitmask of RouteOption values this policy sets</td></tr>
+    </tbody>
+  </table>
+
+  <h3>UITransportConfigurationPrefab / UITransportConfigurationData</h3>
+
+  <p>
+    Singleton prefab component that holds entity references to transport UI configuration data,
+    including the ticket price policy.
+  </p>
+
+  <pre><code class="language-csharp">// Singleton access pattern for transport UI config
+EntityQuery configQuery = GetEntityQuery(
+    ComponentType.ReadOnly&lt;UITransportConfigurationData&gt;());
+Entity configEntity = _prefabSystem
+    .GetSingletonPrefab&lt;UITransportConfigurationPrefab&gt;(configQuery);
+UITransportConfigurationPrefab config =
+    em.GetComponentData&lt;UITransportConfigurationPrefab&gt;(configEntity);
+Entity ticketPricePolicy = config.m_TicketPricePolicy;</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Additional Systems</h2>
+
+  <h3>RouteModifierInitializeSystem (Game.Policies)</h3>
+
+  <p>
+    The route-level equivalent of <code>DistrictModifierInitializeSystem</code>. Initializes route
+    modifiers when route entities are created.
+  </p>
+
+  <ul>
+    <li><strong>Queries:</strong> Created Route entities (with Policy buffer, excluding Temp)</li>
+    <li><strong>Reads:</strong> Policy buffer, PolicySliderData, RouteOptionData, RouteModifierData</li>
+    <li><strong>Writes:</strong> <code>Route.m_OptionMask</code>, <code>RouteModifier</code> buffer</li>
+  </ul>
+
+  <p><strong>Key methods:</strong></p>
+  <ul>
+    <li><code>RefreshRouteOptions()</code> -- iterates active policies, OR's each policy's <code>RouteOptionData.m_OptionMask</code> into <code>Route.m_OptionMask</code></li>
+    <li><code>RefreshRouteModifiers()</code> -- clears modifier buffer, iterates active policies, interpolates slider value to modifier delta</li>
+  </ul>
+
+  <h3>VehicleCountSection (Game.UI.InGame)</h3>
+
+  <p>
+    UI system that displays and manages the vehicle count control for transit lines. Key methods:
+  </p>
+
+  <ul>
+    <li><code>Visible(Entity)</code> -- returns true if the entity is a transit line supporting vehicle count adjustment</li>
+    <li><code>OnSetVehicleCount(Entity, int)</code> -- callback from UI when player adjusts vehicle count; modifies <code>TransportLine.m_VehicleInterval</code> accordingly</li>
+  </ul>
+
+  <h3>CalculateVehicleCount (TransportLineSystem)</h3>
+
+  <p>Public static method for computing target vehicle count from line parameters:</p>
+
+  <pre><code class="language-csharp">// Signature: static int CalculateVehicleCount(float vehicleInterval, float lineDuration)
+// Returns: max(1, round(lineDuration / vehicleInterval))
+// Call directly to predict vehicle count for a given interval and line duration</code></pre>
+
+  <h3>RouteUtils.ApplyModifier (Game.Routes)</h3>
+
+  <p>Public static method for applying a route modifier to a float value:</p>
+
+  <pre><code class="language-csharp">// Signature: static void ApplyModifier(
+//     ref float value,
+//     DynamicBuffer&lt;RouteModifier&gt; modifiers,
+//     RouteModifierType type)
+// Reads RouteModifier at index matching type,
+// applies absolute delta (value += m_Delta.x)
+// then relative delta (value *= (1 + m_Delta.y))</code></pre>
 
   <!-- ============================================================ -->
   <h2>Data Flow</h2>
@@ -522,6 +707,56 @@ if (transportStation != Entity.Null)
       <tr><td>TicketPrice</td><td>Sets the ticket price (only when PaidTicket option is enabled)</td></tr>
     </tbody>
   </table>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <h3>Candidate 5: TransportLineSystem.OnUpdate Postfix for Per-Mode Duration</h3>
+
+  <ul>
+    <li><strong>Patch type:</strong> Postfix</li>
+    <li><strong>What it enables:</strong> Modify <code>RouteInfo.m_Duration</code> on segments after the system recalculates them, allowing per-transit-mode travel time adjustments</li>
+    <li><strong>Risk level:</strong> Medium -- must complete jobs before reading/writing segment data</li>
+    <li><strong>Trigger pattern:</strong> The system sets <code>PathfindUpdated</code> on route entities when segment durations change. A Postfix can detect this to apply modifications only when the system has refreshed data.</li>
+  </ul>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(TransportLineSystem), "OnUpdate")]
+public static class TransportLineSystemOnUpdatePostfix
+{
+    public static void Postfix(TransportLineSystem __instance)
+    {
+        // Complete any scheduled jobs before accessing entity data
+        __instance.CompleteDependency();
+
+        EntityQuery routeQuery = __instance.GetEntityQuery(
+            ComponentType.ReadOnly&lt;Route&gt;(),
+            ComponentType.ReadOnly&lt;TransportLine&gt;(),
+            ComponentType.ReadOnly&lt;RouteSegment&gt;(),
+            ComponentType.ReadOnly&lt;PathfindUpdated&gt;()
+        );
+
+        NativeArray&lt;Entity&gt; routes =
+            routeQuery.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; routes.Length; i++)
+        {
+            Entity route = routes[i];
+            DynamicBuffer&lt;RouteSegment&gt; segments =
+                __instance.EntityManager.GetBuffer&lt;RouteSegment&gt;(route);
+
+            for (int s = 0; s &lt; segments.Length; s++)
+            {
+                Entity segEntity = segments[s].m_Segment;
+                RouteInfo info = __instance.EntityManager
+                    .GetComponentData&lt;RouteInfo&gt;(segEntity);
+
+                // Example: scale duration by 0.8 for this transit mode
+                info.m_Duration *= 0.8f;
+                __instance.EntityManager.SetComponentData(segEntity, info);
+            }
+        }
+        routes.Dispose();
+    }
+}</code></pre>
 
   <!-- ============================================================ -->
   <h2>Open Questions</h2>

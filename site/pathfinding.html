@@ -172,6 +172,20 @@
   </pre></div>
 
   <!-- ============================================================ -->
+  <h2>Relevant Assemblies</h2>
+
+  <table>
+    <thead><tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr></thead>
+    <tbody>
+      <tr><td>Game.dll</td><td>Game.Pathfind</td><td>Core pathfind components, graph data, queue/result systems, PathUtils</td></tr>
+      <tr><td>Game.dll</td><td>Game.Simulation</td><td>PathfindSetupSystem, domain-specific setup structs (CitizenPathfindSetup, etc.)</td></tr>
+      <tr><td>Game.dll</td><td>Game.Prefabs</td><td>PathfindPrefab, PathfindCarData, PathfindPedestrianData, PathfindTrackData</td></tr>
+      <tr><td>Game.dll</td><td>Game.Common</td><td>PathfindUpdated tag component</td></tr>
+      <tr><td>Game.dll</td><td>Game.Debug</td><td>PathfindDebugSystem</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
   <h2>Key Components</h2>
 
   <h3>PathOwner</h3>
@@ -228,6 +242,95 @@
 // [30:16] Curve position (float encoded as int * 32767)
 // [15:8]  Segment index
 // [7:0]   Lane index</code></pre>
+  <p>Key methods:</p>
+  <ul>
+    <li><code>GetOwnerIndex()</code> -- extracts entity index</li>
+    <li><code>GetLaneIndex()</code> -- extracts lane index (ushort)</li>
+    <li><code>GetCurvePos()</code> -- extracts normalized curve position (float, encoded as int * 3.05e-5)</li>
+    <li><code>IsSecondary()</code> -- bit 31 flag</li>
+  </ul>
+
+  <h3>Edge</h3>
+  <p>
+    A connection in the pathfind graph between two nodes. Each edge links a source and destination
+    <code>PathNode</code> through a lane entity and carries the traversal specification (costs,
+    methods, rules) plus location data for A* heuristics.
+  </p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Owner</code></td><td>Entity</td><td>The lane entity this edge belongs to</td></tr>
+      <tr><td><code>m_StartID</code></td><td>NodeID</td><td>Start node identifier</td></tr>
+      <tr><td><code>m_MiddleID</code></td><td>NodeID</td><td>Middle node identifier (for curved segments)</td></tr>
+      <tr><td><code>m_EndID</code></td><td>NodeID</td><td>End node identifier</td></tr>
+      <tr><td><code>m_StartCurvePos</code></td><td>float</td><td>Start position on the lane curve</td></tr>
+      <tr><td><code>m_EndCurvePos</code></td><td>float</td><td>End position on the lane curve</td></tr>
+      <tr><td><code>m_Specification</code></td><td>PathSpecification</td><td>Cost/method/flag data for this edge</td></tr>
+      <tr><td><code>m_Location</code></td><td>LocationSpecification</td><td>Position data for heuristic calculations</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PathSpecification</h3>
+  <p>
+    Describes the traversal properties of a pathfind graph edge. Contains base costs,
+    transport method flags, speed limits, density data, and policy rule flags.
+  </p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Costs</code></td><td>PathfindCosts</td><td>Base costs (time, behaviour, money, comfort)</td></tr>
+      <tr><td><code>m_Flags</code></td><td>EdgeFlags</td><td>Direction flags, connection type</td></tr>
+      <tr><td><code>m_Methods</code></td><td>PathMethod</td><td>Which transport methods can use this edge</td></tr>
+      <tr><td><code>m_AccessRequirement</code></td><td>int</td><td>Access authorization requirement</td></tr>
+      <tr><td><code>m_Length</code></td><td>float</td><td>Physical length of the edge</td></tr>
+      <tr><td><code>m_MaxSpeed</code></td><td>float</td><td>Speed limit</td></tr>
+      <tr><td><code>m_Density</code></td><td>float</td><td>Current traffic density (0.01 minimum)</td></tr>
+      <tr><td><code>m_Rules</code></td><td>RuleFlags</td><td>Lane policy rules (combustion ban, transit ban, etc.)</td></tr>
+      <tr><td><code>m_BlockageStart</code></td><td>byte</td><td>Blockage position start</td></tr>
+      <tr><td><code>m_BlockageEnd</code></td><td>byte</td><td>Blockage position end</td></tr>
+      <tr><td><code>m_FlowOffset</code></td><td>byte</td><td>Traffic flow offset</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PathTarget</h3>
+  <p>
+    Represents a candidate start or end point for a pathfind query. The pathfind setup system
+    resolves abstract targets into lists of <code>PathTarget</code> structs, each pointing to a
+    specific lane position.
+  </p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Target</code></td><td>Entity</td><td>Target node entity</td></tr>
+      <tr><td><code>m_Entity</code></td><td>Entity</td><td>Lane entity</td></tr>
+      <tr><td><code>m_Delta</code></td><td>float</td><td>Position along the lane</td></tr>
+      <tr><td><code>m_Cost</code></td><td>float</td><td>Cost to reach this target from the entity's position</td></tr>
+      <tr><td><code>m_Flags</code></td><td>EdgeFlags</td><td>Edge direction flags</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PathfindUpdated (Tag Component)</h3>
+  <p>
+    A zero-size tag component (<code>Game.Common</code>) that signals pathfind-relevant data on an entity
+    has changed. When added to a lane entity, <code>LanesModifiedSystem</code> picks it up via
+    <code>m_UpdatedLanesQuery</code> and enqueues graph edge recalculation for that lane.
+  </p>
+  <p>
+    <strong>Flow:</strong> Add <code>PathfindUpdated</code> to lane entity &rarr;
+    <code>LanesModifiedSystem</code> detects it &rarr; rebuilds <code>PathSpecification</code>
+    from current lane data &rarr; enqueues <code>UpdateAction</code> into
+    <code>PathfindQueueSystem</code> &rarr; graph edge recalculated on next cycle.
+  </p>
+  <p>
+    <strong>Difference from <code>Updated</code>:</strong> The generic <code>Updated</code> tag
+    (<code>Game.Common</code>) triggers broad system processing across many systems (rendering,
+    simulation, etc.). <code>PathfindUpdated</code> is a narrower signal that only triggers pathfind
+    graph recalculation. Use <code>PathfindUpdated</code> when only pathfind-relevant data changed
+    (e.g., lane costs, speed limits, rule flags) to avoid unnecessary processing by unrelated systems.
+  </p>
+  <pre><code class="language-csharp">// Signal that a lane's pathfind data needs recalculation
+// (e.g., after modifying CarLane.m_SpeedLimit or RuleFlags)
+EntityManager.AddComponent&lt;PathfindUpdated&gt;(laneEntity);</code></pre>
 
   <!-- ============================================================ -->
   <h2>Cost Model</h2>
@@ -325,6 +428,43 @@ ForbidTransitTraffic = 4      ForbidHeavyTraffic = 8
 ForbidPrivateTraffic = 0x10   ForbidSlowTraffic = 0x20
 AvoidBicycles = 0x40</code></pre>
 
+  <h3>PathElementFlags</h3>
+  <p>Flags on individual path segments in the <code>PathElement</code> buffer.</p>
+  <pre><code>Secondary = 1      PathStart = 2     Action = 4
+Return = 8         Reverse = 0x10    WaitPosition = 0x20
+Leader = 0x40      Hangaround = 0x80</code></pre>
+
+  <h3>PathfindFlags</h3>
+  <p>Controls pathfind algorithm behavior -- set via <code>PathfindParameters.m_PathfindFlags</code>.</p>
+  <pre><code>Stable = 1              // No random cost variation
+IgnoreFlow = 2          // Ignore traffic density
+ForceForward = 4        ForceBackward = 8
+NoHeuristics = 0x10     // Disable A* heuristics (Dijkstra)
+ParkingReset = 0x20
+Simplified = 0x40       // Simplified path search
+MultipleOrigins = 0x80  MultipleDestinations = 0x100
+IgnoreExtraStartAccessRequirements = 0x200
+IgnoreExtraEndAccessRequirements = 0x400
+IgnorePath = 0x800
+SkipPathfind = 0x1000   // Skip graph traversal, use cheapest target directly</code></pre>
+
+  <h3>SetupTargetType</h3>
+  <p>
+    All possible target types for pathfind setup (47 values). These are used in
+    <code>SetupQueueTarget.m_Type</code> to specify what kind of destination the pathfinder should resolve.
+    Key categories:
+  </p>
+  <ul>
+    <li><code>CurrentLocation</code> (0) -- current entity position</li>
+    <li><strong>Economic:</strong> <code>ResourceSeller</code>, <code>StorageTransfer</code>, <code>ResourceExport</code></li>
+    <li><strong>Transit/Taxi:</strong> <code>TransportVehicle</code>, <code>RouteWaypoints</code>, <code>Taxi</code></li>
+    <li><strong>Service vehicles:</strong> <code>GarbageCollector</code>, <code>FireEngine</code>, <code>Ambulance</code>, <code>PolicePatrol</code>, <code>PostVan</code>, <code>Hearse</code></li>
+    <li><strong>Traffic:</strong> <code>RandomTraffic</code>, <code>OutsideConnection</code></li>
+    <li><strong>Citizen activities:</strong> <code>Leisure</code>, <code>Attraction</code>, <code>SchoolSeekerTo</code>, <code>JobSeekerTo</code></li>
+    <li><strong>Housing:</strong> <code>FindHome</code>, <code>HomelessShelter</code></li>
+    <li><strong>Dispatch:</strong> Various <code>*Request</code> types for service dispatch</li>
+  </ul>
+
   <!-- ============================================================ -->
   <h2>Systems</h2>
 
@@ -379,11 +519,120 @@ AvoidBicycles = 0x40</code></pre>
   <h3>Graph Maintenance Systems</h3>
   <ul>
     <li><strong>LaneDataSystem</strong> -- converts lane network data into pathfind graph edges when lanes are created or modified</li>
-    <li><strong>LanesModifiedSystem</strong> -- updates pathfind edges when existing lanes change</li>
+    <li><strong>LanesModifiedSystem</strong> -- updates pathfind edges when existing lanes change (see details below)</li>
     <li><strong>LanePoliciesSystem</strong> -- updates edge <code>RuleFlags</code> when district or building policies change</li>
     <li><strong>RoutesModifiedSystem</strong> -- updates pathfind edges when transit routes change</li>
     <li><strong>PathOwnerTargetMovedSystem</strong> -- marks paths as obsolete when path targets move</li>
   </ul>
+
+  <h3>LanesModifiedSystem Details</h3>
+  <p>
+    Handles pathfind edge updates when existing lanes are modified (e.g., road policy changes, speed
+    limit changes, lane flag updates). Its key query (<code>m_UpdatedLanesQuery</code>) matches lane
+    entities tagged with <code>Updated</code> or <code>PathfindUpdated</code>, excluding
+    <code>Deleted</code> and <code>Temp</code> entities.
+  </p>
+  <p>
+    When a lane is detected as modified, the system rebuilds the edge specification using
+    <code>PathUtils</code> helpers and enqueues an <code>UpdateAction</code> into
+    <code>PathfindQueueSystem</code>.
+  </p>
+
+  <h4>UpdateAction &amp; UpdateActionData</h4>
+  <table>
+    <thead><tr><th>Struct</th><th>Fields</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>UpdateAction</code></td>
+        <td><code>m_EdgeIndex</code> (int), <code>m_Specification</code> (PathSpecification), <code>m_Location</code> (LocationSpecification)</td>
+        <td>Describes a single edge update to apply to the pathfind graph</td>
+      </tr>
+      <tr>
+        <td><code>UpdateActionData</code></td>
+        <td><code>m_Actions</code> (NativeList&lt;UpdateAction&gt;), <code>m_Dependencies</code> (JobHandle)</td>
+        <td>Batch container for multiple update actions submitted together</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h4>PathUtils Specification Helpers</h4>
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>PathUtils.GetSpecification(...)</code></td><td>Builds a <code>PathSpecification</code> from lane component data (CarLane, PedestrianLane, TrackLane, etc.) -- the primary edge specification</td></tr>
+      <tr><td><code>PathUtils.GetSecondarySpecification(...)</code></td><td>Builds a secondary <code>PathSpecification</code> for bidirectional or reverse-direction edges</td></tr>
+      <tr><td><code>PathUtils.GetLocationSpecification(...)</code></td><td>Builds a <code>LocationSpecification</code> from lane curve data for A* heuristic position calculations</td></tr>
+    </tbody>
+  </table>
+  <p>
+    These helpers are the same ones used by <code>LaneDataSystem</code> during initial graph
+    construction. <code>LanesModifiedSystem</code> calls them to ensure updated edges are consistent
+    with newly-created edges.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>NativePathfindData Runtime Graph Manipulation</h2>
+
+  <p>
+    <code>NativePathfindData</code> is the runtime container for the pathfind graph. It holds all edges,
+    node mappings, and cost data used by the pathfind worker threads. Access it via
+    <code>PathfindQueueSystem.GetDataContainer()</code>.
+  </p>
+
+  <h3>Key Methods</h3>
+  <table>
+    <thead><tr><th>Method</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>GetEdge(int index)</code></td><td>Returns the <code>Edge</code> struct at the given index (primary edge)</td></tr>
+      <tr><td><code>GetSecondaryEdge(int index)</code></td><td>Returns a secondary edge (e.g., reverse direction or alternate path)</td></tr>
+      <tr><td><code>SetCosts(int edgeIndex, PathfindCosts costs)</code></td><td>Overwrites the base costs on an edge</td></tr>
+      <tr><td><code>SetDensity(int edgeIndex, float density)</code></td><td>Updates the traffic density value on an edge</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Delta-Apply Pattern</h3>
+  <p>
+    When modifying graph costs at runtime, use a <code>NativeParallelHashMap&lt;int, PathfindCosts&gt;</code>
+    to track modifications as deltas (offsets from original values). This prevents <strong>cost stacking</strong>
+    -- the problem where applying the same modification multiple frames in a row causes costs to grow
+    unboundedly.
+  </p>
+
+  <pre><code class="language-csharp">// Delta-apply pattern to prevent cost stacking
+private NativeParallelHashMap&lt;int, PathfindCosts&gt; _originalCosts;
+
+public void ApplyCostModification(
+    NativePathfindData graphData, int edgeIndex, PathfindCosts modifier)
+{
+    // Store original cost on first modification
+    if (!_originalCosts.ContainsKey(edgeIndex))
+    {
+        Edge edge = graphData.GetEdge(edgeIndex);
+        _originalCosts.Add(edgeIndex, edge.m_Specification.m_Costs);
+    }
+
+    // Always apply delta from the original, not from current value
+    PathfindCosts original = _originalCosts[edgeIndex];
+    PathfindCosts modified = new PathfindCosts(
+        original.m_Value + modifier.m_Value);
+    graphData.SetCosts(edgeIndex, modified);
+}
+
+public void RevertCostModification(
+    NativePathfindData graphData, int edgeIndex)
+{
+    if (_originalCosts.TryGetValue(edgeIndex, out PathfindCosts original))
+    {
+        graphData.SetCosts(edgeIndex, original);
+        _originalCosts.Remove(edgeIndex);
+    }
+}</code></pre>
+
+  <div class="warning">
+    <strong>Important:</strong> Graph modifications via <code>NativePathfindData</code> take effect on the
+    next pathfind cycle (double-buffered). Modifications must be synchronized with the pathfind queue
+    system's update to avoid race conditions with worker threads.
+  </div>
 
   <!-- ============================================================ -->
   <h2>Examples</h2>
@@ -588,6 +837,7 @@ public static class PathCostPatch
       <tr><td><code>m_ParkingSize</code></td><td>float</td><td>Size of the parking space required by the vehicle</td></tr>
       <tr><td><code>m_Authorization1</code></td><td>Entity</td><td>First access authorization entity (e.g., gated area pass)</td></tr>
       <tr><td><code>m_Authorization2</code></td><td>Entity</td><td>Second access authorization entity</td></tr>
+      <tr><td><code>m_TaxiIgnoredRules</code></td><td>RuleFlags</td><td>Lane policy rules that taxis may ignore (e.g., transit-only restrictions)</td></tr>
     </tbody>
   </table>
   <p>
@@ -601,6 +851,27 @@ public static class PathCostPatch
     are checked against <code>PathSpecification.m_AccessRequirement</code> on graph edges. If an edge
     requires authorization, the agent must carry a matching authorization entity to traverse it.
   </p>
+  <p>
+    <strong>Taxi rules:</strong> <code>m_TaxiIgnoredRules</code> is a <code>RuleFlags</code> bitfield
+    specifying which lane policy rules taxis are allowed to ignore during pathfinding. For example, a
+    taxi may ignore <code>ForbidPrivateTraffic</code> to use bus lanes for pickups. This field is
+    checked alongside <code>m_IgnoredRules</code> when evaluating edge traversability for taxi-method
+    paths.
+  </p>
+
+  <h3>CitizenUtils.GetPathfindWeights</h3>
+  <p>
+    The <code>CitizenUtils.GetPathfindWeights</code> utility method computes per-citizen
+    <code>PathfindWeights</code> based on the citizen's age, wealth, and other attributes. This is
+    used when building <code>PathfindParameters</code> for citizen pathfind requests.
+  </p>
+  <pre><code class="language-csharp">// CitizenUtils.GetPathfindWeights -- returns weighted cost preferences
+// Wealth affects money sensitivity, age affects comfort preference, etc.
+PathfindWeights weights = CitizenUtils.GetPathfindWeights(citizen, citizenData);</code></pre>
+  <p>
+    Mods can intercept or replace the weights returned by this method to change how citizens prioritize
+    route cost dimensions (time vs. money vs. comfort).
+  </p>
 
   <h3>Prefab Cost Data</h3>
   <p>Base traversal costs defined per transport mode in prefab components:</p>
@@ -611,6 +882,100 @@ public static class PathCostPatch
     <li><strong>PathfindTransportData</strong>: Public transit boarding/transfer costs</li>
     <li><strong>PathfindConnectionData</strong>: Outside connection costs</li>
   </ul>
+
+  <h3>PathfindPedestrianData Full Structure</h3>
+  <p>
+    The <code>PathfindPedestrianData</code> prefab component defines base costs for pedestrian
+    pathfinding. All cost fields are <code>PathfindCosts</code> (<code>float4</code>) with channels:
+    time, behaviour, money, comfort.
+  </p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_WalkingCost</code></td><td>PathfindCosts (float4)</td><td>Base cost per unit distance of walking on a pedestrian lane</td></tr>
+      <tr><td><code>m_CrosswalkCost</code></td><td>PathfindCosts (float4)</td><td>Additional cost for using a signalized crosswalk</td></tr>
+      <tr><td><code>m_UnsafeCrosswalkCost</code></td><td>PathfindCosts (float4)</td><td>Additional cost for jaywalking / unsignalized crossing</td></tr>
+      <tr><td><code>m_SpawnCost</code></td><td>PathfindCosts (float4)</td><td>One-time cost for spawning a pedestrian (entering the network)</td></tr>
+    </tbody>
+  </table>
+  <p>
+    <strong>Runtime modification pattern:</strong> These values are on the pathfind prefab entity and
+    can be modified at runtime to globally change pedestrian routing behavior. For example, increasing
+    <code>m_UnsafeCrosswalkCost.y</code> (behaviour channel) discourages jaywalking without completely
+    preventing it.
+  </p>
+  <pre><code class="language-csharp">// Modify pedestrian crosswalk costs at runtime
+Entity pathfindPrefab = GetPathfindPrefabEntity();
+PathfindPedestrianData pedData =
+    EntityManager.GetComponentData&lt;PathfindPedestrianData&gt;(pathfindPrefab);
+
+// Double the jaywalking penalty (behaviour channel)
+pedData.m_UnsafeCrosswalkCost = new PathfindCosts(
+    pedData.m_UnsafeCrosswalkCost.m_Value * new float4(1f, 2f, 1f, 1f));
+
+EntityManager.SetComponentData(pathfindPrefab, pedData);</code></pre>
+
+  <h3>Pedestrian Speed &amp; Age Data</h3>
+
+  <h4>HumanData.m_WalkSpeed</h4>
+  <p>
+    The <code>Game.Prefabs.HumanData</code> component on human prefab entities contains
+    <code>m_WalkSpeed</code>, which defines the base walking speed for pedestrians. This value is
+    used when building <code>PathfindParameters.m_WalkSpeed</code> for citizen pathfind requests.
+  </p>
+
+  <h4>ResidentData.m_Age</h4>
+  <p>
+    The <code>Game.Prefabs.ResidentData</code> component stores age-related data for residents. The
+    <code>m_Age</code> field determines the citizen's age category, which affects walking speed
+    multipliers and pathfind weight calculations.
+  </p>
+
+  <h4>AgeMask Flags Enum</h4>
+  <p>
+    Categorizes citizens into age groups for pedestrian speed calculations and citizen pathfind setup:
+  </p>
+  <pre><code>Child   = 1    // Children -- slowest walk speed
+Teen    = 2    // Teenagers -- moderate walk speed
+Adult   = 4    // Adults -- standard walk speed
+Elderly = 8    // Elderly -- reduced walk speed</code></pre>
+  <p>
+    For pedestrian speed modding, modify <code>HumanData.m_WalkSpeed</code> on the prefab entity or
+    intercept the <code>PathfindParameters.m_WalkSpeed</code> value at queue submission time. The age
+    mask can be combined (e.g., <code>Child | Elderly = 9</code>) for queries targeting multiple age
+    groups.
+  </p>
+
+  <h3>PathSpecification Edge Manipulation</h3>
+  <p>
+    <code>PathSpecification.m_Density</code> and <code>PathSpecification.m_MaxSpeed</code> can be
+    manipulated at runtime as a softer alternative to hard-disabling edges via
+    <code>ConnectionLaneFlags.Disabled</code>.
+  </p>
+  <ul>
+    <li>
+      <strong>m_Density:</strong> Setting density to a very high value (e.g., 100.0) makes the edge
+      extremely expensive to traverse without completely removing it from the graph. Agents will
+      strongly avoid the edge but can still use it if no alternative exists. The minimum density is
+      0.01 (clamped internally).
+    </li>
+    <li>
+      <strong>m_MaxSpeed:</strong> Setting <code>m_MaxSpeed</code> to a very low value (e.g., 0.01)
+      dramatically increases the time cost for traversing the edge, since time cost = length / speed.
+      This effectively makes the edge undesirable without disabling it.
+    </li>
+  </ul>
+  <p>
+    This approach is preferable to <code>ConnectionLaneFlags.Disabled</code> when you want agents to
+    use the edge as a last resort rather than treating it as non-existent. It avoids pathfind failures
+    in networks where the disabled edge might be the only route.
+  </p>
+  <pre><code class="language-csharp">// Soft-disable an edge by inflating density and reducing speed
+// Agents will strongly avoid this edge but can still use it if necessary
+PathSpecification spec =
+    nativePathfindData.GetEdge(edgeIndex).m_Specification;
+spec.m_Density = 100f;   // extremely congested
+spec.m_MaxSpeed = 0.5f;  // very slow</code></pre>
 
   <!-- ============================================================ -->
   <h2>Warnings &amp; Pitfalls</h2>
@@ -642,6 +1007,122 @@ public static class PathCostPatch
       by <code>PathfindSetupSystem</code>. Do not dispose them manually.
     </li>
   </ul>
+
+  <!-- ============================================================ -->
+  <h2>Additional Harmony Patch Points</h2>
+
+  <p>
+    Beyond the core <code>PathUtils.CalculateCost</code> patch shown in Example 5, several other
+    static methods are viable Harmony targets:
+  </p>
+
+  <h3>Candidate 6: PathUtils.GetCarDriveSpecification</h3>
+  <p>
+    <strong>Signature (overload 1):</strong>
+    <code>PathSpecification GetCarDriveSpecification(in CarLane, in CarLaneData, in PathfindCarData, float length, float density)</code>
+  </p>
+  <p>
+    <strong>Signature (overload 2):</strong>
+    <code>PathSpecification GetCarDriveSpecification(in CarLane, in CarLaneData, in PathfindCarData, float length, float density, RuleFlags rules)</code>
+  </p>
+  <ul>
+    <li><strong>Patch type:</strong> Postfix (modify the returned <code>PathSpecification</code>)</li>
+    <li><strong>What it enables:</strong> Modify the pathfind edge specification for car driving lanes before it is written to the graph. Adjust costs, density, speed, or rules per-lane.</li>
+    <li><strong>Risk level:</strong> Low (pure function, returns a value struct)</li>
+    <li><strong>Side effects:</strong> Called during graph edge creation/update -- affects all subsequent pathfinds on modified lanes</li>
+  </ul>
+
+  <h3>Candidate 7: PathUtils.GetTaxiDriveSpecification</h3>
+  <p>
+    <strong>Signature:</strong>
+    <code>PathSpecification GetTaxiDriveSpecification(in CarLane, in CarLaneData, in PathfindCarData, float length, float density)</code>
+  </p>
+  <ul>
+    <li><strong>Patch type:</strong> Postfix</li>
+    <li><strong>What it enables:</strong> Modify pathfind edge specifications specifically for taxi pathfinding. Useful for taxi-specific lane cost adjustments (e.g., reduced cost on bus lanes for taxis).</li>
+    <li><strong>Risk level:</strong> Low (pure function)</li>
+    <li><strong>Side effects:</strong> Same as GetCarDriveSpecification but only affects taxi pathfind method edges</li>
+  </ul>
+
+  <h3>Candidate 8: PathUtils.TryAddCosts</h3>
+  <p>
+    <strong>Signature:</strong>
+    <code>bool TryAddCosts(ref float totalCost, PathfindCosts costs, PathfindWeights weights, float maxCost)</code>
+  </p>
+  <ul>
+    <li><strong>Patch type:</strong> Prefix (to override cost accumulation) or Postfix (to adjust running total)</li>
+    <li><strong>What it enables:</strong> Intercept the incremental cost accumulation during edge evaluation. Can clamp, multiply, or conditionally zero out costs for specific edges.</li>
+    <li><strong>Risk level:</strong> Medium -- called extremely frequently during pathfinding (inner loop of A*)</li>
+    <li><strong>Side effects:</strong> Modifying the running total affects whether the pathfinder prunes the edge early via <code>maxCost</code> comparison. Must be very lightweight.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>PathMethod &amp; PathNode for Lane Connection Modding</h2>
+
+  <p>
+    When creating custom lane connections (e.g., the Traffic mod's <code>GeneratedConnection</code>),
+    two key types control how the pathfinder traverses between lanes:
+  </p>
+
+  <h3>PathMethod for Connections</h3>
+  <p>
+    The <code>PathMethod</code> flags enum controls which pathfinding methods can use a connection.
+    Connections store <code>PathMethod</code> to filter which vehicle types can traverse them:
+  </p>
+  <table>
+    <thead><tr><th>Flag</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>Road</code></td><td>Usable by road vehicles</td></tr>
+      <tr><td><code>Track</code></td><td>Usable by track vehicles (tram, train)</td></tr>
+      <tr><td><code>Pedestrian</code></td><td>Usable by pedestrians</td></tr>
+      <tr><td><code>Flying</code></td><td>Usable by aircraft</td></tr>
+      <tr><td><code>Watercraft</code></td><td>Usable by watercraft</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PathNode for Connections</h3>
+  <p>
+    <code>Connection</code> buffer elements store source/target <code>PathNode</code> and
+    <code>PathMethod</code> to define how the pathfinder traverses between lanes. Lane connection
+    mods create custom connections with appropriate <code>PathNode</code> endpoints and
+    <code>PathMethod</code> flags.
+  </p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_StartNode</code></td><td>ushort</td><td>Lane graph start node index</td></tr>
+      <tr><td><code>m_MiddleNode</code></td><td>ushort</td><td>Lane graph middle node index</td></tr>
+      <tr><td><code>m_EndNode</code></td><td>ushort</td><td>Lane graph end node index</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Mod Blueprint</h2>
+
+  <h3>Systems to Create</h3>
+  <ul>
+    <li>Custom <code>GameSystemBase</code> that requests pathfinds via <code>PathfindSetupSystem.GetQueue()</code></li>
+    <li>Post-processing system that reacts to <code>PathUpdated</code> events</li>
+    <li>Optional system that modifies <code>PathfindParameters</code> before submission (e.g., custom cost weights)</li>
+  </ul>
+
+  <h3>Components to Add</h3>
+  <ul>
+    <li>Custom component on entities that need modified pathfinding behavior</li>
+    <li>Tag component to identify entities with custom path preferences</li>
+  </ul>
+
+  <h3>Patches Needed</h3>
+  <ul>
+    <li>Postfix on <code>PathUtils.CalculateCost</code> for route cost modification</li>
+    <li>Or: custom ECS system that modifies <code>PathElement</code> buffers post-pathfind</li>
+  </ul>
+
+  <h3>Settings</h3>
+  <p>User-configurable cost multipliers for different transport methods.</p>
+
+  <h3>UI Changes</h3>
+  <p>Optional debug overlay showing pathfind statistics via <code>PathfindResultSystem.queryStats</code>.</p>
 
   <!-- ============================================================ -->
   <h2>Open Questions</h2>

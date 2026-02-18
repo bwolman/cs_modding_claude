@@ -250,12 +250,17 @@
       <tr>
         <td>Game.dll</td>
         <td>Game.Prefabs</td>
-        <td>DistrictPrefab, PolicyPrefab, PolicyTogglePrefab, PolicySliderPrefab, PolicyData, PolicySliderData, DistrictOptionData, DistrictModifierData, DistrictModifiers, DistrictOptions, DefaultPolicyData, PolicyCategory</td>
+        <td>DistrictPrefab, PolicyPrefab, PolicyTogglePrefab, PolicySliderPrefab, PolicyData, PolicySliderData, DistrictOptionData, DistrictModifierData, DistrictModifiers, DistrictOptions, DefaultPolicyData, DefaultPolicyInfo, PolicyCategory, PolicyVisibility, ModifierValueMode, PolicySliderUnit</td>
       </tr>
       <tr>
         <td>Game.dll</td>
         <td>Game.Pathfind</td>
         <td>LanePoliciesSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.UI.InGame</td>
+        <td>DistrictsSection, PoliciesUISystem</td>
       </tr>
     </tbody>
   </table>
@@ -314,6 +319,35 @@
       <tr><td>m_Policy</td><td>Entity</td><td>Policy prefab entity</td></tr>
       <tr><td>m_Flags</td><td>PolicyFlags</td><td>Desired active state</td></tr>
       <tr><td>m_Adjustment</td><td>float</td><td>Desired slider value</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PolicyData (Game.Prefabs)</h3>
+
+  <p>ECS component on policy prefab entities. Controls whether the policy appears in the UI policy list.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Visibility</td><td>int</td><td>0 = Default (visible in policy list), 1 = HideFromPolicyList</td></tr>
+    </tbody>
+  </table>
+
+  <h3>DefaultPolicyData (Game.Prefabs) -- Buffer</h3>
+
+  <p>
+    Buffer on district prefab entities listing which policies are active by default on newly created districts.
+    <code>DistrictModifierInitializeSystem</code> reads this buffer when processing newly created district entities.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Policy</td><td>Entity</td><td>Policy prefab entity that is active by default on new districts</td></tr>
     </tbody>
   </table>
 
@@ -376,6 +410,97 @@
   the <code>Modify</code> event, updates the <code>Policy</code> buffer on the route entity, and
   calls <code>RefreshEffects()</code> which delegates to the route-specific refresh logic to rebuild
   the <code>RouteModifier</code> buffer.</p>
+
+  <h3>ModifiedSystem.PolicyRange (Inner Enum)</h3>
+
+  <p>
+    Inner enum within <code>ModifiedSystem</code> that classifies the scope of a policy event.
+    <code>GetPolicyRange()</code> determines this by checking component presence on the target entity:
+    <code>District</code> component &rarr; District, <code>Owner</code>+<code>ServiceUpgrade</code> &rarr; Building,
+    <code>Route</code> &rarr; Route, otherwise &rarr; City.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Value</th><th>Name</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0</td><td>None</td><td>No policy range determined</td></tr>
+      <tr><td>1</td><td>District</td><td>Policy targets a district area entity</td></tr>
+      <tr><td>2</td><td>Building</td><td>Policy targets a building entity (with Owner+ServiceUpgrade)</td></tr>
+      <tr><td>3</td><td>Route</td><td>Policy targets a transit route entity</td></tr>
+      <tr><td>4</td><td>City</td><td>Policy targets the city-wide singleton</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ModifiedSystem.PolicyEventInfo (Inner Struct)</h3>
+
+  <p>
+    Produced by <code>ModifyPolicyJob</code> after processing a <code>Modify</code> event.
+    Encapsulates the result for downstream refresh logic.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Activated</td><td>bool</td><td>True if the policy was activated, false if deactivated</td></tr>
+      <tr><td>m_Entity</td><td>Entity</td><td>The target entity the policy was applied to</td></tr>
+      <tr><td>m_PolicyRange</td><td>PolicyRange</td><td>The determined scope of the policy event</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Systems</h2>
+
+  <h3>ServiceDistrictSystem (Game.Areas)</h3>
+
+  <p>
+    Cleans up <code>ServiceDistrict</code> buffer entries when districts are deleted. When a district
+    entity is removed, any service building that had that district in its <code>ServiceDistrict</code>
+    buffer gets the stale reference removed.
+  </p>
+
+  <ul>
+    <li><strong>Base class:</strong> GameSystemBase</li>
+    <li><strong>Update phase:</strong> Simulation</li>
+    <li><strong>Reads:</strong> Deleted districts</li>
+    <li><strong>Writes:</strong> ServiceDistrict buffer (removes references to deleted districts)</li>
+  </ul>
+
+  <h3>PoliciesUISystem (Game.UI.InGame)</h3>
+
+  <p>
+    The canonical UI-level API for setting policies programmatically. The <code>SetPolicy</code> method
+    creates a <code>Modify</code> event entity targeting a given entity with the specified policy,
+    active state, and slider adjustment. This is the same path the game UI uses when the player
+    toggles or adjusts a policy.
+  </p>
+
+  <ul>
+    <li><strong>Base class:</strong> UISystemBase</li>
+    <li><strong>Update phase:</strong> UI</li>
+    <li><strong>Key method:</strong> <code>SetPolicy(Entity entity, Entity policy, bool active, float adjustment)</code></li>
+  </ul>
+
+  <p>
+    Call <code>SetPolicy</code> from mod code to activate or deactivate policies without manually
+    constructing <code>Modify</code> event entities. This is the preferred approach for programmatic
+    policy changes from UI-layer code:
+  </p>
+
+  <pre><code class="language-csharp">// Get the PoliciesUISystem instance
+PoliciesUISystem policiesUI = World.GetOrCreateSystemManaged&lt;PoliciesUISystem&gt;();
+
+// Activate a policy on a district
+policiesUI.SetPolicy(districtEntity, policyPrefabEntity, true, 0f);
+
+// Set a slider policy to a specific value
+policiesUI.SetPolicy(districtEntity, sliderPolicyPrefab, true, 0.5f);
+
+// Deactivate a policy
+policiesUI.SetPolicy(districtEntity, policyPrefabEntity, false, 0f);</code></pre>
 
   <!-- ============================================================ -->
   <h2>Data Flow</h2>
@@ -656,6 +781,47 @@ MODIFIER CONSUMPTION (Simulation systems)
   </table>
 
   <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <h3>Candidate 1: ModifiedSystem.ModifyPolicyJob.RefreshEffects</h3>
+
+  <ul>
+    <li><strong>Signature:</strong> <code>void RefreshEffects(Entity entity, Entity policy, DynamicBuffer&lt;Policy&gt; policies)</code></li>
+    <li><strong>Patch type:</strong> Postfix</li>
+    <li><strong>What it enables:</strong> React to any policy change on any entity, add custom side effects</li>
+    <li><strong>Risk:</strong> Medium -- called from a job; patching requires careful thread safety</li>
+  </ul>
+
+  <h3>Candidate 2: DistrictModifierInitializeSystem.DistrictModifierRefreshData.RefreshDistrictModifiers</h3>
+
+  <ul>
+    <li><strong>Signature:</strong> <code>void RefreshDistrictModifiers(DynamicBuffer&lt;DistrictModifier&gt; modifiers, DynamicBuffer&lt;Policy&gt; policies)</code></li>
+    <li><strong>Patch type:</strong> Postfix</li>
+    <li><strong>What it enables:</strong> Inject custom modifiers or adjust modifier values after standard calculation</li>
+    <li><strong>Risk:</strong> Low -- modifiers are recalculated from scratch each time, so postfix additions are safe</li>
+  </ul>
+
+  <h3>Candidate 3: DistrictModifierInitializeSystem.DistrictModifierRefreshData.AddModifier</h3>
+
+  <ul>
+    <li><strong>Signature:</strong> <code>static void AddModifier(DynamicBuffer&lt;DistrictModifier&gt; modifiers, DistrictModifierData modifierData, float delta)</code></li>
+    <li><strong>Patch type:</strong> Prefix (to override) or Postfix (to adjust)</li>
+    <li><strong>What it enables:</strong> Change how individual modifier values are calculated (e.g. scale effects)</li>
+    <li><strong>Risk:</strong> Low -- static method, straightforward to patch</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Mod Blueprint</h2>
+
+  <ul>
+    <li><strong>Systems to create:</strong> Custom system that reads <code>DistrictModifier</code> buffer and <code>CurrentDistrict</code> to apply custom game effects</li>
+    <li><strong>Components to add:</strong> None required for reading; new <code>DistrictModifierType</code> values would need custom handling</li>
+    <li><strong>Patches needed:</strong> Postfix on <code>RefreshDistrictModifiers</code> to inject additional modifiers; or create <code>Modify</code> events programmatically to toggle policies</li>
+    <li><strong>Settings:</strong> User-configurable modifier multipliers</li>
+    <li><strong>UI changes:</strong> Custom policy entries would need UI binding to appear in the district policy panel</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
@@ -681,15 +847,16 @@ MODIFIER CONSUMPTION (Simulation systems)
   <h2>Sources</h2>
 
   <ul>
-    <li>Decompiled from: Game.dll -- Game.Areas.CurrentDistrictSystem, Game.Areas.ServiceDistrictSystem, Game.Areas.District, Game.Areas.DistrictModifier, Game.Areas.CurrentDistrict, Game.Areas.BorderDistrict</li>
-    <li>Policy types: Game.Policies.Policy, Game.Policies.Modify, Game.Policies.ModifiedSystem, Game.Policies.DistrictModifierInitializeSystem</li>
-    <li>Prefab types: Game.Prefabs.DistrictPrefab, Game.Prefabs.PolicyPrefab, Game.Prefabs.PolicySliderPrefab, Game.Prefabs.PolicyTogglePrefab, Game.Prefabs.DistrictModifierData, Game.Prefabs.DistrictOptionData</li>
+    <li>Decompiled from: Game.dll -- Game.Areas.CurrentDistrictSystem, Game.Areas.ServiceDistrictSystem, Game.Areas.District, Game.Areas.DistrictModifier, Game.Areas.CurrentDistrict, Game.Areas.BorderDistrict, Game.Areas.ServiceDistrict</li>
+    <li>Policy types: Game.Policies.Policy, Game.Policies.PolicyFlags, Game.Policies.Modify, Game.Policies.ModifiedSystem, Game.Policies.ModifiedSystem.PolicyEventInfo, Game.Policies.ModifiedSystem.PolicyRange, Game.Policies.DistrictModifierInitializeSystem</li>
+    <li>Prefab types: Game.Prefabs.DistrictPrefab, Game.Prefabs.PolicyPrefab, Game.Prefabs.PolicySliderPrefab, Game.Prefabs.PolicyTogglePrefab, Game.Prefabs.PolicyData, Game.Prefabs.PolicySliderData, Game.Prefabs.DistrictOptionData, Game.Prefabs.DistrictModifierData, Game.Prefabs.DistrictModifiers, Game.Prefabs.DistrictOptions, Game.Prefabs.DefaultPolicyData</li>
+    <li>UI systems: Game.UI.InGame.PoliciesUISystem</li>
     <li>Pathfinding: Game.Pathfind.LanePoliciesSystem</li>
-    <li>Enums: Game.Areas.DistrictModifierType, Game.Areas.DistrictOption, Game.Policies.PolicyFlags, Game.Prefabs.PolicyCategory, Game.Prefabs.ModifierValueMode</li>
+    <li>Enums: Game.Areas.DistrictModifierType, Game.Areas.DistrictOption, Game.Policies.PolicyFlags, Game.Prefabs.PolicyCategory, Game.Prefabs.PolicyVisibility, Game.Prefabs.ModifierValueMode, Game.Prefabs.PolicySliderUnit</li>
   </ul>
 
   <footer>
-    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- DistrictPrefab, CurrentDistrictSystem, ModifiedSystem, DistrictModifierInitializeSystem, LanePoliciesSystem.</p>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- DistrictPrefab, CurrentDistrictSystem, ServiceDistrictSystem, ModifiedSystem, DistrictModifierInitializeSystem, PoliciesUISystem, LanePoliciesSystem.</p>
     <div class="attribution-footer">
       <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
     </div>

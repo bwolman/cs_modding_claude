@@ -287,22 +287,27 @@
       <tr>
         <td>Game.dll</td>
         <td>Game.Vehicles</td>
-        <td>CarCurrentLane, CarNavigation, CarNavigationLane, CarLaneFlags (vehicle state), Blocker</td>
+        <td>CarCurrentLane, CarNavigation, CarNavigationLane, CarLaneFlags (vehicle state), Blocker, FixParkingLocation</td>
       </tr>
       <tr>
         <td>Game.dll</td>
         <td>Game.Net</td>
-        <td>CarLane, CarLaneFlags (network rules), TrafficLights, LaneSignal, LaneSignalType, LaneFlow, LaneReservation, LaneOverlap, Bottleneck</td>
+        <td>CarLane, CarLaneFlags (network rules), TrafficLights, LaneSignal, LaneSignalType, LaneFlow, LaneReservation, LaneOverlap, Bottleneck, ParkingLane, ParkingLaneFlags, GarageLane, ParkingFacility, ParkingFacilityFlags</td>
       </tr>
       <tr>
         <td>Game.dll</td>
         <td>Game.Simulation</td>
-        <td>CarNavigationSystem, CarLaneSelectIterator, TrafficLightSystem, TrafficFlowSystem, TrafficBottleneckSystem, TrafficAmbienceSystem</td>
+        <td>CarNavigationSystem, CarLaneSelectIterator, TrafficLightSystem, TrafficFlowSystem, TrafficBottleneckSystem, TrafficAmbienceSystem, TrafficAmbienceCell, ParkingLaneDataSystem, RandomTrafficDispatchSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Net</td>
+        <td>TrafficLightInitializationSystem, LaneOverlapSystem, FlipTrafficHandednessSystem</td>
       </tr>
       <tr>
         <td>Game.dll</td>
         <td>Game.Prefabs</td>
-        <td>CarLaneData, TrafficConfigurationData</td>
+        <td>CarLaneData, TrafficConfigurationData, TrafficConfigurationPrefab, TrafficLightData, TrafficSignData, ParkingLaneData, ParkingFacilityData</td>
       </tr>
     </tbody>
   </table>
@@ -435,6 +440,336 @@
       <tr><td>m_Next</td><td>float2</td><td>Accumulator for next measurement cycle</td></tr>
     </tbody>
   </table>
+
+  <h3>CarNavigation (Game.Vehicles)</h3>
+
+  <p>Vehicle-level navigation state.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_TargetPosition</td><td>float3</td><td>Current world-space target position</td></tr>
+      <tr><td>m_TargetRotation</td><td>quaternion</td><td>Current target orientation</td></tr>
+      <tr><td>m_MaxSpeed</td><td>float</td><td>Maximum speed for current lane</td></tr>
+    </tbody>
+  </table>
+
+  <h3>CarNavigationLane (Game.Vehicles)</h3>
+
+  <p>Buffer element representing upcoming lanes in the vehicle's navigation queue. Internal buffer capacity: 8 elements.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_Lane</td><td>Entity</td><td>Target lane entity</td></tr>
+      <tr><td>m_CurvePosition</td><td>float2</td><td>Start and end position on the lane's curve</td></tr>
+      <tr><td>m_Flags</td><td>CarLaneFlags (Vehicles)</td><td>Navigation flags for this segment</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Blocker (Game.Vehicles)</h3>
+
+  <p>Tracks what is blocking a vehicle.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_Blocker</td><td>Entity</td><td>Entity blocking this vehicle</td></tr>
+      <tr><td>m_Type</td><td>BlockerType</td><td>Type of blocking: None, Continuing (mutual block)</td></tr>
+      <tr><td>m_MaxSpeed</td><td>byte</td><td>Maximum speed allowed due to blocker (encoded as byte, divide by 5)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>LaneReservation (Game.Net)</h3>
+
+  <p>Lane reservation data for vehicles that need exclusive access to a lane (e.g., at intersections).</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_Blocker</td><td>Entity</td><td>Entity that placed this reservation</td></tr>
+      <tr><td>m_Next</td><td>ReservationData</td><td>Next reservation (offset 0-255, priority byte)</td></tr>
+      <tr><td>m_Prev</td><td>ReservationData</td><td>Previous reservation</td></tr>
+    </tbody>
+  </table>
+  <p>
+    Methods: <code>GetOffset()</code> returns max of next/prev offset as float (0.0-1.0);
+    <code>GetPriority()</code> returns max priority of next/prev.
+  </p>
+
+  <h3>LaneOverlap (Game.Net)</h3>
+
+  <p>Buffer element describing where two lanes physically overlap (cross each other at an intersection).</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_Other</td><td>Entity</td><td>The other overlapping lane</td></tr>
+      <tr><td>m_Flags</td><td>OverlapFlags</td><td>Overlap properties</td></tr>
+      <tr><td>m_ThisStart / m_ThisEnd</td><td>byte</td><td>Start/end of overlap on this lane (0-255)</td></tr>
+      <tr><td>m_OtherStart / m_OtherEnd</td><td>byte</td><td>Start/end of overlap on other lane</td></tr>
+      <tr><td>m_Parallelism</td><td>byte</td><td>How parallel the lanes are (0-255, 128 = perpendicular)</td></tr>
+      <tr><td>m_PriorityDelta</td><td>sbyte</td><td>Priority difference between lanes</td></tr>
+    </tbody>
+  </table>
+
+  <h3>TrafficAmbienceCell (Game.Simulation)</h3>
+
+  <p>Per-cell traffic intensity on a 64x64 grid. Used for ambient sound and effects.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_Accumulator</td><td>float</td><td>Accumulated traffic this update period</td></tr>
+      <tr><td>m_Traffic</td><td>float</td><td>Smoothed traffic value from last update</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Parking Subsystem</h2>
+
+  <h3>ParkingLane (Game.Net)</h3>
+
+  <p>Attached to lane entities that serve as on-street parking spaces.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_FreeSpace</td><td>float</td><td>Available parking space on the lane (in game units)</td></tr>
+      <tr><td>m_Flags</td><td>ParkingLaneFlags</td><td>Parking lane behavior flags</td></tr>
+      <tr><td>m_ParkingFee</td><td>float</td><td>Parking fee charged per unit time</td></tr>
+      <tr><td>m_TaxiFee</td><td>float</td><td>Fee charged specifically for taxi parking/pickup</td></tr>
+      <tr><td>m_ComfortFactor</td><td>float</td><td>Comfort multiplier affecting pathfind cost (lower = less desirable)</td></tr>
+      <tr><td>m_AccessRestriction</td><td>Entity</td><td>Entity defining access restrictions</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ParkingLaneFlags</h3>
+  <pre><code>VirtualLane = 1         // Not a physical lane (used for abstract parking)
+StartingLane = 2        // First lane segment of a parking area
+EndingLane = 4          // Last lane segment of a parking area
+ParkingDisabled = 8     // Parking is disabled on this lane
+RightSide = 0x10       // Parking on the right side of the road
+LeftSide = 0x20        // Parking on the left side of the road</code></pre>
+
+  <h3>GarageLane (Game.Net)</h3>
+
+  <p>Attached to lane entities that represent parking garage access points.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_VehicleCount</td><td>int</td><td>Current number of vehicles parked in the garage</td></tr>
+      <tr><td>m_VehicleCapacity</td><td>int</td><td>Maximum vehicle capacity</td></tr>
+      <tr><td>m_ParkingFee</td><td>float</td><td>Fee charged for parking in the garage</td></tr>
+      <tr><td>m_ComfortFactor</td><td>float</td><td>Comfort multiplier for pathfind cost weighting</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ParkingLaneData (Game.Prefabs)</h3>
+
+  <p>Prefab data defining physical dimensions of parking lane slots.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_SlotInterval</td><td>float</td><td>Distance between parking slot centers along the lane</td></tr>
+      <tr><td>m_MaxCarLength</td><td>float</td><td>Maximum vehicle length that can fit in a slot</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ParkingFacilityData (Game.Prefabs)</h3>
+
+  <p>Prefab data for parking facility buildings (garages, parking structures).</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_GarageMarkerCapacity</td><td>int</td><td>Number of parking spaces per garage marker in the building</td></tr>
+      <tr><td>m_ComfortFactor</td><td>float</td><td>Base comfort factor (affects pathfind cost preference)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ParkingFacility (Game.Net)</h3>
+
+  <p>Runtime component on parking facility entities tracking current state.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_Flags</td><td>ParkingFacilityFlags</td><td>Facility state flags</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ParkingFacilityFlags</h3>
+  <pre><code>ParkingAvailable = 1    // Facility has available parking spaces
+GarageAvailable = 2     // Garage portion has available spaces</code></pre>
+
+  <h3>FixParkingLocation (Game.Vehicles)</h3>
+
+  <p>
+    Tag component added to vehicles undergoing a parking transition with a non-standard location.
+    When a vehicle needs to park at a building lot, cargo loading dock, or off-road location, this
+    component signals that the vehicle's parking target needs special position resolution. The
+    component is consumed by the navigation system during the next update -- once the parking
+    location is resolved, the component is removed.
+  </p>
+
+  <h3>TrafficConfigurationData (Game.Prefabs)</h3>
+
+  <p>Global singleton with notification entity references for traffic events.</p>
+
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>m_BottleneckNotification</td><td>Entity</td><td>Notification prefab for bottleneck icons</td></tr>
+      <tr><td>m_DeadEndNotification</td><td>Entity</td><td>Notification for dead-end roads</td></tr>
+      <tr><td>m_RoadConnectionNotification</td><td>Entity</td><td>Notification for road connection issues</td></tr>
+      <tr><td>m_TrackConnectionNotification</td><td>Entity</td><td>Notification for track connection issues</td></tr>
+      <tr><td>m_CarConnectionNotification</td><td>Entity</td><td>Notification for car connection issues</td></tr>
+      <tr><td>m_ShipConnectionNotification</td><td>Entity</td><td>Ship connection notification</td></tr>
+      <tr><td>m_TrainConnectionNotification</td><td>Entity</td><td>Train connection notification</td></tr>
+      <tr><td>m_PedestrianConnectionNotification</td><td>Entity</td><td>Pedestrian connection notification</td></tr>
+      <tr><td>m_BicycleConnectionNotification</td><td>Entity</td><td>Bicycle connection notification</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Systems</h2>
+
+  <h3>CarNavigationSystem (Game.Simulation)</h3>
+
+  <p>
+    The central vehicle navigation system, running every frame for all active vehicles. It reads
+    <code>CarCurrentLane</code>, <code>CarNavigationLane</code> buffer, and <code>PathElement</code>
+    buffer for each vehicle, then uses <code>CarLaneSelectIterator</code> to calculate costs for
+    all parallel lanes.
+  </p>
+
+  <p><strong>Sub-systems:</strong></p>
+  <ul>
+    <li><code>UpdateNavigationJob</code> (IJobChunk) -- main per-vehicle navigation logic</li>
+    <li><code>Actions</code> (GameSystemBase) -- applies deferred lane effects</li>
+    <li><code>UpdateLaneSignalsJob</code> -- processes signal request queue</li>
+    <li><code>UpdateLaneReservationsJob</code> -- processes lane reservation queue</li>
+    <li><code>ApplyTrafficAmbienceJob</code> -- accumulates traffic ambience data</li>
+  </ul>
+
+  <h3>TrafficLightInitializationSystem (Game.Net)</h3>
+
+  <p>
+    Initializes traffic light signal groups when intersections are created or modified. Groups lanes
+    into signal groups based on direction and conflict analysis, assigns <code>m_GroupMask</code> to
+    each <code>LaneSignal</code>, and sets <code>m_SignalGroupCount</code> on
+    <code>TrafficLights</code>. Handles level crossings and moveable bridges specially; groups
+    vehicle lanes separately from pedestrian lanes.
+  </p>
+
+  <h3>TrafficAmbienceSystem (Game.Simulation)</h3>
+
+  <p>
+    Maintains a 64x64 grid of traffic intensity for ambient sound. Extends
+    <code>CellMapSystem&lt;TrafficAmbienceCell&gt;</code>.
+  </p>
+  <ul>
+    <li><strong>Update interval:</strong> 262144 / 1024 = 256 frames</li>
+    <li><strong>Grid resolution:</strong> <code>kTextureSize = 64</code></li>
+    <li><strong>Static methods:</strong>
+      <code>GetTrafficAmbience(float3 position, NativeArray&lt;TrafficAmbienceCell&gt;)</code> for bilinear sampling;
+      <code>GetTrafficAmbience2(...)</code> for 5x5 weighted sampling with distance falloff
+    </li>
+  </ul>
+
+  <h3>RandomTrafficDispatchSystem (Game.Simulation)</h3>
+
+  <p>
+    Dispatches random background traffic vehicles from traffic spawner buildings (outside connections).
+    Creates <code>RandomTrafficRequest</code> entities that pathfind to targets. Manages traffic
+    spawner buildings, ensuring they always have active requests.
+  </p>
+
+  <h3>ParkingLaneDataSystem (Game.Simulation)</h3>
+
+  <p>
+    Manages parking lane data updates, including street parking availability, garage capacity, and
+    fee calculations.
+  </p>
+  <ul>
+    <li>
+      <strong>Street parking:</strong> Reads <code>ParkingLaneData</code> from the lane prefab for
+      <code>m_SlotInterval</code> and <code>m_MaxCarLength</code>. Counts occupied slots by iterating
+      parked vehicle entities. Writes <code>ParkingLane.m_FreeSpace</code> as remaining capacity.
+    </li>
+    <li>
+      <strong>Garage capacity:</strong> Reads <code>ParkingFacilityData.m_GarageMarkerCapacity</code>
+      from the building prefab. Counts vehicles via <code>GarageLane.m_VehicleCount</code>. Capacity
+      is <code>m_GarageMarkerCapacity * numMarkers</code>.
+    </li>
+    <li>
+      <strong>Fee reading:</strong> Reads parking fees from district modifier components and building
+      modifier components. Writes to <code>ParkingLane.m_ParkingFee</code>,
+      <code>ParkingLane.m_TaxiFee</code>, and <code>GarageLane.m_ParkingFee</code>.
+    </li>
+    <li>
+      <strong>Comfort factor:</strong> Computes <code>m_ComfortFactor</code> from the facility
+      prefab's base comfort and any building-level modifiers.
+    </li>
+  </ul>
+  <p>
+    The system ensures pathfinding has up-to-date parking availability and cost data, which the
+    pathfinder uses when evaluating <code>PathMethod.Parking</code> edges.
+  </p>
+
+  <h3>SearchSystem Spatial Queries (Game.Objects)</h3>
+
+  <p>
+    <code>Game.Objects.SearchSystem</code> provides spatial search trees for querying nearby objects
+    using <code>NativeQuadTree&lt;Entity, QuadTreeBoundsXZ&gt;</code>:
+  </p>
+
+  <pre><code class="language-csharp">// Getting a search tree
+Game.Objects.SearchSystem m_ObjectSearchSystem =
+    World.GetOrCreateSystemManaged&lt;Game.Objects.SearchSystem&gt;();
+
+// In OnUpdate:
+NativeQuadTree&lt;Entity, QuadTreeBoundsXZ&gt; tree =
+    m_ObjectSearchSystem.GetMovingSearchTree(
+        readOnly: true, out JobHandle dependencies);
+// After job:
+m_ObjectSearchSystem.AddMovingSearchTreeReader(jobHandle);</code></pre>
+
+  <p>
+    <strong>Iterating the tree</strong> -- implement
+    <code>INativeQuadTreeIterator&lt;Entity, QuadTreeBoundsXZ&gt;</code>:
+  </p>
+
+  <pre><code class="language-csharp">private struct CountVehiclesIterator :
+    INativeQuadTreeIterator&lt;Entity, QuadTreeBoundsXZ&gt;,
+    IUnsafeQuadTreeIterator&lt;Entity, QuadTreeBoundsXZ&gt;
+{
+    public Entity m_Lane;
+    public Bounds3 m_Bounds;
+    public int m_Result;
+    public ComponentLookup&lt;ParkedCar&gt; m_ParkedCarData;
+    public ComponentLookup&lt;Controller&gt; m_ControllerData;
+
+    public bool Intersect(QuadTreeBoundsXZ bounds)
+    {
+        return MathUtils.Intersect(bounds.m_Bounds, m_Bounds);
+    }
+
+    public void Iterate(QuadTreeBoundsXZ bounds, Entity entity)
+    {
+        if (MathUtils.Intersect(bounds.m_Bounds, m_Bounds)
+            &amp;&amp; (!m_ControllerData.TryGetComponent(entity, out var ctrl)
+                || ctrl.m_Controller == entity)
+            &amp;&amp; m_ParkedCarData.TryGetComponent(entity, out var parked)
+            &amp;&amp; parked.m_Lane == m_Lane)
+        {
+            m_Result++;
+        }
+    }
+}</code></pre>
 
   <!-- ============================================================ -->
   <h2>Data Flow</h2>
@@ -746,6 +1081,89 @@ FLOW &amp; CONGESTION (periodic)
       </tr>
     </tbody>
   </table>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <h3>Candidate 1: TrafficLightSystem.UpdateTrafficLightsJob.UpdateTrafficLightState</h3>
+  <ul>
+    <li><strong>Signature:</strong> <code>bool UpdateTrafficLightState(NativeList&lt;Entity&gt; laneSignals, MoveableBridgeData, ref TrafficLights trafficLights)</code></li>
+    <li><strong>Patch type:</strong> Prefix (to override signal timing) or Postfix (to modify computed state)</li>
+    <li><strong>What it enables:</strong> Custom signal timing algorithms, longer/shorter green phases, priority signals for emergency vehicles, adaptive signal control</li>
+    <li><strong>Risk level:</strong> Medium -- modifying signal state affects intersection safety</li>
+    <li><strong>Side effects:</strong> Must maintain valid state transitions or vehicles may get stuck</li>
+  </ul>
+
+  <h3>Candidate 2: CarNavigationSystem.OnUpdate</h3>
+  <ul>
+    <li><strong>Signature:</strong> <code>void OnUpdate()</code></li>
+    <li><strong>Patch type:</strong> Prefix or Postfix</li>
+    <li><strong>What it enables:</strong> Override vehicle navigation decisions, force lane changes, modify speed behavior</li>
+    <li><strong>Risk level:</strong> High -- core navigation loop, called every frame for every vehicle</li>
+    <li><strong>Note:</strong> Burst-compiled jobs cannot be patched directly, but the system's OnUpdate can be</li>
+  </ul>
+
+  <h3>Candidate 3: TrafficFlowSystem.OnUpdate</h3>
+  <ul>
+    <li><strong>Signature:</strong> <code>void OnUpdate()</code></li>
+    <li><strong>Patch type:</strong> Postfix</li>
+    <li><strong>What it enables:</strong> Read or modify traffic flow data after computation. Implement custom congestion detection, modify flow offsets, create traffic monitoring overlays.</li>
+    <li><strong>Risk level:</strong> Low -- runs infrequently (512 frame interval), modifies only flow statistics</li>
+    <li><strong>Side effects:</strong> Modifying <code>m_FlowOffset</code> changes pathfinder lane costs</li>
+  </ul>
+
+  <h3>Candidate 4: TrafficBottleneckSystem.OnUpdate</h3>
+  <ul>
+    <li><strong>Signature:</strong> <code>void OnUpdate()</code></li>
+    <li><strong>Patch type:</strong> Postfix</li>
+    <li><strong>What it enables:</strong> Read bottleneck detection results, implement custom bottleneck responses, modify notification thresholds</li>
+    <li><strong>Risk level:</strong> Low -- runs every 64 frames, manages notification icons</li>
+  </ul>
+
+  <h3>Candidate 5: Direct ECS Manipulation (No Patch Needed)</h3>
+  <p>
+    Many traffic modifications can be done through direct ECS component reads and writes without
+    any Harmony patches:
+  </p>
+  <ul>
+    <li>Read <code>CarCurrentLane</code> to monitor vehicle positions</li>
+    <li>Read <code>CarLane</code> to check speed limits and congestion</li>
+    <li>Modify <code>CarLane.m_SpeedLimit</code> to change speed limits</li>
+    <li>Read/write <code>LaneSignal</code> to override signals (must respect state machine)</li>
+    <li>Read <code>Bottleneck</code> to find congestion areas</li>
+    <li>Read <code>LaneFlow</code> for traffic statistics</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Mod Blueprint</h2>
+
+  <h3>Systems to Create</h3>
+  <ol>
+    <li><strong>TrafficMonitorSystem</strong> (<code>GameSystemBase</code>) -- reads CarLane, LaneFlow, and Bottleneck data to expose traffic statistics to UI</li>
+    <li><strong>CustomSignalTimingSystem</strong> (<code>GameSystemBase</code>) -- overrides traffic light timing parameters based on intersection properties or user settings</li>
+    <li><strong>SpeedLimitModifierSystem</strong> (<code>GameSystemBase</code>) -- modifies <code>CarLane.m_SpeedLimit</code> based on custom rules (time of day, road type, district policies)</li>
+  </ol>
+
+  <h3>Components to Add</h3>
+  <ul>
+    <li><code>CustomTrafficData</code> (IComponentData) -- stores mod-specific traffic metadata on lane or road entities</li>
+    <li><code>SignalOverride</code> (IComponentData) -- stores custom signal timing parameters per intersection</li>
+  </ul>
+
+  <h3>Patches Needed</h3>
+  <ul>
+    <li>Postfix on <code>TrafficFlowSystem.OnUpdate</code> to read flow data and expose to UI</li>
+    <li>Or: no patches if using pure ECS queries to read traffic components</li>
+  </ul>
+
+  <h3>Settings</h3>
+  <ul>
+    <li>Global speed limit multiplier</li>
+    <li>Per-road-type speed overrides</li>
+    <li>Signal timing: minimum green, maximum green, extension time</li>
+    <li>Bottleneck notification sensitivity</li>
+    <li>Traffic flow overlay toggle</li>
+  </ul>
 
   <!-- ============================================================ -->
   <h2>Open Questions</h2>

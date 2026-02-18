@@ -210,7 +210,7 @@
       <tr>
         <td>Game.dll</td>
         <td>Game.Prefabs</td>
-        <td>ZoneData, ZonePropertiesData, ZoneFlags, ZoneDensity, ZonePrefabs, ZonePrefab, ZoneBlockData, NetZoneData, ZonePreferenceData</td>
+        <td>ZoneData, ZonePropertiesData, ZoneFlags, ZoneDensity, ZonePrefabs, ZonePrefab, ZoneBlockData, ZoneBlockPrefab, NetZoneData, ZonePreferenceData, ZoneServiceConsumptionData, ZonePollutionData</td>
       </tr>
       <tr>
         <td>Game.dll</td>
@@ -449,8 +449,9 @@
   <h3>BuildingSpawnGroupData (Game.Prefabs, ISharedComponentData)</h3>
 
   <p>
-    Shared component that partitions building prefab chunks by zone type. Building selection
-    iterates chunks and skips non-matching zone types at the chunk level for efficient selection.
+    Shared component that partitions building prefab chunks by zone type. As a shared component,
+    all entities with the same zone type are stored in the same archetype chunks. Building selection
+    iterates chunks and skips non-matching zone types at the chunk level, making it very efficient.
   </p>
 
   <table>
@@ -461,6 +462,17 @@
       <tr><td>m_ZoneType</td><td>ZoneType</td><td>Zone type this building group belongs to</td></tr>
     </tbody>
   </table>
+
+  <p>Chunk-level filtering during building selection:</p>
+
+  <pre><code class="language-csharp">// ZoneSpawnSystem and LevelupJob iterate chunks, skipping wrong zone types
+for (int i = 0; i &lt; spawnableBuildingChunks.Length; i++)
+{
+    ArchetypeChunk chunk = spawnableBuildingChunks[i];
+    if (!chunk.GetSharedComponent(m_BuildingSpawnGroupType).m_ZoneType.Equals(zoneType))
+        continue;  // Skip entire chunk -- all entities have wrong zone type
+    // ... iterate and score buildings in matching chunk
+}</code></pre>
 
   <h3>ZoneFlags Semantic Meaning</h3>
 
@@ -503,6 +515,51 @@
     <code>ZoneSpawnSystem</code> uses it to filter building prefabs -- buildings whose mesh height
     exceeds the cell's height limit are not eligible for spawning.
   </p>
+
+  <h3>Programmatic Zone Classification</h3>
+
+  <p>
+    To classify a zone type (low/medium/high density) at runtime using <code>ZonePropertiesData</code>:
+  </p>
+
+  <pre><code class="language-csharp">ZonePropertiesData info = ...; // from zone prefab
+if (info.m_ResidentialProperties &lt;= 0f)
+{
+    // Non-residential zone (commercial, industrial, office)
+}
+else
+{
+    float ratio = info.m_ResidentialProperties / info.m_SpaceMultiplier;
+    if (!info.m_ScaleResidentials)
+        // Low density (detached houses)
+    else if (ratio &lt; 1f)
+        // Check spawnable building lot widths: all &lt;= 2 = row housing, otherwise medium density
+    else
+        // High density
+}</code></pre>
+
+  <h3>Road-to-Zone Integration (ZoneBlockPrefab)</h3>
+
+  <p>
+    Road prefabs enable zoning via their <code>m_ZoneBlock</code> field on <code>RoadPrefab</code>.
+    Setting this to a <code>ZoneBlockPrefab</code> entity causes <code>BlockSystem</code> to generate
+    zone blocks when the road is placed. Setting it to null disables zoning for that road type.
+  </p>
+
+  <pre><code class="language-csharp">// Find the zone block prefab
+var query = SystemAPI.QueryBuilder().WithAll&lt;ZoneBlockData&gt;().Build();
+foreach (var entity in query.ToEntityArray(Allocator.Temp))
+{
+    if (prefabSystem.TryGetSpecificPrefab&lt;ZoneBlockPrefab&gt;(entity, out var prefab)
+        &amp;&amp; prefab.name == "Zone Block")
+    {
+        zoneBlockPrefab = prefab;
+        break;
+    }
+}
+
+// Enable/disable zoning on a road prefab
+roadPrefab.m_ZoneBlock = enableZoning ? zoneBlockPrefab : null;</code></pre>
 
   <h3>Building Mesh Dimensions Pattern</h3>
 
@@ -554,6 +611,50 @@ if (subMeshes.Length &gt; 0)
       <tr><td>Spawns per update</td><td>3 max</td><td>One per area type (residential, commercial, industrial)</td></tr>
     </tbody>
   </table>
+
+  <!-- ============================================================ -->
+  <h2>ZoneCheckSystem Pipeline (Game.Buildings)</h2>
+
+  <p>
+    Checks existing spawnable buildings against their zone blocks to detect zone incompatibility.
+    Uses a three-job pipeline:
+  </p>
+
+  <ol>
+    <li>
+      <strong>FindSpawnableBuildingsJob:</strong> Uses <code>SearchSystem.GetStaticSearchTree</code>
+      (NativeQuadTree) to find buildings within updated zone bounds. Filters for buildings with
+      <code>SpawnableBuildingData</code> but without <code>SignatureBuildingData</code>.
+    </li>
+    <li>
+      <strong>CollectEntitiesJob:</strong> Deduplicates and sorts the building entity list.
+    </li>
+    <li>
+      <strong>CheckBuildingZonesJob:</strong> For each building, validates zone compatibility:
+      <ul>
+        <li><strong>ValidateAttachedParent:</strong> Checks if the building has an <code>Attached</code> parent
+        with <code>PlaceholderBuildingData</code> matching the building's zone prefab. Returns true if
+        attached parent's zone matches.</li>
+        <li><strong>ValidateZoneBlocks:</strong> Rotates the building's lot grid (8m cell size) to world space,
+        iterates the zone SearchTree, and verifies every cell has a matching <code>ZoneType</code> with
+        <code>CellFlags.Visible</code> set. Also requires at least one <code>CellFlags.Roadside</code> cell.</li>
+      </ul>
+    </li>
+  </ol>
+
+  <p>Outcomes:</p>
+
+  <ul>
+    <li><strong>Valid:</strong> Removes <code>Condemned</code> component and its notification icon.</li>
+    <li><strong>Invalid:</strong> Adds <code>Condemned</code> component and
+    <code>BuildingConfigurationData.m_CondemnedNotification</code> at <code>IconPriority.FatalProblem</code>
+    (unless already Destroyed or Abandoned).</li>
+  </ul>
+
+  <p>
+    <strong>Key detail:</strong> Buildings are NOT demolished directly by ZoneCheckSystem. They are marked
+    with the <code>Condemned</code> component, which triggers a separate demolition pipeline.
+  </p>
 
   <!-- ============================================================ -->
   <h2>Data Flow</h2>
@@ -782,6 +883,46 @@ if (valid)
     return ZoneType.None;
 }</code></pre>
 
+  <h3>Building Selection Scoring Reference</h3>
+
+  <p>
+    Illustrates the building selection scoring math used by
+    <code>ZoneSpawnSystem.EvaluateSpawnAreas.SelectBuilding()</code>. This is a reference
+    reconstruction -- not runnable as-is.
+  </p>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Reference implementation of building selection scoring.
+/// Mirrors ZoneSpawnSystem.EvaluateSpawnAreas.SelectBuilding().
+/// &lt;/summary&gt;
+public static float CalculateBuildingScore(
+    int2 lotSize,         // VacantLot size (max - min)
+    int2 buildingLotSize, // BuildingData.m_LotSize
+    int demand,           // Demand from demand system
+    float evaluationScore, // Score from ZoneEvaluationUtils
+    Random random)
+{
+    // Building must fit within the lot
+    if (!math.all(buildingLotSize &lt;= lotSize))
+        return 0f;
+
+    // Base score: how well the building fills the lot
+    int2 remainder = math.select(
+        lotSize - buildingLotSize, 0, buildingLotSize == lotSize - 1);
+    float score = (float)(buildingLotSize.x * buildingLotSize.y) * random.NextFloat(1f, 1.05f);
+    score += (float)(remainder.x * buildingLotSize.y) * random.NextFloat(0.95f, 1f);
+    score += (float)(lotSize.x * remainder.y) * random.NextFloat(0.55f, 0.6f);
+    score /= (float)(lotSize.x * lotSize.y);
+
+    // Multiply by demand
+    score *= (float)(demand + 1);
+
+    // Multiply by zone evaluation (considers pollution, resources, etc.)
+    score *= evaluationScore;
+
+    return score;
+}</code></pre>
+
   <!-- ============================================================ -->
   <h2>Configuration</h2>
 
@@ -904,6 +1045,41 @@ if (valid)
   </p>
 
   <!-- ============================================================ -->
+  <h2>Mod Blueprint</h2>
+
+  <h3>Systems to Create</h3>
+
+  <ul>
+    <li><strong>ZoneMonitorSystem</strong> -- Track zone state changes and vacant lot availability</li>
+    <li><strong>CustomSpawnSystem</strong> -- Run before ZoneSpawnSystem to intercept or modify spawn locations</li>
+    <li><strong>ZoneModifierSystem</strong> -- Programmatically modify cell zone types or flags</li>
+  </ul>
+
+  <h3>Components to Add</h3>
+
+  <ul>
+    <li><strong>SpawnBlocked</strong> -- Marker component on Block entities to prevent spawning on specific blocks</li>
+    <li><strong>CustomZoneData</strong> -- Additional per-zone configuration for mod-specific behavior</li>
+  </ul>
+
+  <h3>Patches Needed</h3>
+
+  <ul>
+    <li><strong>For basic zone reading:</strong> None (ECS queries are sufficient)</li>
+    <li><strong>For custom building spawn logic:</strong> Prefix on <code>ZoneSpawnSystem.OnUpdate()</code> to intercept spawn evaluation</li>
+    <li><strong>For custom zone block geometry:</strong> Prefix on <code>BlockSystem.OnUpdate()</code> to modify block creation</li>
+  </ul>
+
+  <h3>Settings</h3>
+
+  <ul>
+    <li>Spawn rate multiplier (default: 1.0)</li>
+    <li>Max zone depth override (default: 6)</li>
+    <li>Custom zone type registrations</li>
+    <li>Building filter preferences per zone type</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
@@ -921,8 +1097,7 @@ if (valid)
       <strong>Zone compatibility (RESOLVED):</strong> <code>ZoneCheckSystem</code> never demolishes directly.
       It adds the <code>Condemned</code> tag component when all lot cells don't match the zone type or
       lack a <code>CellFlags.Roadside</code> cell. A separate demolition pipeline handles condemned buildings.
-      The system uses three jobs: FindSpawnableBuildingsJob (spatial search), CollectEntitiesJob (dedup),
-      and CheckBuildingZonesJob (validates zone match using 8m cell grid projection).
+      See the ZoneCheckSystem Pipeline section above for the full three-job pipeline.
     </li>
     <li>
       <strong>Zone type names:</strong> The actual zone prefab names (Low Density Residential,
@@ -934,15 +1109,17 @@ if (valid)
       pollution, resources, land value, and preferences was not fully traced.
     </li>
     <li>
-      <strong>BuildingSpawnGroupData:</strong> How this shared component groups building prefabs
-      by zone type (chunk-level partitioning) was not fully investigated.
+      <strong>BuildingSpawnGroupData (RESOLVED):</strong> It is an <code>ISharedComponentData</code> with
+      a single <code>m_ZoneType</code> field. As a shared component, all entities with the same zone type
+      are stored in the same archetype chunks. Building selection iterates chunks and skips non-matching
+      zone types at the chunk level, making it very efficient.
     </li>
   </ul>
 
   <!-- ============================================================ -->
 
   <footer>
-    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- Game.Zones.BlockSystem, Game.Zones.CellCheckSystem, Game.Simulation.ZoneSpawnSystem, Game.Zones.ZoneUtils, Game.Prefabs.ZoneData, Game.Prefabs.ZonePropertiesData.</p>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) -- Game.Zones.BlockSystem, Game.Zones.CellCheckSystem, Game.Simulation.ZoneSpawnSystem, Game.Buildings.ZoneCheckSystem, Game.Zones.ZoneUtils, Game.Prefabs.ZoneData, Game.Prefabs.ZonePropertiesData, Game.Prefabs.ZoneBlockPrefab.</p>
     <div class="attribution-footer">
       <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
     </div>
