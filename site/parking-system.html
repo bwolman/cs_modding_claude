@@ -846,6 +846,125 @@ public void AdjustFacilityComfort(EntityManager em,
   </table>
 
   <!-- ============================================================ -->
+  <h2>Mod Blueprint: Parking Behavior Modification</h2>
+
+  <p>A parking behavior mod modifies how vehicles search for, choose, and interact with parking spaces. This
+    is one of the most requested mod categories by the CS2 community. This blueprint demonstrates three
+    orthogonal parking features: induced demand, reroute distance control, and parking minimums.</p>
+
+  <p><strong>Reference implementation:</strong>
+    <a href="https://github.com/MasatoTakedai/RealisticParking">RealisticParking</a></p>
+
+  <h3>Systems to Create</h3>
+  <ol>
+    <li><strong><code>NewPersonalCarAISystem</code></strong> (replaces <code>PersonalCarAISystem</code>) -- contains a modified
+      <code>PersonalCarTickJob</code> that:
+      <ul>
+        <li>Adds <code>CarQueued</code>/<code>CarParked</code> tag components for demand tracking</li>
+        <li>Implements configurable reroute distance via <code>GetRerouteLimit()</code> (vanilla hardcodes 40000; realistic value is ~5)</li>
+      </ul>
+    </li>
+    <li><strong><code>NewParkingLaneDataSystem</code></strong> (replaces <code>ParkingLaneDataSystem</code>) -- contains a modified
+      <code>UpdateLaneDataJob</code> that:
+      <ul>
+        <li>Calculates custom free space factoring in demand</li>
+        <li>Applies custom garage capacity based on <code>BuildingPropertyData.CountProperties()</code> and
+          <code>WorkProvider.m_MaxWorkers</code></li>
+        <li>Writes <code>GarageCount</code> component with demand-adjusted counts</li>
+      </ul>
+    </li>
+    <li><strong><code>ParkingDemandSystem</code></strong> (new, <code>SystemUpdatePhase.Modification5</code>) -- processes demand tracking:
+      <ul>
+        <li>Reads <code>CarQueued</code>/<code>CarParked</code> tags from vehicles</li>
+        <li>Updates <code>ParkingDemand</code> component (demand + cooldown) on parking lane entities</li>
+        <li>Manages demand decay over time</li>
+        <li>Triggers <code>PathfindUpdated</code> on affected lanes</li>
+      </ul>
+    </li>
+    <li><strong><code>GarageLanesModifiedSystem</code></strong> (new, <code>SystemUpdatePhase.ModificationEnd</code>) -- updates pathfind graph:
+      <ul>
+        <li>Updates pathfind graph edges to reflect demand-adjusted garage availability</li>
+        <li>Applies demand to <code>PathSpecification</code> for cost calculation</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>Components to Create</h3>
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Type</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>ParkingDemand</code></td><td>IComponentData</td><td>Per-lane demand value + cooldown timer</td></tr>
+      <tr><td><code>GarageCount</code></td><td>IComponentData</td><td>Demand-adjusted garage vehicle count for pathfind graph</td></tr>
+      <tr><td><code>CarQueued</code></td><td>Tag (zero-size)</td><td>Marks vehicles that failed to find parking (demand increase signal)</td></tr>
+      <tr><td><code>CarParked</code></td><td>Tag (zero-size)</td><td>Marks vehicles that successfully parked (demand tracking signal)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Harmony Patches Needed</h3>
+  <ul>
+    <li><strong><code>LanesModifiedSystem.OnCreate</code></strong> -- postfix to exclude <code>GarageLane</code> from the vanilla
+      <code>m_UpdatedLanesQuery</code>, preventing duplicate processing of garage lanes</li>
+  </ul>
+
+  <h3>Key Game Components</h3>
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Namespace</th><th>Role</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>PersonalCarAISystem</code></td><td>Game.Simulation</td><td>Vanilla system to replace for reroute distance and demand tracking</td></tr>
+      <tr><td><code>ParkingLaneDataSystem</code></td><td>Game.Pathfind</td><td>Vanilla system to replace for custom capacity and free space</td></tr>
+      <tr><td><code>ParkingFacilityData</code></td><td>Game.Prefabs</td><td><code>m_GarageMarkerCapacity</code> -- overridden by custom formula</td></tr>
+      <tr><td><code>BuildingPropertyData</code></td><td>Game.Prefabs</td><td><code>CountProperties()</code> used in custom garage capacity formula</td></tr>
+      <tr><td><code>WorkProvider</code></td><td>Game.Companies</td><td><code>m_MaxWorkers</code> used in workplace parking capacity formula</td></tr>
+      <tr><td><code>PathfindUpdated</code></td><td>Game.Common</td><td>Tag to signal pathfind graph recalculation</td></tr>
+      <tr><td><code>SearchSystem</code></td><td>Game.Objects</td><td>Spatial queries for counting parked vehicles</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Architecture</h3>
+  <pre><code>Mod.cs (IMod entry point)
+  |
+  +-- NewPersonalCarAISystem (replaces PersonalCarAISystem)
+  |     +-- PersonalCarTickJob (copied + modified)
+  |           - AddCarQueuedComponent/AddCarParkedComponent (demand tracking)
+  |           - GetRerouteLimit (configurable reroute distance)
+  |
+  +-- NewParkingLaneDataSystem (replaces ParkingLaneDataSystem)
+  |     +-- UpdateLaneDataJob (copied + modified)
+  |           - CalculateCustomFreeSpace (demand-adjusted)
+  |           - ApplyCustomGarageCapacity (parking minimums)
+  |           - SetGarageCountComponent (demand tracking)
+  |
+  +-- ParkingDemandSystem (new, Modification5)
+  |     +-- UpdateParkingDemandJob
+  |           - Processes CarQueued/CarParked tags
+  |           - Manages demand cooldown
+  |           - Triggers PathfindUpdated
+  |
+  +-- GarageLanesModifiedSystem (new, ModificationEnd)
+  |     +-- UpdateTollEdgeJob
+  |           - Updates pathfind graph edges for garages
+  |           - Applies demand to pathfind specification
+  |
+  +-- LanesModifiedSystem_Patch (Harmony postfix on OnCreate)
+        - Excludes GarageLane from vanilla query
+        - Prevents duplicate processing</code></pre>
+
+  <h3>Implementation Notes</h3>
+  <ul>
+    <li>The <code>PersonalCarAISystem</code> replacement requires copying the entire <code>PersonalCarTickJob</code>
+      because it is Burst-compiled and cannot be selectively patched</li>
+    <li>The reroute distance reduction (from 40000 to ~5 path nodes) is the single highest-impact change for
+      realistic parking search behavior</li>
+    <li>Demand decay prevents permanent congestion artifacts when traffic patterns change</li>
+    <li>The <code>GarageLanesModifiedSystem</code> must run at <code>ModificationEnd</code> to ensure demand data
+      is finalized before pathfind graph updates</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <ul>
