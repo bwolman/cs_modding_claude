@@ -898,6 +898,51 @@ bool otherModLoaded = AppDomain.CurrentDomain.GetAssemblies()
   </ul>
 
   <!-- ============================================================ -->
+  <h2>Mod Blueprint: UI Resource/Icon Library</h2>
+
+  <p>
+    A minimal code-only library mod that ships static assets (SVG icons, images, stylesheets)
+    for consumption by other mods. Contains a single <code>Mod.cs</code> file (~80 lines) with
+    no ECS systems, no Harmony patches, no settings, and no UI components. Its entire purpose is
+    to register a <code>coui://</code> host location so other mods can reference its bundled assets.
+  </p>
+  <p><strong>Reference mod</strong>: <a href="https://github.com/algernon-A/UnifiedIconLibrary">UnifiedIconLibrary</a></p>
+
+  <h3>Systems to Create</h3>
+  <p>None. This is a zero-system architecture.</p>
+
+  <h3>Components to Create</h3>
+  <p>None. No ECS components are needed.</p>
+
+  <h3>Harmony Patches Needed</h3>
+  <p>None. No Harmony patches are required.</p>
+
+  <h3>Key Game Components</h3>
+  <table>
+    <thead><tr><th>Component / API</th><th>Namespace</th><th>Role</th></tr></thead>
+    <tbody>
+      <tr><td><code>IMod</code></td><td>Game.Modding</td><td>Entry point: <code>OnLoad</code> registers host, <code>OnDispose</code> cleans up</td></tr>
+      <tr><td><code>UIManager.defaultUISystem</code></td><td>Game.UI</td><td>Provides <code>AddHostLocation(name, path)</code> to register a <code>coui://</code> host</td></tr>
+      <tr><td><code>ExecutableAsset</code></td><td>Colossal.IO.AssetDatabase</td><td>Used via <code>ModManager.TryGetExecutableAsset()</code> to discover the mod's installation path</td></tr>
+      <tr><td><code>AssetDatabase.global</code></td><td>Colossal.IO.AssetDatabase</td><td>Alternative path discovery via <code>SearchFilter&lt;ExecutableAsset&gt;.ByCondition()</code></td></tr>
+    </tbody>
+  </table>
+
+  <h3>Architecture</h3>
+  <ol>
+    <li><strong>OnLoad</strong>: Discover the mod's assembly path via <code>TryGetExecutableAsset(this, out asset)</code> or <code>SearchFilter&lt;ExecutableAsset&gt;</code>. Compute the directory containing bundled assets. Call <code>UIManager.defaultUISystem.AddHostLocation("uil", assetsPath)</code> to register the <code>coui://uil/</code> URL namespace.</li>
+    <li><strong>OnDispose</strong>: Call <code>UIManager.defaultUISystem.RemoveHostLocation("uil")</code> to clean up the host registration.</li>
+    <li><strong>Consumer mods</strong>: Reference icons via <code>coui://uil/icons/my-icon.svg</code> in TypeScript/React UI components. Declare a <code>&lt;Dependency&gt;</code> in <code>PublishConfiguration.xml</code> to ensure the library mod is installed.</li>
+    <li><strong>Build setup</strong>: The <code>.csproj</code> uses a custom <code>CopyIcons</code> MSBuild target to copy SVG files into the deployment directory.</li>
+  </ol>
+
+  <h3>Compatibility Concerns</h3>
+  <ul>
+    <li>Host location names must be unique. If two mods register the same host name, the second registration will fail or overwrite the first.</li>
+    <li>Consumer mods should gracefully handle missing icons (fallback to a default) in case the library mod is not installed.</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Cross-Mod Detection Patterns</h2>
 
   <h3>ModManager Iteration</h3>

@@ -505,6 +505,49 @@ Some of the most complex CS2 mods use **zero Harmony patches**, achieving all fu
 - **Harmony**: Create `Harmony` instance, call `PatchAll()` in OnLoad, `UnpatchAll()` in OnDispose
 - **Logging**: Use `LogManager.GetLogger(nameof(YourMod))` for game-integrated logging
 
+## Mod Blueprint: UI Resource/Icon Library
+
+**Description**: A minimal code-only library mod that ships static assets (SVG icons, images, stylesheets) for consumption by other mods. Contains a single `Mod.cs` file (~80 lines) with no ECS systems, no Harmony patches, no settings, and no UI components. Its entire purpose is to register a `coui://` host location so other mods can reference its bundled assets.
+
+**Reference mod**: [UnifiedIconLibrary](https://github.com/algernon-A/UnifiedIconLibrary)
+
+### Systems to Create
+
+- None. This is a zero-system architecture.
+
+### Components to Create
+
+- None. No ECS components are needed.
+
+### Harmony Patches Needed
+
+- None. No Harmony patches are required.
+
+### Key Game Components
+
+| Component / API | Namespace | Role |
+|-----------------|-----------|------|
+| `IMod` | Game.Modding | Entry point: `OnLoad` registers host, `OnDispose` cleans up |
+| `UIManager.defaultUISystem` | Game.UI | Provides `AddHostLocation(name, path)` to register a `coui://` host |
+| `ExecutableAsset` | Colossal.IO.AssetDatabase | Used via `ModManager.TryGetExecutableAsset()` or `SearchFilter<ExecutableAsset>` to discover the mod's installation path at runtime |
+| `AssetDatabase.global` | Colossal.IO.AssetDatabase | Alternative path discovery via `SearchFilter<ExecutableAsset>.ByCondition()` |
+
+### Architecture
+
+1. **`OnLoad`**: Discover the mod's assembly path via `TryGetExecutableAsset(this, out asset)` or `SearchFilter<ExecutableAsset>`. Compute the directory containing bundled assets. Call `UIManager.defaultUISystem.AddHostLocation("uil", assetsPath)` to register the `coui://uil/` URL namespace.
+2. **`OnDispose`**: Call `UIManager.defaultUISystem.RemoveHostLocation("uil")` to clean up the host registration.
+3. **Consumer mods**: Reference icons via `coui://uil/icons/my-icon.svg` in TypeScript/React UI components. Declare a `<Dependency>` in `PublishConfiguration.xml` to ensure the library mod is installed.
+4. **Build setup**: The `.csproj` uses a custom `CopyIcons` MSBuild target to copy SVG files into the deployment directory. References are centralized in a `References.csproj` pattern.
+
+### Settings Pattern
+
+- No settings. Library mods are configuration-free.
+
+### Compatibility Concerns
+
+- Host location names must be unique. If two mods register the same host name, the second registration will fail or overwrite the first.
+- Consumer mods should gracefully handle missing icons (e.g., fallback to a default icon) in case the library mod is not installed.
+
 ## Examples
 
 ### Example 1: Basic Mod Entry Point
