@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Building Construction &amp; Upgrade Pipeline - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html" class="active">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Building Construction &amp; Upgrade Pipeline -- Deep Dive</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2 handle the full lifecycle of buildings -- from
+      initial placement and spawning, through construction progress, completion, service upgrades,
+      level-ups, abandonment, condemnation, and destruction?
+    </p>
+    <p>
+      <strong>Verdict:</strong> The entire construction lifecycle is controlled by the
+      <code>UnderConstruction</code> component (Game.Objects). When added to a building entity,
+      <code>BuildingConstructionSystem</code> advances <code>m_Progress</code> from 0 to 100
+      using a random speed factor (39-89), spawning construction cranes during the animation.
+      At completion, the system swaps the building's prefab via <code>PrefabRef</code> and removes
+      <code>UnderConstruction</code>. Level-ups set <code>m_Progress = 255</code> for instant
+      completion. Service upgrades use a separate pipeline via <code>InstalledUpgrade</code> buffers
+      and the <code>ICombineData</code> interface.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Zone block creation and vacant lot detection (see
+      <a href="zoning.html">Zoning</a>). Land value, rent, and the condition-based leveling
+      system (see <a href="land-value-property.html">Land Value &amp; Property</a>).
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    Buildings in CS2 go through a multi-stage lifecycle managed by several ECS systems. The
+    construction pipeline handles both newly spawned zoned buildings and service buildings placed
+    by the player, as well as level-up prefab swaps triggered by the condition system.
+  </p>
+
+  <h3>The UnderConstruction Component</h3>
+
+  <p>
+    The <code>UnderConstruction</code> component (Game.Objects) is the single control point for
+    all construction state:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_NewPrefab</code></td><td>Entity</td><td>The prefab this building will become when construction finishes. Entity.Null means keep current prefab.</td></tr>
+      <tr><td><code>m_Progress</code></td><td>byte</td><td>0-255. Values &lt;100 mean still building. At 100+ the system triggers completion.</td></tr>
+      <tr><td><code>m_Speed</code></td><td>byte</td><td>Random speed factor (39-89). Controls how fast progress advances per tick.</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Key insight: <strong>level-ups set <code>m_Progress = 255</code></strong> to bypass the
+    construction animation entirely. The <code>BuildingConstructionSystem</code> sees
+    progress &gt;= 100 and immediately swaps the prefab on the next tick.
+  </p>
+
+  <h3>Construction Speed Formula</h3>
+
+  <p>
+    The progress formula uses bit-shifted multiplication for efficient integer math:
+  </p>
+
+  <pre><code class="language-csharp">// Per tick (every 64 simulation frames):
+if (m_Speed == 0) m_Speed = random.NextInt(39, 89);
+if (m_Progress == 0) { m_Progress = 1; UpdateCranes(); return; }
+
+uint n = (simulationFrame &gt;&gt; 6) + speed;
+uint prev = (n * speed) &gt;&gt; 7;
+uint next = ((n + 1) * speed) &gt;&gt; 7;
+m_Progress = min(255, m_Progress + (next - prev));</code></pre>
+
+  <table>
+    <thead>
+      <tr><th>Speed</th><th>Avg Delta/Tick</th><th>Ticks to 100</th><th>Frames (~)</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>39 (min)</td><td>~12</td><td>8-9</td><td>512-576</td></tr>
+      <tr><td>50 (default)</td><td>~19</td><td>5-6</td><td>320-384</td></tr>
+      <tr><td>89 (max)</td><td>~62</td><td>~2</td><td>~128</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>The Full Building Lifecycle</h2>
+
+  <div class="diagram">
+<pre>
+=== ZONED BUILDING SPAWNING ===
+
+[Zone Demand Threshold Met]
+    |
+    v
+ZoneSpawnSystem (every 16 frames)
+    Selects building prefab (level 1, matching zone type)
+    Creates CreationDefinition entity
+    EndFrameBarrier processes creation
+    |
+    v
+[Building Entity Created]
+    Building component (m_RoadEdge, m_CurvePosition)
+    UnderConstruction { m_NewPrefab=Null, m_Progress=0, m_Speed=0 }
+    PrefabRef -&gt; building prefab
+    Zone cells marked Occupied
+    |
+    v
+BuildingConstructionSystem (every 64 frames)
+    Tick 1: m_Speed = random(39,89), m_Progress = 1, spawn cranes
+    Tick 2-N: m_Progress += speed-based delta
+    Cranes reposition randomly (1/10 chance per tick)
+    |
+    v
+[m_Progress &gt;= 100] -- CONSTRUCTION COMPLETE
+    UpdatePrefab(): sets PrefabRef to m_NewPrefab
+    Deletes old sub-areas, creates new ones
+    Reconnects sub-nets (preserves external connections)
+    Removes UnderConstruction
+    Adds Updated tag (triggers re-render)
+    |
+    v
+[Functional Building]
+    PropertyOnMarket added (vacant units)
+    Renters move in via PropertyRenterSystem
+    BuildingCondition tracking begins
+
+
+=== LEVEL-UP ===
+
+[BuildingCondition &gt;= levelingCost]
+    |
+    v
+BuildingUpkeepSystem.LevelupJob
+    Selects higher-level prefab (matching zone, lot size)
+    Adds UnderConstruction { m_NewPrefab=higherPrefab, m_Progress=255 }
+                            (instant -- no construction animation)
+    |
+    v
+BuildingConstructionSystem (next tick)
+    m_Progress &gt;= 100 -&gt; immediate UpdatePrefab()
+    Swaps to higher-level building prefab
+    Removes UnderConstruction
+
+
+=== SERVICE UPGRADE ===
+
+[Player places upgrade via UpgradeToolSystem]
+    |
+    v
+CreationDefinition { m_Prefab=upgrade, m_Owner=building }
+    |
+    v
+ServiceUpgradeSystem detects Created + ServiceUpgrade
+    Adds InstalledUpgrade { m_Upgrade } to parent building
+    UpgradeUtils.CombineStats() aggregates consumption
+    ConsumptionData.Combine() adds utility needs
+
+
+=== ABANDONMENT ===
+
+[BuildingCondition &lt;= -abandonCost]
+    |
+    v
+BuildingUpkeepSystem.LeveldownJob
+    Removes utility consumers
+    Doubles CrimeProducer.m_Crime
+    Evicts all renters
+    Adds Abandoned { m_AbandonmentTime = currentFrame }
+    |
+    v
+DestroyAbandonedSystem (every 4096 frames)
+    After m_AbandonedDestroyDelay frames:
+    Creates Damage + Destroy events
+    Building becomes Destroyed (rubble)
+
+
+=== CONDEMNATION ===
+
+[Zone type changed under building]
+    |
+    v
+ZoneCheckSystem adds Condemned tag
+    |
+    v
+CondemnedBuildingSystem (every 64 frames, 16 groups)
+    25% random chance per check: adds Deleted
+    Expected ~4 checks before demolition (~4096 frames)
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Objects</td>
+        <td>UnderConstruction, Placeholder, Attached, Destroy, DestroySystem, PlaceholderSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>Building, BuildingFlags, BuildingCondition, Extension, ExtensionFlags, InstalledUpgrade, ServiceUpgrade, Abandoned, Condemned</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Common</td>
+        <td>Destroyed, Owner, Created, Updated, Deleted</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>BuildingConstructionSystem, CondemnedBuildingSystem, DestroyAbandonedSystem, BuildingUpkeepSystem</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>BuildingData, BuildingExtensionData, SpawnableBuildingData, ServiceUpgradeData, ServiceUpgradeBuilding, BuildingUpgradeElement, PlaceholderBuildingData, ConsumptionData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Tools</td>
+        <td>UpgradeToolSystem, UpgradeDeletedSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Building (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_RoadEdge</code></td><td>Entity</td><td>The road edge entity this building connects to</td></tr>
+      <tr><td><code>m_CurvePosition</code></td><td>float</td><td>Position along the road edge curve (0.0-1.0)</td></tr>
+      <tr><td><code>m_OptionMask</code></td><td>uint</td><td>Bitmask for building options/variants</td></tr>
+      <tr><td><code>m_Flags</code></td><td>BuildingFlags</td><td>Runtime state flags (HighRentWarning, StreetLightsOff, LowEfficiency, Illuminated)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>BuildingData (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_LotSize</code></td><td>int2</td><td>Lot dimensions in zone cells (width x depth)</td></tr>
+      <tr><td><code>m_Flags</code></td><td>BuildingFlags</td><td>Prefab flags: RequireRoad, HasWaterNode, HasSewageNode, CanBeOnRoad, etc.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Abandoned (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_AbandonmentTime</code></td><td>uint</td><td>Simulation frame when abandonment occurred. Compared against <code>m_AbandonedDestroyDelay</code> to trigger collapse.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Destroyed (Game.Common)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_Event</code></td><td>Entity</td><td>The event entity that caused the destruction</td></tr>
+      <tr><td><code>m_Cleared</code></td><td>float</td><td>Cleanup progress (0.0 to 1.0)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>InstalledUpgrade (Game.Buildings)</h3>
+
+  <p>Buffer element on building entities listing installed service upgrades:</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_Upgrade</code></td><td>Entity</td><td>The upgrade entity installed on this building</td></tr>
+      <tr><td><code>m_OptionMask</code></td><td>uint</td><td>Option bitmask for this upgrade variant</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ServiceUpgradeData (Game.Prefabs)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_UpgradeCost</code></td><td>uint</td><td>Cost to install this upgrade</td></tr>
+      <tr><td><code>m_XPReward</code></td><td>int</td><td>XP gained when installing</td></tr>
+      <tr><td><code>m_MaxPlacementOffset</code></td><td>int</td><td>Maximum grid offset from parent building</td></tr>
+      <tr><td><code>m_MaxPlacementDistance</code></td><td>float</td><td>Maximum world-space distance from parent</td></tr>
+      <tr><td><code>m_ForbidMultiple</code></td><td>bool</td><td>Whether only one instance can be installed</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ConsumptionData (Game.Prefabs)</h3>
+
+  <p>
+    Implements <code>ICombineData&lt;ConsumptionData&gt;</code> so upgrade extensions can aggregate
+    their consumption onto the parent building via <code>UpgradeUtils.CombineStats()</code>:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>m_Upkeep</code></td><td>int</td><td>Monetary upkeep cost per day (additive on Combine)</td></tr>
+      <tr><td><code>m_ElectricityConsumption</code></td><td>float</td><td>Electricity consumption (additive)</td></tr>
+      <tr><td><code>m_WaterConsumption</code></td><td>float</td><td>Water consumption (additive)</td></tr>
+      <tr><td><code>m_GarbageAccumulation</code></td><td>float</td><td>Garbage generation (additive)</td></tr>
+      <tr><td><code>m_TelecomNeed</code></td><td>float</td><td>Telecom need (max of base and upgrade)</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Service Upgrade Pipeline</h2>
+
+  <p>
+    Service upgrades (fire station extensions, police HQ additions, etc.) use a different pipeline
+    from zoned building level-ups. The upgrade is a separate entity that is <code>Attached</code>
+    to the parent building and listed in the parent's <code>InstalledUpgrade</code> buffer.
+  </p>
+
+  <ol>
+    <li><strong>Player selects upgrade</strong> in <code>UpgradeToolSystem</code> and clicks on a building</li>
+    <li>System creates a <code>CreationDefinition</code> entity with <code>m_Prefab = upgrade</code>, <code>m_Owner = building</code></li>
+    <li><code>EndFrameBarrier</code> processes the creation, producing an upgrade entity with <code>ServiceUpgrade</code>, <code>Attached { m_Parent = building }</code>, <code>Owner { m_Owner = building }</code></li>
+    <li><code>ServiceUpgradeSystem</code> detects the new <code>Created + ServiceUpgrade</code> entity and adds an <code>InstalledUpgrade</code> entry to the parent building's buffer</li>
+    <li>When any system needs effective building stats, <code>UpgradeUtils.CombineStats()</code> iterates <code>InstalledUpgrade</code> and aggregates each upgrade's prefab data via <code>ICombineData.Combine()</code></li>
+  </ol>
+
+  <p>Key types in the upgrade pipeline:</p>
+  <ul>
+    <li><code>BuildingUpgradeElement</code> -- buffer on building prefabs listing available upgrades (<code>m_Upgrade</code>)</li>
+    <li><code>ServiceUpgradeBuilding</code> -- buffer on upgrade prefabs listing compatible buildings (<code>m_Building</code>)</li>
+    <li><code>BuildingExtensionData</code> -- position offset (<code>m_Position</code>), lot size, external flag</li>
+    <li><code>Extension { m_Flags }</code> -- runtime state: <code>Disabled</code> (1), <code>HasUnderground</code> (2)</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Demolition Pipelines</h2>
+
+  <p>CS2 has four distinct demolition paths:</p>
+
+  <table>
+    <thead>
+      <tr><th>Path</th><th>Trigger</th><th>System</th><th>Mechanism</th><th>Visual Result</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Manual demolition</td>
+        <td>Player bulldoze tool</td>
+        <td>BulldozeToolSystem</td>
+        <td><code>Deleted</code> added directly</td>
+        <td>Instant removal</td>
+      </tr>
+      <tr>
+        <td>Condemnation</td>
+        <td>Zone type mismatch</td>
+        <td>CondemnedBuildingSystem</td>
+        <td>25% chance per 1024-frame check to add <code>Deleted</code></td>
+        <td>Gradual removal</td>
+      </tr>
+      <tr>
+        <td>Abandonment collapse</td>
+        <td>Negative condition</td>
+        <td>DestroyAbandonedSystem</td>
+        <td><code>Destroy</code> event after delay -&gt; <code>Destroyed</code></td>
+        <td>Rubble/ruins</td>
+      </tr>
+      <tr>
+        <td>Disaster destruction</td>
+        <td>Fire, tornado, etc.</td>
+        <td>Various event systems</td>
+        <td><code>Destroyed</code> component added</td>
+        <td>Rubble/ruins</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Trigger Construction on an Existing Building</h3>
+
+  <p>
+    Start the construction animation on a building, optionally changing its prefab to a new one.
+  </p>
+
+  <pre><code class="language-csharp">public partial class TriggerConstructionSystem : GameSystemBase
+{
+    protected override void OnCreate() { base.OnCreate(); }
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Start construction on a building entity. If newPrefab is Entity.Null,
+    /// the building keeps its current prefab (just replays the animation).
+    /// &lt;/summary&gt;
+    public void StartConstruction(Entity buildingEntity, Entity newPrefab = default)
+    {
+        if (!EntityManager.HasComponent&lt;Building&gt;(buildingEntity))
+            return;
+
+        if (EntityManager.HasComponent&lt;UnderConstruction&gt;(buildingEntity))
+            EntityManager.RemoveComponent&lt;UnderConstruction&gt;(buildingEntity);
+
+        // m_Progress=0 starts the full construction animation with cranes
+        EntityManager.AddComponentData(buildingEntity, new UnderConstruction
+        {
+            m_NewPrefab = newPrefab,
+            m_Progress = 0,
+            m_Speed = 0  // System assigns random speed (39-89)
+        });
+    }
+}</code></pre>
+
+  <h3>Example 2: Complete Construction Instantly</h3>
+
+  <p>
+    Skip the construction animation. This is what <code>BuildingUpkeepSystem.LevelupJob</code>
+    does for level-ups -- it sets <code>m_Progress = 255</code> so the next
+    <code>BuildingConstructionSystem</code> tick completes immediately.
+  </p>
+
+  <pre><code class="language-csharp">public void CompleteConstructionInstantly(EntityManager em, Entity buildingEntity)
+{
+    if (!em.HasComponent&lt;Building&gt;(buildingEntity))
+        return;
+
+    if (em.HasComponent&lt;UnderConstruction&gt;(buildingEntity))
+    {
+        var uc = em.GetComponentData&lt;UnderConstruction&gt;(buildingEntity);
+        uc.m_Progress = 100;  // triggers completion on next tick
+        em.SetComponentData(buildingEntity, uc);
+    }
+}
+
+// For upgrading a building to a new prefab instantly:
+public void UpgradeBuildingInstantly(EntityManager em, Entity building, Entity newPrefab)
+{
+    em.AddComponentData(building, new UnderConstruction
+    {
+        m_NewPrefab = newPrefab,
+        m_Progress = 255,  // same as level-up -- instant
+        m_Speed = 50
+    });
+}</code></pre>
+
+  <h3>Example 3: Prevent Building Abandonment</h3>
+
+  <p>
+    Reverse the abandonment process by removing the <code>Abandoned</code> component and
+    restoring the building's utility consumers. This is the inverse of
+    <code>BuildingUpkeepSystem.LeveldownJob</code>.
+  </p>
+
+  <pre><code class="language-csharp">public void RestoreAbandonedBuilding(EntityManager em, Entity buildingEntity)
+{
+    if (!em.HasComponent&lt;Abandoned&gt;(buildingEntity))
+        return;
+
+    // 1. Remove abandoned status
+    em.RemoveComponent&lt;Abandoned&gt;(buildingEntity);
+
+    // 2. Reset building condition to neutral
+    if (em.HasComponent&lt;BuildingCondition&gt;(buildingEntity))
+        em.SetComponentData(buildingEntity, new BuildingCondition { m_Condition = 0 });
+
+    // 3. Re-list on property market
+    if (!em.HasComponent&lt;PropertyToBeOnMarket&gt;(buildingEntity))
+        em.AddComponent&lt;PropertyToBeOnMarket&gt;(buildingEntity);
+
+    // 4. Restore utility consumers removed during LeveldownJob
+    if (!em.HasComponent&lt;ElectricityConsumer&gt;(buildingEntity))
+        em.AddComponentData(buildingEntity, default(ElectricityConsumer));
+    if (!em.HasComponent&lt;WaterConsumer&gt;(buildingEntity))
+        em.AddComponentData(buildingEntity, default(WaterConsumer));
+    if (!em.HasComponent&lt;GarbageProducer&gt;(buildingEntity))
+        em.AddComponentData(buildingEntity, default(GarbageProducer));
+    if (!em.HasComponent&lt;MailProducer&gt;(buildingEntity))
+        em.AddComponentData(buildingEntity, default(MailProducer));
+
+    // 5. Halve the doubled crime producer
+    if (em.HasComponent&lt;CrimeProducer&gt;(buildingEntity))
+    {
+        var crime = em.GetComponentData&lt;CrimeProducer&gt;(buildingEntity);
+        crime.m_Crime *= 0.5f;
+        em.SetComponentData(buildingEntity, crime);
+    }
+}</code></pre>
+
+  <h3>Example 4: Force Demolish a Building</h3>
+
+  <pre><code class="language-csharp">public void DemolishBuilding(EntityManager em, Entity buildingEntity)
+{
+    if (!em.HasComponent&lt;Building&gt;(buildingEntity))
+        return;
+
+    // Option A: Instant deletion (like bulldoze tool)
+    em.AddComponent&lt;Deleted&gt;(buildingEntity);
+
+    // Option B: Via the Destroy event pipeline (triggers collapse animation)
+    // Entity destroyEvent = em.CreateEntity();
+    // em.AddComponentData(destroyEvent, new Game.Events.Event());
+    // em.AddComponentData(destroyEvent, new Destroy(buildingEntity, Entity.Null));
+}</code></pre>
+
+  <h3>Example 5: Spawn a Building at a Specific Location</h3>
+
+  <p>
+    Uses the <code>CreationDefinition</code> pipeline -- the same mechanism that
+    <code>ZoneSpawnSystem</code> and <code>ObjectToolSystem</code> use internally.
+  </p>
+
+  <pre><code class="language-csharp">public partial class BuildingSpawnerSystem : GameSystemBase
+{
+    private EndFrameBarrier _endFrameBarrier;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _endFrameBarrier = World.GetOrCreateSystemManaged&lt;EndFrameBarrier&gt;();
+    }
+
+    protected override void OnUpdate() { }
+
+    /// &lt;summary&gt;
+    /// Spawn a building at the given world position.
+    /// The buildingPrefab must be a valid building prefab entity.
+    /// &lt;/summary&gt;
+    public void SpawnBuilding(Entity buildingPrefab, float3 worldPosition, quaternion rotation)
+    {
+        var ecb = _endFrameBarrier.CreateCommandBuffer();
+
+        Entity definition = ecb.CreateEntity();
+        ecb.AddComponent(definition, new CreationDefinition
+        {
+            m_Prefab = buildingPrefab,
+            m_Flags = CreationFlags.Permanent
+        });
+        ecb.AddComponent(definition, new ObjectDefinition
+        {
+            m_Position = worldPosition,
+            m_Rotation = rotation,
+            m_Probability = 100
+        });
+        ecb.AddComponent(definition, default(Updated));
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Lot size</td>
+        <td>BuildingData.m_LotSize</td>
+        <td>Varies by prefab</td>
+        <td>Width x depth in zone cells</td>
+      </tr>
+      <tr>
+        <td>Building level</td>
+        <td>SpawnableBuildingData.m_Level</td>
+        <td>1 (new spawns)</td>
+        <td>Current building level (1-5)</td>
+      </tr>
+      <tr>
+        <td>Upkeep cost</td>
+        <td>ConsumptionData.m_Upkeep</td>
+        <td>Varies by prefab</td>
+        <td>Daily monetary upkeep</td>
+      </tr>
+      <tr>
+        <td>Upgrade cost</td>
+        <td>ServiceUpgradeData.m_UpgradeCost</td>
+        <td>Varies</td>
+        <td>Cost to install service upgrade</td>
+      </tr>
+      <tr>
+        <td>Construction update interval</td>
+        <td>Hardcoded</td>
+        <td>64 frames</td>
+        <td>BuildingConstructionSystem tick rate</td>
+      </tr>
+      <tr>
+        <td>Construction speed range</td>
+        <td>Hardcoded</td>
+        <td>39-89</td>
+        <td>Random speed assigned per construction</td>
+      </tr>
+      <tr>
+        <td>Condemned check interval</td>
+        <td>Hardcoded</td>
+        <td>1024 frames (64 x 16 groups)</td>
+        <td>Per-building condemnation check frequency</td>
+      </tr>
+      <tr>
+        <td>Condemned demolish chance</td>
+        <td>Hardcoded</td>
+        <td>25% (1 in 4)</td>
+        <td>Probability per check that condemned building is demolished</td>
+      </tr>
+      <tr>
+        <td>Abandon-to-collapse delay</td>
+        <td>BuildingConfigurationData.m_AbandonedDestroyDelay</td>
+        <td>(from prefab)</td>
+        <td>Frames before abandoned building collapses</td>
+      </tr>
+      <tr>
+        <td>Destroy abandoned interval</td>
+        <td>Hardcoded</td>
+        <td>4096 frames</td>
+        <td>DestroyAbandonedSystem tick rate</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>PlaceholderSystem resolution:</strong> The full placeholder-to-sub-object matching
+      logic during construction completion was not fully traced.
+    </li>
+    <li>
+      <strong>BuildingInitializeSystem connection detection:</strong> The exact logic for setting
+      <code>HasWaterNode</code>, <code>HasSewageNode</code>, and other prefab flags based on
+      sub-net analysis was not fully traced.
+    </li>
+    <li>
+      <strong>Abandoned destroy delay default:</strong> The exact default value of
+      <code>BuildingConfigurationData.m_AbandonedDestroyDelay</code> was not traced from the
+      prefab data.
+    </li>
+    <li>
+      <strong>Upgrade placement validation:</strong> The spatial validation logic in
+      <code>UpgradeToolSystem</code> for <code>m_MaxPlacementDistance</code> and
+      <code>m_MaxPlacementOffset</code> was not fully traced.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled (full systems): Game.Simulation.BuildingConstructionSystem, Game.Simulation.CondemnedBuildingSystem, Game.Simulation.DestroyAbandonedSystem, Game.Buildings.ServiceUpgradeSystem, Game.Prefabs.BuildingInitializeSystem, Game.Tools.UpgradeToolSystem</li>
+    <li>Decompiled (components): Game.Objects.UnderConstruction, Placeholder, Attached, Destroy; Game.Buildings.Building, BuildingFlags, Extension, ExtensionFlags, InstalledUpgrade, Abandoned, Condemned; Game.Common.Destroyed; Game.Prefabs.BuildingData, BuildingExtensionData, SpawnableBuildingData, ConsumptionData, ServiceUpgradeData, ServiceUpgradeBuilding, BuildingUpgradeElement, PlaceholderBuildingData</li>
+    <li>Utility: Game.Prefabs.UpgradeUtils</li>
+    <li>Related: <a href="zoning.html">Zoning</a> (zone block spawning), <a href="land-value-property.html">Land Value &amp; Property</a> (condition/leveling pipeline)</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
