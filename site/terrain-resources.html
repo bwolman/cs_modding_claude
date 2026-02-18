@@ -595,6 +595,125 @@ m_TreeGrowthSystem.RequireForUpdate(modifiedQuery);</code></pre>
   </p>
 
   <!-- ============================================================ -->
+  <h2>Mod Blueprint: Vegetation Control (Tree_Controller Pattern)</h2>
+
+  <p>
+    A comprehensive blueprint for mods that control vegetation behavior -- tree age, growth, species
+    selection, seasonal appearance, and bulk operations -- based on the Tree_Controller mod architecture.
+  </p>
+
+  <p>
+    <strong>Mod archetype:</strong> Vegetation manipulation tool. The mod provides a custom tool for
+    selecting and modifying trees/bushes, overrides growth and placement behavior, controls seasonal
+    foliage appearance, and integrates with the lumber industry.
+  </p>
+
+  <h3>Systems to Create</h3>
+
+  <table>
+    <thead><tr><th>System</th><th>Phase</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>TreeControllerTool</td><td>ToolUpdate</td><td>Custom <code>ToolBaseSystem</code> with <code>OverlayRenderSystem</code> integration for radius selection, individual picking, and map-wide operations</td></tr>
+      <tr><td>TreeControllerUISystem</td><td>UIUpdate</td><td><code>ExtendedUISystemBase</code> with <code>ValueBinding</code>/<code>TriggerBinding</code> for tool settings and TypeScript-based UI</td></tr>
+      <tr><td>TreeObjectDefinitionSystem</td><td>Modification1</td><td><code>CreationDefinition.m_Prefab</code> substitution for multi-species brush placement with age control</td></tr>
+      <tr><td>ModifyTreeGrowthSystem</td><td>GameSimulation</td><td>Vanilla <code>TreeGrowthSystem</code> query replacement via reflection -- adds custom exclusion component</td></tr>
+      <tr><td>DeciduousSystem</td><td>GameSimulation</td><td>Seasonal tree state management with Burst-compiled jobs for performance</td></tr>
+      <tr><td>ReloadFoliageColorDataSystem</td><td>PrefabUpdate</td><td>Runtime <code>ColorVariation</code> buffer modification on <code>SubMesh</code> entities for custom seasonal colors</td></tr>
+      <tr><td>ModifyVegetationPrefabsSystem</td><td>PrefabUpdate</td><td>Prefab entity cost/geometry modification with <code>PrefabBase</code> source-of-truth reset</td></tr>
+      <tr><td>ModifyTempVegetationSystem</td><td>Modification1</td><td>Temp entity manipulation for tree age and random seed control</td></tr>
+      <tr><td>LumberSystem</td><td>GameSimulation</td><td><code>WoodResource</code> buffer traversal for lumber industry integration</td></tr>
+      <tr><td>DestroyFoliageSystem</td><td>Modification1</td><td>Bulk entity deletion with safety enable/disable pattern</td></tr>
+      <tr><td>FindTreesAndBushesSystem</td><td>PrefabUpdate</td><td>Prefab classification system adding custom tag components to tree vs bush prefabs</td></tr>
+      <tr><td>DetectAreaChangeSystem</td><td>GameSimulation</td><td><code>Updated + Extractor</code> area change detection triggering dependent system re-runs</td></tr>
+      <tr><td>SafelyRemoveSystem</td><td>Serialize</td><td>Clean mod component removal and state restoration for safe mod uninstall</td></tr>
+      <tr><td>TreeControllerTooltipSystem</td><td>UIUpdate</td><td>Custom <code>TooltipSystemBase</code> for tool tooltips</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Components to Create</h3>
+
+  <table>
+    <thead><tr><th>Component</th><th>Type</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>NoTreeGrowth</td><td><code>IComponentData : IEmptySerializable</code></td><td>Tag on trees to exclude from vanilla <code>TreeGrowthSystem</code></td></tr>
+      <tr><td>DeciduousData</td><td><code>IComponentData : IEmptySerializable</code></td><td>Tag on tree prefabs classified as deciduous</td></tr>
+      <tr><td>EvergreenData</td><td><code>IComponentData : IEmptySerializable</code></td><td>Tag on tree prefabs classified as evergreen</td></tr>
+      <tr><td>Lumber</td><td><code>IComponentData : IEmptySerializable</code></td><td>Tag on trees used by lumber industry extractors</td></tr>
+      <tr><td>TreeControllerData</td><td><code>IComponentData : ISerializable</code></td><td>Custom tree data for age/species overrides</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Harmony Patches Needed</h3>
+
+  <ul>
+    <li><strong>WindControl Prefix</strong> on <code>WindControl.SetGlobalProperties</code> -- control wind rendering effect on vegetation</li>
+    <li><strong>Most functionality uses ECS-only approaches</strong> -- no Harmony needed for growth control (reflection-based query replacement), prefab modification, or placement substitution</li>
+    <li><strong>Cross-mod detection</strong> uses <code>ToolSystem.tools.Find()</code> and reflection rather than Harmony patches</li>
+  </ul>
+
+  <h3>Key Game Components</h3>
+
+  <ul>
+    <li><code>Tree</code> -- <code>m_State</code> (TreeState flags) and <code>m_Growth</code> (byte 0-255) for lifecycle control</li>
+    <li><code>Plant</code> -- companion component for non-tree vegetation (bushes, flowers)</li>
+    <li><code>TreeData</code> / <code>PlantData</code> -- prefab classification</li>
+    <li><code>SubMesh</code> -- buffer with 6 entries for trees, fewer for bushes</li>
+    <li><code>ColorVariation</code> -- buffer on <code>SubMesh</code> entities for seasonal foliage colors</li>
+    <li><code>ObjectGeometryData</code> -- <code>m_LegSize</code> for tree anarchy (trunk-only collision)</li>
+    <li><code>PlaceableObjectData</code> -- <code>m_ConstructionCost</code> modification with <code>PrefabBase</code> reset</li>
+    <li><code>CreationDefinition</code> / <code>ObjectDefinition</code> -- prefab and age substitution during placement</li>
+    <li><code>PseudoRandomSeed</code> -- visual variation control for placed trees</li>
+    <li><code>BatchesUpdated</code> -- must be added after modifying tree visual state</li>
+    <li><code>WoodResource</code> -- buffer linking extractor areas to tree entities</li>
+  </ul>
+
+  <h3>Core Pattern</h3>
+
+  <pre><code>// 1. Replace vanilla TreeGrowthSystem query via reflection
+var modifiedQuery = SystemAPI.QueryBuilder()
+    .WithAll&lt;UpdateFrame&gt;()
+    .WithAllRW&lt;Game.Objects.Tree&gt;()
+    .WithNone&lt;Deleted, Temp, Overridden, NoTreeGrowth&gt;()
+    .Build();
+m_TreeGrowthSystem.SetMemberValue("m_TreeQuery", modifiedQuery);
+
+// 2. Prefab substitution during placement (Modification1)
+var def = EntityManager.GetComponentData&lt;CreationDefinition&gt;(entity);
+def.m_Prefab = GetRandomTreePrefab(); // Multi-species brush
+EntityManager.SetComponentData(entity, def);
+
+// 3. Tree anarchy via ObjectGeometryData
+var geom = EntityManager.GetComponentData&lt;ObjectGeometryData&gt;(prefabEntity);
+geom.m_Size = geom.m_LegSize; // Reduce conflict zone to trunk only
+EntityManager.SetComponentData(prefabEntity, geom);
+
+// 4. Seasonal color modification
+DynamicBuffer&lt;ColorVariation&gt; colors = EntityManager.GetBuffer&lt;ColorVariation&gt;(subMeshEntity);
+for (int i = 0; i &lt; colors.Length; i++)
+{
+    var cv = colors[i];
+    if (cv.m_GroupID == new ColorGroupID(2)) // Autumn
+    {
+        cv.m_ColorSet.m_Channel0 = customAutumnColor;
+        colors[i] = cv;
+    }
+}
+EntityManager.AddComponent&lt;BatchesUpdated&gt;(treeEntity);</code></pre>
+
+  <h3>Key Considerations</h3>
+
+  <ul>
+    <li><strong>14 systems</strong> demonstrates a comprehensive vegetation mod -- expect significant complexity</li>
+    <li>Use <strong>reflection-based query replacement</strong> as an alternative to Harmony for modifying vanilla system behavior</li>
+    <li><code>PrefabBase</code> (managed) serves as immutable source of truth for restoring original prefab values</li>
+    <li>Trees vs bushes distinguished by <code>SubMesh</code> buffer length (&gt; 5 = tree, &lt;= 5 = bush)</li>
+    <li>Evergreen vs deciduous detected by <code>ColorVariation</code> buffer length (&lt; 4 = evergreen)</li>
+    <li>Always add <code>BatchesUpdated</code> after modifying tree visual state</li>
+    <li>Cross-mod detection via <code>ToolSystem.tools.Find()</code> and reflection</li>
+    <li>npm-based UI build pipeline with TypeScript/React components for custom tool panels</li>
+  </ul>
+
+  <!-- ============================================================ -->
 
   <footer>
     <div class="attribution-footer">

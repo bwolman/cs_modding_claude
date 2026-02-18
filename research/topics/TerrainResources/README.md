@@ -374,6 +374,111 @@ foreach (WoodResource wr in woodResources)
 
 **Detecting area changes**: Query for `Updated + Extractor` to detect when area boundaries change, then refresh `WoodResource` connections.
 
+## Mod Blueprint: Vegetation Control (Tree_Controller Pattern)
+
+A comprehensive blueprint for mods that control vegetation behavior -- tree age, growth, species selection, seasonal appearance, and bulk operations -- based on the Tree_Controller mod architecture.
+
+**Mod archetype**: Vegetation manipulation tool. The mod provides a custom tool for selecting and modifying trees/bushes, overrides growth and placement behavior, controls seasonal foliage appearance, and integrates with the lumber industry.
+
+### Systems to Create
+
+| System | Phase | Purpose |
+|--------|-------|---------|
+| TreeControllerTool | ToolUpdate | Custom `ToolBaseSystem` with `OverlayRenderSystem` integration for radius selection, individual picking, and map-wide operations |
+| TreeControllerUISystem | UIUpdate | `ExtendedUISystemBase` with `ValueBinding`/`TriggerBinding` for tool settings and TypeScript-based UI |
+| TreeObjectDefinitionSystem | Modification1 | `CreationDefinition.m_Prefab` substitution for multi-species brush placement with age control via `ObjectDefinition` |
+| ModifyTreeGrowthSystem | GameSimulation | Vanilla `TreeGrowthSystem` query replacement via reflection -- adds custom exclusion component to skip controlled trees |
+| DeciduousSystem | GameSimulation | Seasonal tree state management with Burst-compiled jobs for performance |
+| ReloadFoliageColorDataSystem | PrefabUpdate | Runtime `ColorVariation` buffer modification on `SubMesh` entities for custom seasonal colors |
+| ModifyVegetationPrefabsSystem | PrefabUpdate | Prefab entity cost/geometry modification (`PlaceableObjectData.m_ConstructionCost`, `ObjectGeometryData.m_Size`) with `PrefabBase` source-of-truth reset |
+| ModifyTempVegetationSystem | Modification1 | Temp entity manipulation for tree age (`Tree.m_State`) and random seed (`PseudoRandomSeed`) control |
+| LumberSystem | GameSimulation | `WoodResource` buffer traversal for lumber industry integration -- tags trees used by extractors |
+| DestroyFoliageSystem | Modification1 | Bulk entity deletion with safety enable/disable pattern for radius and map-wide operations |
+| FindTreesAndBushesSystem | PrefabUpdate | Prefab classification system adding custom tag components to tree vs bush prefabs |
+| DetectAreaChangeSystem | GameSimulation | `Updated + Extractor` area change detection triggering dependent system re-runs |
+| SafelyRemoveSystem | Serialize | Clean mod component removal and state restoration for safe mod uninstall |
+| TreeControllerTooltipSystem | UIUpdate | Custom `TooltipSystemBase` for tool tooltips |
+
+### Components to Create
+
+| Component | Type | Purpose |
+|-----------|------|---------|
+| NoTreeGrowth | `IComponentData : IEmptySerializable` | Tag on trees to exclude from vanilla `TreeGrowthSystem` -- persists across save/load |
+| DeciduousData | `IComponentData : IEmptySerializable` | Tag on tree prefabs classified as deciduous (seasonal color change) |
+| EvergreenData | `IComponentData : IEmptySerializable` | Tag on tree prefabs classified as evergreen (no seasonal change) |
+| Lumber | `IComponentData : IEmptySerializable` | Tag on trees used by lumber industry extractors |
+| TreeControllerData | `IComponentData : ISerializable` | Custom tree data for age/species overrides that persists in saves |
+
+### Harmony Patches Needed
+
+| Patch | Target | Purpose |
+|-------|--------|---------|
+| WindControl Prefix | `WindControl.SetGlobalProperties` | Control wind rendering effect on vegetation |
+
+- **Most functionality uses ECS-only approaches** -- no Harmony needed for growth control (reflection-based query replacement), prefab modification, or placement substitution
+- **Cross-mod detection** uses `ToolSystem.tools.Find()` and reflection rather than Harmony patches
+
+### Key Game Components
+
+- `Tree` (`Game.Objects`) -- `m_State` (TreeState flags) and `m_Growth` (byte 0-255) for lifecycle control
+- `Plant` (`Game.Objects`) -- companion component for non-tree vegetation (bushes, flowers)
+- `TreeData` / `PlantData` (`Game.Prefabs`) -- prefab classification (`TreeData` implies tree, `PlantData` for all vegetation)
+- `SubMesh` (`Game.Prefabs`) -- buffer with 6 entries for trees (child/teen/adult/elderly/dead/stump), fewer for bushes
+- `ColorVariation` (`Game.Prefabs`) -- buffer on `SubMesh` entities for seasonal foliage colors (`ColorGroupID` 0-3 = Spring/Summer/Autumn/Winter)
+- `ObjectGeometryData` (`Game.Prefabs`) -- `m_LegSize` for tree anarchy (trunk-only collision), `m_Size` for full canopy
+- `PlaceableObjectData` (`Game.Prefabs`) -- `m_ConstructionCost` modification with `PrefabBase` source-of-truth reset
+- `CreationDefinition` / `ObjectDefinition` (`Game.Tools`) -- prefab and age substitution during placement
+- `PseudoRandomSeed` (`Game.Objects`) -- visual variation control for placed trees
+- `BatchesUpdated` (`Game.Objects`) -- must be added after modifying `Tree.m_State` or `ColorVariation` to trigger visual refresh
+- `WoodResource` (`Game.Areas`) -- buffer linking extractor areas to tree entities
+- `Overridden` (`Game.Common`) -- filter for excluding entities from simulation processing
+
+### Core Patterns
+
+```csharp
+// 1. Replace vanilla TreeGrowthSystem query via reflection
+var modifiedQuery = SystemAPI.QueryBuilder()
+    .WithAll<UpdateFrame>()
+    .WithAllRW<Game.Objects.Tree>()
+    .WithNone<Deleted, Temp, Overridden, NoTreeGrowth>()
+    .Build();
+m_TreeGrowthSystem.SetMemberValue("m_TreeQuery", modifiedQuery);
+
+// 2. Prefab substitution during placement (Modification1)
+var def = EntityManager.GetComponentData<CreationDefinition>(entity);
+def.m_Prefab = GetRandomTreePrefab(); // Multi-species brush
+EntityManager.SetComponentData(entity, def);
+
+// 3. Tree anarchy via ObjectGeometryData
+var geom = EntityManager.GetComponentData<ObjectGeometryData>(prefabEntity);
+geom.m_Size = geom.m_LegSize; // Reduce conflict zone to trunk only
+EntityManager.SetComponentData(prefabEntity, geom);
+
+// 4. Seasonal color modification
+DynamicBuffer<ColorVariation> colors = EntityManager.GetBuffer<ColorVariation>(subMeshEntity);
+for (int i = 0; i < colors.Length; i++)
+{
+    var cv = colors[i];
+    if (cv.m_GroupID == new ColorGroupID(2)) // Autumn
+    {
+        cv.m_ColorSet.m_Channel0 = customAutumnColor;
+        colors[i] = cv;
+    }
+}
+EntityManager.AddComponent<BatchesUpdated>(treeEntity);
+```
+
+### Key Considerations
+
+- **14 systems** demonstrates a comprehensive vegetation mod -- expect significant complexity
+- Use **reflection-based query replacement** as an alternative to Harmony for modifying vanilla system behavior
+- `PrefabBase` (managed) serves as immutable source of truth for restoring original prefab values after ECS modifications
+- Trees vs bushes distinguished by `SubMesh` buffer length (> 5 = tree, <= 5 = bush)
+- Evergreen vs deciduous detected by `ColorVariation` buffer length on `SubMesh` entities (< 4 = evergreen)
+- Always add `BatchesUpdated` after modifying tree visual state
+- Cross-mod detection (Recolor, Line Tool, Color Painter) via `ToolSystem.tools.Find()` and reflection
+- npm-based UI build pipeline with TypeScript/React components for custom tool panels
+
 ## Decompiled Snippets
 
 | File | Type | Lines |
