@@ -746,6 +746,34 @@ public static class PathCostPatch
 
 **Warning**: `PathUtils.CalculateCost` is called extremely frequently during pathfinding. The patch must be as lightweight as possible. Heavy computation here will significantly impact simulation performance.
 
+## PathMethod & PathNode for Lane Connection Modding
+
+### PathMethod (Game.Pathfind)
+
+Flags enum controlling which pathfinding methods can use a connection:
+
+| Flag | Description |
+|------|-------------|
+| `Road` | Usable by road vehicles |
+| `Track` | Usable by track vehicles (tram, train) |
+| `Pedestrian` | Usable by pedestrians |
+| `Flying` | Usable by aircraft |
+| `Watercraft` | Usable by watercraft |
+
+Connections store `PathMethod` to filter which pathfinder agents can traverse them. Lane connection mods use this to restrict which vehicle types can use custom connections.
+
+### PathNode (Game.Pathfind)
+
+Identifies lane endpoints in the pathfind graph:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_StartNode` | ushort | Lane graph start node index |
+| `m_MiddleNode` | ushort | Lane graph middle node index |
+| `m_EndNode` | ushort | Lane graph end node index |
+
+`Connection` buffer elements store source/target `PathNode` and `PathMethod` to define how the pathfinder traverses between lanes. Lane connection mods (e.g., Traffic mod's `GeneratedConnection`) create custom connections with appropriate `PathNode` endpoints and `PathMethod` flags.
+
 ## Open Questions
 
 - [ ] How exactly does the A* heuristic use `PathfindHeuristicData`? The costs appear to be per-method minimums for admissible heuristic estimation, but the exact formula in `PathfindJobs.PathfindExecutor` is in Burst-compiled code and hard to trace.

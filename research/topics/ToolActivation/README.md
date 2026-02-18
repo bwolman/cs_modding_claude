@@ -538,6 +538,41 @@ protected override void OnUpdate()
 
 **Key rule**: Use the barrier matching your system's update phase. If your system runs in Modification4, use `ModificationBarrier4B` (or `ModificationBarrier5` if you need commands to execute after Modification4B). For tool systems, use `ToolOutputBarrier`.
 
+## OverlayRenderSystem for Custom Overlays
+
+Register a system at `SystemUpdatePhase.Rendering` and use `OverlayRenderSystem.GetBuffer()` for drawing:
+
+```csharp
+public partial class CustomOverlaySystem : GameSystemBase
+{
+    private OverlayRenderSystem m_OverlayRenderSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_OverlayRenderSystem = World.GetOrCreateSystemManaged<OverlayRenderSystem>();
+    }
+
+    protected override void OnUpdate()
+    {
+        var buffer = m_OverlayRenderSystem.GetBuffer(out var dependencies);
+        dependencies.Complete();
+
+        // Draw shapes
+        buffer.DrawCircle(color, outlineColor, 0f, styleFlags,
+            new float2(0f, 1f), position, radius);
+        buffer.DrawLine(color, outlineColor, 0f, styleFlags,
+            new Line3.Segment(start, end), width, 1f);
+        buffer.DrawDashedLine(color, outlineColor, 0f, styleFlags,
+            line, width, dashLength, gapLength);
+
+        m_OverlayRenderSystem.AddBufferWriter(Dependency);
+    }
+}
+```
+
+**Key details**: Use `RenderingSettingsData` singleton for game-consistent colors. For performance, use `[BurstCompile]` IJob with `Allocator.TempJob`. Register at `SystemUpdatePhase.Rendering`.
+
 ## Custom ToolBaseSystem (Picker/Eyedropper)
 
 Complete pattern for a custom `ToolBaseSystem` with raycast configuration:

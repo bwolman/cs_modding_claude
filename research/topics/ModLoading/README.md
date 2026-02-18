@@ -934,6 +934,120 @@ Custom systems that read data produced by vanilla systems should match or be a m
 - [x] **Inter-mod API pattern**: No official API. Mods use: (1) `GameManager.instance.modManager` iteration for presence detection, (2) `ModManager.ListModsEnabled()` for assembly-qualified name checks, (3) `Assembly.Load()` + `GetType()` for runtime type resolution, (4) public static classes for direct reference when assembly dependency exists.
 - [ ] **PDX Mods dependency declaration**: How dependencies are declared in the PDX Mods platform metadata (separate from assembly references) needs testing with the Paradox launcher.
 
+## Custom Buffer Components on Vanilla Entities
+
+Mods can add custom `IBufferElementData` to vanilla entities (e.g., Nodes, Edges) to store mod-specific data alongside game data. The pattern uses a two-level ownership model:
+
+```csharp
+// 1. Tag component on vanilla Node entity (zero-data, IEmptySerializable)
+public struct ModifiedConnections : IComponentData, IEmptySerializable { }
+
+// 2. Buffer on vanilla Node entity referencing external data entities
+public struct ModifiedLaneConnections : IBufferElementData, ISerializable
+{
+    public Entity m_DataEntity;  // Points to separate entity with full data
+    public int m_LaneIndex;
+    // ISerializable for save/load persistence
+}
+
+// 3. Separate entity with the actual data buffer
+public struct GeneratedConnection : IBufferElementData, ISerializable
+{
+    public Entity m_SourceEntity;
+    public Entity m_TargetEntity;
+    public PathMethod m_Method;
+}
+
+// 4. Back-reference component on data entity
+public struct DataOwner : IComponentData, ISerializable
+{
+    public Entity m_Owner;  // Back to the vanilla Node entity
+}
+```
+
+**Why two levels?**: Vanilla entities have fixed archetypes. Adding a large buffer directly would disrupt chunk layout. The two-level model keeps the vanilla entity lightweight (just a tag + small buffer of entity refs) and stores heavy data in separate entities.
+
+**Cascade cleanup** (#249): When vanilla entities with mod data are deleted, the mod's data entities must be cleaned up too. Register a cleanup system at `SystemUpdatePhase.Modification4B`:
+
+```csharp
+// Query: vanilla entities that have mod data AND are being deleted
+EntityQuery deletedWithModData = SystemAPI.QueryBuilder()
+    .WithAll<Game.Net.Node, ModifiedLaneConnections, Deleted>()
+    .Build();
+
+// In OnUpdate: destroy referenced data entities
+var chunks = deletedWithModData.ToArchetypeChunkArray(Allocator.Temp);
+foreach (var chunk in chunks)
+{
+    var buffers = chunk.GetBufferAccessor(ref modLaneConnectionsHandle);
+    for (int i = 0; i < buffers.Length; i++)
+        foreach (var conn in buffers[i])
+            EntityManager.DestroyEntity(conn.m_DataEntity);
+}
+```
+
+## Camera Navigation to Entity
+
+`CameraUpdateSystem.orbitCameraController` supports "Jump to Entity" navigation:
+
+```csharp
+var cameraSystem = World.GetOrCreateSystemManaged<CameraUpdateSystem>();
+cameraSystem.orbitCameraController.followedEntity = targetEntity;
+cameraSystem.orbitCameraController.TryMatchPosition(cameraSystem.activeCameraController);
+cameraSystem.activeCameraController = cameraSystem.orbitCameraController;
+```
+
+This smoothly transitions the camera to follow a specific entity, useful for "Find and Navigate" features.
+
+## Cross-Mod API via Reflection
+
+Pattern for discovering public static API methods from other mods by scanning all loaded mod assemblies:
+
+```csharp
+foreach (var item in GameManager.instance.modManager)
+{
+    var modType = item.asset.assembly?.GetTypesDerivedFrom<IMod>().FirstOrDefault();
+    if (modType == null) continue;
+
+    // Discover API methods by convention (name + signature)
+    var apiMethod = modType.GetMethod("GetSearchMethod",
+        BindingFlags.Static | BindingFlags.Public);
+    if (apiMethod != null)
+    {
+        // Validate return type and parameters before invoking
+        if (apiMethod.ReturnType == typeof(Func<string, bool>))
+        {
+            var searchFunc = (Func<string, bool>)apiMethod.Invoke(null, null);
+            // Use the discovered API
+        }
+    }
+}
+```
+
+**Key considerations**:
+- Use `GetTypesDerivedFrom<IMod>()` on `item.asset.assembly` to find the mod's main type
+- Validate method signatures before invoking (return type + parameters)
+- Defer registration via `GameManager.instance.RegisterUpdater()` if timing matters
+- This is fragile — API methods may change between mod versions
+
+## PDX Mods Metadata Access
+
+Access PDX Mods platform details via `PdxSdkPlatform` (requires reflection for private `m_SDKContext`):
+
+```csharp
+var pdxPlatform = PlatformManager.instance.GetPSI<PdxSdkPlatform>("PdxSdk");
+var context = typeof(PdxSdkPlatform)
+    .GetField("m_SDKContext", BindingFlags.NonPublic | BindingFlags.Instance)
+    .GetValue(pdxPlatform) as IContext; // PDX.SDK.Contracts.IContext
+
+// Get local mod details by platform ID
+var details = await context.Mods.GetLocalModDetails(platformID);
+string folderPath = details.Mod.LocalData.FolderAbsolutePath;
+DateTime lastUpdate = details.Mod.LatestUpdate;
+```
+
+**Simpler checks**: `prefab.asset?.database == AssetDatabase<ParadoxMods>.instance` for PDX Mods detection, `prefab.asset.GetMeta().platformID` for the mod's platform identifier.
+
 ## Sources
 
 - Decompiled from: Game.dll — Game.Modding.IMod, Game.Modding.ModManager, Game.Modding.ModSetting, Game.UpdateSystem, Game.SystemUpdatePhase

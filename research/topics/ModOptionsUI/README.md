@@ -905,6 +905,41 @@ private void LoadLocalization(ModSetting settings)
 }
 ```
 
+## AssetDatabase.global.LoadSettings
+
+`Colossal.IO.AssetDatabase.AssetDatabase.global.LoadSettings()` loads persisted mod settings from disk. The pattern uses an `asDefault` boolean to distinguish live vs defaults instances:
+
+```csharp
+public class Mod : IMod
+{
+    public static ModSettings Settings { get; private set; }
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // Second param = live settings, third param = defaults instance
+        Settings = new ModSettings(this, asDefault: false);
+        AssetDatabase.global.LoadSettings(
+            ModSettings.SETTINGS_ASSET_NAME,  // Asset name string
+            Settings,                          // Live settings to populate
+            new ModSettings(this, asDefault: true)); // Defaults
+    }
+}
+
+public class ModSettings : ModSetting
+{
+    public const string SETTINGS_ASSET_NAME = "MyModSettings";
+    private readonly bool _isDefault;
+
+    public ModSettings(IMod mod, bool asDefault = false) : base(mod)
+    {
+        _isDefault = asDefault;
+        if (_isDefault) SetDefaults();
+    }
+}
+```
+
+**Key detail**: The `asDefault` parameter creates a fresh defaults instance. `LoadSettings` reads saved values into the live instance, falling back to defaults for any missing keys. This is an alternative to relying solely on the game's built-in `ModSetting` auto-persistence.
+
 ## Open Questions
 
 - [ ] How does `Apply()` vs `ApplyAndSave()` differ in practice for mod settings? Is `Apply()` called automatically when the user changes a value in the UI?

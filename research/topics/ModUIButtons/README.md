@@ -1283,6 +1283,61 @@ Key techniques:
 | `--menuText1Normal` | Standard menu text color |
 | `--normalTextColorLocked` | Greyed-out text for disabled controls |
 
+## npm-Based UI Build Pipeline
+
+Complex mods use a TypeScript/React build pipeline in a `UI/` directory with `package.json`, `webpack.config.js`, and `tsconfig.json`. The build is triggered as a post-build MSBuild target:
+
+```xml
+<!-- In .csproj -->
+<Target Name="BuildUI" AfterTargets="AfterBuild">
+    <Exec Command="npm run build" WorkingDirectory="$(ProjectDir)UI" />
+</Target>
+```
+
+**Key TS APIs for C#↔UI communication:**
+- `bindValue<T>(group, key)` — read a C# `GetterValueBinding` value
+- `useValue<T>(binding)` — React hook for reactive binding values
+- `trigger(group, key, ...args)` — invoke a C# `TriggerBinding`
+- `moduleRegistry.extend(path, export, Component)` — inject into vanilla UI
+
+**Styling**: Use SCSS modules (`*.module.scss`) for scoped styling, referencing game CSS variables (`--panelColorNormal`, `--accentColorNormal`, etc.).
+
+## Info Panel Section Injection
+
+Three techniques for injecting into the building info panel:
+
+### 1. Subscribe to `selectedInfo.middleSections$`
+
+```typescript
+import { selectedInfo } from "cs2/bindings";
+selectedInfo.middleSections$.subscribe(sections => {
+    // Inject custom section types
+});
+```
+
+### 2. Extend `selectedInfoSectionComponents`
+
+```typescript
+moduleRegistry.extend(
+    "game-ui/game/components/selected-info-panel/selected-info-sections/selected-info-sections.tsx",
+    'selectedInfoSectionComponents',
+    MyInfoComponent
+);
+```
+
+### 3. C# Side: Provide Data via Bindings
+
+```csharp
+// In a UISystemBase subclass:
+AddUpdateBinding(new GetterValueBinding<bool>("MyMod", "IsLocked",
+    () => EntityManager.HasComponent<LevelLocked>(selectedEntity)));
+
+AddBinding(new TriggerBinding<Entity>("MyMod", "ToggleLock",
+    entity => ToggleLockComponent(entity)));
+```
+
+**Key TS APIs**: `selectedInfo.selectedEntity$`, `selectedInfo.middleSections$`, `InfoSection` / `InfoRow` vanilla components for consistent styling.
+
 ## ToolbarUISystem Integration
 
 ### m_LastSelectedAssets (Reflection)
