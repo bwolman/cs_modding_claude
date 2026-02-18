@@ -1,0 +1,958 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mail &amp; Post Service - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="telecom-internet.html">Telecom &amp; Internet</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+    <a href="mail-post-service.html" class="active">Mail &amp; Post Service</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+    <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+    <a href="notifications-advisor.html">Notifications &amp; Advisor</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Mail &amp; Post Service -- Deep Dive</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How does CS2's mail and postal service work, from mail generation
+      on buildings through collection, sorting, inter-facility transfer, and delivery?
+    </p>
+    <p>
+      <strong>Verdict:</strong> The mail system is a four-stage pipeline: (1) buildings accumulate
+      sending and receiving mail based on citizen count, (2) post vans collect outgoing mail and
+      deliver incoming mail along road-side routes, (3) post facilities sort unsorted mail into
+      local and outgoing categories, and (4) delivery trucks transfer mail between facilities.
+      The system uses three distinct mail resource types (<code>UnsortedMail</code>,
+      <code>LocalMail</code>, <code>OutgoingMail</code>) and two vehicle types (post vans for
+      last-mile delivery, delivery trucks for inter-facility transfer). Modding is straightforward
+      via ECS singleton and prefab data modification -- no Harmony patches needed for most use cases.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> General vehicle navigation (see <a href="traffic-flow.html">Traffic Flow</a>),
+      building efficiency system beyond the mail penalty, and vehicle rendering internals.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    Every building with residents or workers generates mail over time via the
+    <code>MailAccumulationSystem</code>. Mail comes in two flavors: <strong>sending mail</strong>
+    (outgoing, needs collection) and <strong>receiving mail</strong> (incoming, needs delivery).
+    When accumulated mail exceeds a threshold, the system creates a <code>PostVanRequest</code>
+    to request service.
+  </p>
+
+  <h3>The Three Mail Resource Types</h3>
+
+  <p>Inside post facilities, mail exists as three distinct economic resources:</p>
+
+  <table>
+    <thead>
+      <tr><th>Resource</th><th>Description</th><th>Where it appears</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>UnsortedMail</code></td>
+        <td>Raw mail collected from buildings and mailboxes, not yet sorted</td>
+        <td>Facility Resources buffer; collected by vans, delivered by trucks</td>
+      </tr>
+      <tr>
+        <td><code>LocalMail</code></td>
+        <td>Sorted mail destined for local delivery within the city</td>
+        <td>Facility Resources buffer; loaded onto vans for delivery to buildings</td>
+      </tr>
+      <tr>
+        <td><code>OutgoingMail</code></td>
+        <td>Sorted mail destined for outside the city</td>
+        <td>Facility Resources buffer; transferred between facilities by trucks</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Two Facility Types</h3>
+
+  <p>Post facilities come in two variants, determined by the <code>PostFacilityData.m_SortingRate</code> field:</p>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>m_SortingRate</th><th>Accepts</th><th>Produces</th><th>Role</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Sorting Facility</strong></td>
+        <td>&gt; 0</td>
+        <td>UnsortedMail</td>
+        <td>LocalMail + OutgoingMail</td>
+        <td>Central hub: sorts mail, dispatches vans for local delivery</td>
+      </tr>
+      <tr>
+        <td><strong>Post Office</strong></td>
+        <td>0</td>
+        <td>LocalMail</td>
+        <td>UnsortedMail (collected)</td>
+        <td>Local relay: receives sorted mail, dispatches vans, sends unsorted back</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Two Vehicle Types</h3>
+
+  <table>
+    <thead>
+      <tr><th>Vehicle</th><th>Component</th><th>Role</th><th>Dispatched by</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Post Van</strong></td>
+        <td><code>Game.Vehicles.PostVan</code></td>
+        <td>Last-mile: delivers LocalMail to buildings, collects SendingMail</td>
+        <td><code>PostFacilityAISystem</code> via <code>PostVanDispatchSystem</code></td>
+      </tr>
+      <tr>
+        <td><strong>Delivery Truck</strong></td>
+        <td><code>Game.Vehicles.DeliveryTruck</code></td>
+        <td>Inter-facility: transfers UnsortedMail, LocalMail, OutgoingMail between facilities</td>
+        <td><code>PostFacilityAISystem</code> via <code>MailTransferDispatchSystem</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Mail Accumulation Formula</h3>
+
+  <p>
+    Each building's mail accumulates per tick based on the zone type's
+    <code>MailAccumulationData.m_AccumulationRate</code> (a <code>float2</code> with sending and
+    receiving rates):
+  </p>
+
+  <pre><code class="language-csharp">// Per-tick mail added to a building
+float2 rate = baseAccumulationRate * (residents + workers);
+int2 mailAdded = RoundToIntRandom(rate * 0.28444445f);
+sendingMail = min(sendingMail + mailAdded.x, m_MaxMailAccumulation);
+receivingMail = min(receivingMail + mailAdded.y, m_MaxMailAccumulation);</code></pre>
+
+  <p>
+    The constant <code>0.28444445f</code> normalizes the per-tick rate. With 256 updates per day
+    (UPDATE_INTERVAL = 64, 16 update slots cycled over 4 counter cycles), this produces the
+    daily mail generation rate from the prefab-defined accumulation rate.
+  </p>
+
+  <h3>Mail Efficiency Penalty</h3>
+
+  <p>
+    Buildings with excessive undelivered mail suffer an efficiency penalty. The formula uses a
+    quadratic curve that kicks in above the <code>m_NegligibleMail</code> threshold:
+  </p>
+
+  <pre><code class="language-csharp">int excess = max(0, max(sendingMail, receivingMail) - m_NegligibleMail);
+float penalty = 0f;
+if (excess &gt; 25)
+{
+    int clamped = min(50, excess - 25);
+    penalty = ((float)(clamped * clamped) + 125f) / 2625f;
+}
+float efficiency = 1f - m_MailEfficiencyPenalty * penalty;</code></pre>
+
+  <p>
+    This means buildings with small mail backlogs have no penalty, but large backlogs (above 50
+    units past negligible) cause significant efficiency loss, incentivizing proper postal coverage.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <div class="diagram">
+<pre>
+MAIL GENERATION
+    Buildings with MailProducer component
+    MailAccumulationSystem (every 64 frames, 16 slots)
+      rate = accumulationRate * (residents + workers) * 0.28444445
+      sendingMail += rate.x   (outgoing, needs collection)
+      receivingMail += rate.y (incoming, needs delivery)
+      |
+      | When mail &gt;= m_MailAccumulationTolerance:
+      |   Creates PostVanRequest (Deliver | Collect | BuildingTarget)
+      v
+
+POST VAN DISPATCH
+    PostVanDispatchSystem (every 16 frames)
+      Forward: pathfinds PostVan/Facility --&gt; building/mailbox
+      Reverse: facility/van creates request seeking targets
+      |
+      v
+
+POST FACILITY PROCESSING
+    PostFacilityAISystem (every 256 frames, offset 176)
+      1. Count owned vans + trucks, calculate capacity
+      2. Move mail from attached MailBox into Resources buffer
+      3. SORTING (if m_SortingRate &gt; 0):
+           amount = min(unsorted, efficiency * 0.0009765625 * sortingRate)
+           outgoing = amount * m_OutgoingMailPercentage / 100
+           localMail += (amount - outgoing)
+           outgoingMail += outgoing
+           unsortedMail -= amount
+      4. Spawn post vans (loaded with LocalMail)
+      5. Create MailTransferRequests for truck transfers
+      6. Update PostFacilityFlags
+      |
+      +--&gt; [Post Vans]                    +--&gt; [MailTransferRequest]
+           |                                    |
+           v                                    v
+    PostVanAISystem                    MailTransferDispatchSystem
+    (every 16 frames, offset 9)        (every 16 frames)
+      Drives route along roads           Pathfinds between facilities
+      At each sidewalk stop:             Dispatches delivery trucks
+        - Delivers LocalMail             Trucks carry primary + return cargo
+          to buildings                   (e.g., LocalMail out, UnsortedMail back)
+          (reduces receivingMail)
+        - Collects SendingMail
+          from buildings needing
+          collection (m_RequireCollect)
+        - Collects from MailBoxes
+      |
+      | On return to facility:
+      |   collected mail --&gt; UnsortedMail resource
+      |   undelivered mail --&gt; LocalMail resource
+      v
+
+FACILITY RESOURCES (cycle repeats)
+    UnsortedMail --&gt; sorted --&gt; LocalMail + OutgoingMail
+    LocalMail --&gt; loaded onto vans --&gt; delivered to buildings
+    OutgoingMail --&gt; transferred to other facilities or exported
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <table>
+    <thead>
+      <tr><th>Assembly</th><th>Namespace</th><th>What's There</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Buildings</td>
+        <td>MailProducer, PostFacility, PostFacilityFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Routes</td>
+        <td>MailBox (streetside mailbox component)</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Vehicles</td>
+        <td>PostVan, PostVanFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Simulation</td>
+        <td>MailAccumulationSystem, MailBoxSystem, PostVanDispatchSystem, PostVanAISystem, PostFacilityAISystem, MailTransferDispatchSystem, PostVanRequest, PostVanRequestFlags, MailTransferRequest, MailTransferRequestFlags</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Prefabs</td>
+        <td>PostConfigurationData, PostFacilityData, MailBoxData, PostVanData, MailAccumulationData</td>
+      </tr>
+      <tr>
+        <td>Game.dll</td>
+        <td>Game.Economy</td>
+        <td>Resources (UnsortedMail, LocalMail, OutgoingMail resource types)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>MailProducer (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_MailRequest</td><td>Entity</td><td>Current PostVanRequest entity for this building</td></tr>
+      <tr><td>m_SendingMail</td><td>ushort</td><td>Outgoing mail waiting for collection</td></tr>
+      <tr><td>m_ReceivingMail</td><td>ushort</td><td>Incoming mail waiting for delivery (bit 15 = mailDelivered flag)</td></tr>
+      <tr><td>m_DispatchIndex</td><td>byte</td><td>Dispatch ordering index for van routing</td></tr>
+      <tr><td>m_LastUpdateTotalMail</td><td>ushort</td><td>Total mail at last update (for processed mail tracking)</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    The <code>receivingMail</code> property masks to the lower 15 bits. The high bit (0x8000) is
+    the <code>mailDelivered</code> flag, set to <code>true</code> when a van delivers mail to the building.
+  </p>
+
+  <h3>PostFacility (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_MailDeliverRequest</td><td>Entity</td><td>Active MailTransferRequest for receiving unsorted mail</td></tr>
+      <tr><td>m_MailReceiveRequest</td><td>Entity</td><td>Active MailTransferRequest for sending sorted mail out</td></tr>
+      <tr><td>m_TargetRequest</td><td>Entity</td><td>Reverse-search PostVanRequest (facility seeking targets)</td></tr>
+      <tr><td>m_AcceptMailPriority</td><td>float</td><td>Priority for accepting incoming mail (0-1)</td></tr>
+      <tr><td>m_DeliverMailPriority</td><td>float</td><td>Priority for sending sorted mail out (0-1)</td></tr>
+      <tr><td>m_Flags</td><td>PostFacilityFlags</td><td>Operational state bitfield</td></tr>
+      <tr><td>m_ProcessingFactor</td><td>byte</td><td>Current sorting throughput (0-255, percentage of max rate)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PostFacilityFlags (Game.Buildings)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>CanDeliverMailWithVan</td><td>0x01</td><td>Has available vans and local mail to deliver</td></tr>
+      <tr><td>CanCollectMailWithVan</td><td>0x02</td><td>Has available vans and free capacity to collect</td></tr>
+      <tr><td>HasAvailableTrucks</td><td>0x04</td><td>Has idle delivery trucks for inter-facility transfer</td></tr>
+      <tr><td>AcceptsUnsortedMail</td><td>0x08</td><td>Has capacity to receive unsorted mail (sorting facilities)</td></tr>
+      <tr><td>DeliversLocalMail</td><td>0x10</td><td>Has local mail ready to distribute (sorting facilities)</td></tr>
+      <tr><td>AcceptsLocalMail</td><td>0x20</td><td>Has capacity for local mail (non-sorting post offices)</td></tr>
+      <tr><td>DeliversUnsortedMail</td><td>0x40</td><td>Has unsorted mail to offload (non-sorting post offices)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>MailBox (Game.Routes)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_CollectRequest</td><td>Entity</td><td>Current PostVanRequest for mailbox collection</td></tr>
+      <tr><td>m_MailAmount</td><td>int</td><td>Current mail in the box awaiting pickup</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PostVan (Game.Vehicles)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_TargetRequest</td><td>Entity</td><td>Current reverse-search request</td></tr>
+      <tr><td>m_State</td><td>PostVanFlags</td><td>State bitfield</td></tr>
+      <tr><td>m_RequestCount</td><td>int</td><td>Accepted service dispatch count</td></tr>
+      <tr><td>m_PathElementTime</td><td>float</td><td>Average time per path element</td></tr>
+      <tr><td>m_DeliveringMail</td><td>int</td><td>Local mail currently being delivered to buildings</td></tr>
+      <tr><td>m_CollectedMail</td><td>int</td><td>Unsorted mail collected from buildings/mailboxes</td></tr>
+      <tr><td>m_DeliveryEstimate</td><td>int</td><td>Estimated mail to deliver on current route</td></tr>
+      <tr><td>m_CollectEstimate</td><td>int</td><td>Estimated mail to collect on current route</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PostVanFlags (Game.Vehicles)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Returning</td><td>0x01</td><td>Heading back to post facility</td></tr>
+      <tr><td>Delivering</td><td>0x02</td><td>Currently delivering local mail</td></tr>
+      <tr><td>Collecting</td><td>0x04</td><td>Currently collecting outgoing mail</td></tr>
+      <tr><td>DeliveryEmpty</td><td>0x08</td><td>No more mail to deliver</td></tr>
+      <tr><td>CollectFull</td><td>0x10</td><td>Collection capacity reached</td></tr>
+      <tr><td>EstimatedEmpty</td><td>0x20</td><td>Expected to run out of delivery mail</td></tr>
+      <tr><td>EstimatedFull</td><td>0x40</td><td>Expected to fill collection capacity</td></tr>
+      <tr><td>Disabled</td><td>0x80</td><td>Van disabled (facility has no work)</td></tr>
+      <tr><td>ClearChecked</td><td>0x100</td><td>Internal: force re-check buildings on lane</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PostVanRequest (Game.Simulation)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Target</td><td>Entity</td><td>Building or mailbox requesting service</td></tr>
+      <tr><td>m_Flags</td><td>PostVanRequestFlags</td><td>Deliver (0x01), Collect (0x02), BuildingTarget (0x04), MailBoxTarget (0x08)</td></tr>
+      <tr><td>m_DispatchIndex</td><td>byte</td><td>Dispatch ordering index</td></tr>
+      <tr><td>m_Priority</td><td>ushort</td><td>Priority value (typically the mail amount)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>MailTransferRequest (Game.Simulation)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Facility</td><td>Entity</td><td>Post facility creating the request</td></tr>
+      <tr><td>m_Flags</td><td>MailTransferRequestFlags</td><td>Transfer type and mail categories (see flag table below)</td></tr>
+      <tr><td>m_Priority</td><td>float</td><td>Priority (ratio of current mail to capacity)</td></tr>
+      <tr><td>m_Amount</td><td>int</td><td>Amount of mail to transfer</td></tr>
+    </tbody>
+  </table>
+
+  <h3>MailTransferRequestFlags (Game.Simulation)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Deliver</td><td>0x01</td><td>Truck delivers mail TO the requesting facility</td></tr>
+      <tr><td>Receive</td><td>0x02</td><td>Truck picks up mail FROM the requesting facility</td></tr>
+      <tr><td>RequireTransport</td><td>0x04</td><td>Needs external truck (facility has no own trucks)</td></tr>
+      <tr><td>UnsortedMail</td><td>0x10</td><td>Primary cargo is unsorted mail</td></tr>
+      <tr><td>LocalMail</td><td>0x20</td><td>Primary cargo is local mail</td></tr>
+      <tr><td>OutgoingMail</td><td>0x40</td><td>Primary cargo is outgoing mail</td></tr>
+      <tr><td>ReturnUnsortedMail</td><td>0x100</td><td>Return trip carries unsorted mail</td></tr>
+      <tr><td>ReturnLocalMail</td><td>0x200</td><td>Return trip carries local mail</td></tr>
+      <tr><td>ReturnOutgoingMail</td><td>0x400</td><td>Return trip carries outgoing mail</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>System Map</h2>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Interval</th><th>Offset</th><th>Role</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>MailAccumulationSystem</code></td>
+        <td>64 frames</td>
+        <td>--</td>
+        <td>Adds sending/receiving mail to buildings, creates PostVanRequests, calculates efficiency penalty</td>
+      </tr>
+      <tr>
+        <td><code>MailBoxSystem</code></td>
+        <td>512 frames</td>
+        <td>--</td>
+        <td>Checks streetside mailboxes, creates collect PostVanRequests</td>
+      </tr>
+      <tr>
+        <td><code>PostVanDispatchSystem</code></td>
+        <td>16 frames</td>
+        <td>--</td>
+        <td>Matches PostVanRequests to facilities/vans via pathfinding (forward and reverse)</td>
+      </tr>
+      <tr>
+        <td><code>PostVanAISystem</code></td>
+        <td>16 frames</td>
+        <td>9</td>
+        <td>Drives vans along routes, delivers/collects mail at buildings, manages van lifecycle</td>
+      </tr>
+      <tr>
+        <td><code>PostFacilityAISystem</code></td>
+        <td>256 frames</td>
+        <td>176</td>
+        <td>Manages facility operations: sorting, vehicle dispatch, transfer requests, capacity tracking</td>
+      </tr>
+      <tr>
+        <td><code>MailTransferDispatchSystem</code></td>
+        <td>16 frames</td>
+        <td>--</td>
+        <td>Matches MailTransferRequests to delivery trucks via pathfinding</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Bidirectional Dispatch</h3>
+
+  <p>
+    Like other CS2 services, mail uses <strong>bidirectional dispatch</strong>. Buildings create
+    forward requests ("I need mail service"), while facilities and vans create
+    <strong>reverse requests</strong> (with <code>ServiceRequestFlags.Reversed</code>) meaning
+    "I have capacity, send me targets." This two-way matching ensures efficient vehicle utilization.
+  </p>
+
+  <ul>
+    <li><code>PostFacilityAISystem.RequestTargetIfNeeded()</code> -- facilities with available vans create reverse requests (every 256+ frames)</li>
+    <li><code>PostVanAISystem.RequestTargetIfNeeded()</code> -- vans with spare capacity create reverse requests (every 512 frames)</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Override Mail Configuration</h3>
+
+  <p>
+    Modify the <code>PostConfigurationData</code> singleton to change global mail behavior.
+    No Harmony patches needed -- direct ECS write.
+  </p>
+
+  <pre><code class="language-csharp">public partial class MailConfigOverrideSystem : GameSystemBase
+{
+    private EntityQuery m_ConfigQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_ConfigQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;PostConfigurationData&gt;());
+        RequireForUpdate(m_ConfigQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        Enabled = false; // Only modify once
+
+        var entities = m_ConfigQuery.ToEntityArray(
+            Unity.Collections.Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var config = EntityManager.GetComponentData&lt;PostConfigurationData&gt;(
+                entities[i]);
+
+            // Double the max mail accumulation
+            config.m_MaxMailAccumulation *= 2;
+
+            // Raise the tolerance so vans dispatch less often
+            config.m_MailAccumulationTolerance =
+                (int)(config.m_MailAccumulationTolerance * 1.5f);
+
+            EntityManager.SetComponentData(entities[i], config);
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 2: Monitor Mail Service Coverage</h3>
+
+  <p>
+    Query all <code>MailProducer</code> buildings to calculate city-wide mail service statistics.
+  </p>
+
+  <pre><code class="language-csharp">public partial class MailServiceMonitorSystem : GameSystemBase
+{
+    private EntityQuery m_MailProducerQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_MailProducerQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;MailProducer&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = m_MailProducerQuery.ToEntityArray(
+            Unity.Collections.Allocator.Temp);
+        int totalBuildings = entities.Length;
+        int buildingsServed = 0;
+        int totalSending = 0;
+        int totalReceiving = 0;
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var producer = EntityManager.GetComponentData&lt;MailProducer&gt;(
+                entities[i]);
+            totalSending += producer.m_SendingMail;
+            totalReceiving += producer.receivingMail;
+            if (producer.mailDelivered)
+                buildingsServed++;
+        }
+
+        float coverage = totalBuildings &gt; 0
+            ? (float)buildingsServed / totalBuildings * 100f : 0f;
+
+        Log.Info($"Mail: {totalBuildings} buildings, " +
+                 $"{buildingsServed} served ({coverage:F1}%), " +
+                 $"sending={totalSending}, receiving={totalReceiving}");
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 3: Boost Facility Sorting Rate</h3>
+
+  <p>
+    Modify <code>PostFacilityData</code> on prefab entities to increase sorting throughput
+    and add extra van capacity for all post facilities.
+  </p>
+
+  <pre><code class="language-csharp">public partial class BoostSortingRateSystem : GameSystemBase
+{
+    private EntityQuery m_FacilityQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_FacilityQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;PostFacilityData&gt;());
+        RequireForUpdate(m_FacilityQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        Enabled = false;
+
+        var entities = m_FacilityQuery.ToEntityArray(
+            Unity.Collections.Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var data = EntityManager.GetComponentData&lt;PostFacilityData&gt;(
+                entities[i]);
+            if (data.m_SortingRate &gt; 0)
+            {
+                data.m_SortingRate *= 2;
+                data.m_PostVanCapacity += 2;
+                EntityManager.SetComponentData(entities[i], data);
+            }
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 4: Force Post Vans to Return</h3>
+
+  <p>
+    A system that monitors post vans and forces them back to the facility when they
+    have completed both delivery and collection, preventing vans from lingering on routes.
+  </p>
+
+  <pre><code class="language-csharp">[UpdateAfter(typeof(PostVanAISystem))]
+public partial class PostVanTimeoutSystem : GameSystemBase
+{
+    private EntityQuery m_VanQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_VanQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;Game.Vehicles.PostVan&gt;(),
+            ComponentType.ReadOnly&lt;Owner&gt;(),
+            ComponentType.ReadOnly&lt;PathOwner&gt;(),
+            ComponentType.ReadWrite&lt;Target&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = m_VanQuery.ToEntityArray(
+            Unity.Collections.Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var van = EntityManager.GetComponentData&lt;Game.Vehicles.PostVan&gt;(
+                entities[i]);
+            if ((van.m_State &amp; (PostVanFlags.Returning
+                | PostVanFlags.Disabled)) != 0) continue;
+
+            bool done = (van.m_State &amp; PostVanFlags.DeliveryEmpty) != 0
+                     &amp;&amp; (van.m_State &amp; PostVanFlags.CollectFull) != 0;
+            if (done)
+            {
+                var owner = EntityManager.GetComponentData&lt;Owner&gt;(entities[i]);
+                van.m_State |= PostVanFlags.Returning;
+                van.m_State &amp;= ~(PostVanFlags.Delivering
+                                 | PostVanFlags.Collecting);
+                van.m_RequestCount = 0;
+                EntityManager.SetComponentData(entities[i], van);
+                EntityManager.SetComponentData(entities[i],
+                    new Target(owner.m_Owner));
+
+                var po = EntityManager.GetComponentData&lt;PathOwner&gt;(entities[i]);
+                po.m_State |= PathFlags.Updated;
+                EntityManager.SetComponentData(entities[i], po);
+
+                if (EntityManager.HasBuffer&lt;ServiceDispatch&gt;(entities[i]))
+                    EntityManager.GetBuffer&lt;ServiceDispatch&gt;(entities[i])
+                        .Clear();
+            }
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 5: Read Facility Mail Inventory</h3>
+
+  <p>
+    Query post facilities to report their current mail inventory breakdown by resource type.
+    Uses <code>EconomyUtils.GetResources</code> to read the Resources buffer.
+  </p>
+
+  <pre><code class="language-csharp">public partial class FacilityInventorySystem : GameSystemBase
+{
+    private EntityQuery m_FacilityQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_FacilityQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Buildings.PostFacility&gt;(),
+            ComponentType.ReadOnly&lt;Game.Economy.Resources&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = m_FacilityQuery.ToEntityArray(
+            Unity.Collections.Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var facility = EntityManager.GetComponentData&lt;
+                Game.Buildings.PostFacility&gt;(entities[i]);
+            var resources = EntityManager.GetBuffer&lt;
+                Game.Economy.Resources&gt;(entities[i]);
+
+            int unsorted = EconomyUtils.GetResources(
+                Resource.UnsortedMail, resources);
+            int local = EconomyUtils.GetResources(
+                Resource.LocalMail, resources);
+            int outgoing = EconomyUtils.GetResources(
+                Resource.OutgoingMail, resources);
+
+            Log.Info($"Facility {entities[i].Index}: " +
+                     $"unsorted={unsorted}, local={local}, " +
+                     $"outgoing={outgoing}, " +
+                     $"processing={facility.m_ProcessingFactor}%, " +
+                     $"flags={facility.m_Flags}");
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Max mail accumulation</td>
+        <td><code>PostConfigurationData.m_MaxMailAccumulation</code></td>
+        <td>Cap on mail per building before clamping</td>
+      </tr>
+      <tr>
+        <td>Mail tolerance threshold</td>
+        <td><code>PostConfigurationData.m_MailAccumulationTolerance</code></td>
+        <td>Mail amount that triggers a PostVanRequest</td>
+      </tr>
+      <tr>
+        <td>Outgoing mail percentage</td>
+        <td><code>PostConfigurationData.m_OutgoingMailPercentage</code></td>
+        <td>Percentage of sorted mail that becomes outgoing (rest is local)</td>
+      </tr>
+      <tr>
+        <td>Post van capacity</td>
+        <td><code>PostFacilityData.m_PostVanCapacity</code></td>
+        <td>Maximum vans per facility (combinable with upgrades)</td>
+      </tr>
+      <tr>
+        <td>Post truck capacity</td>
+        <td><code>PostFacilityData.m_PostTruckCapacity</code></td>
+        <td>Maximum delivery trucks per facility</td>
+      </tr>
+      <tr>
+        <td>Mail storage capacity</td>
+        <td><code>PostFacilityData.m_MailCapacity</code></td>
+        <td>Total mail the facility can store (combinable with upgrades)</td>
+      </tr>
+      <tr>
+        <td>Sorting rate</td>
+        <td><code>PostFacilityData.m_SortingRate</code></td>
+        <td>Mail sorted per tick; 0 = non-sorting post office</td>
+      </tr>
+      <tr>
+        <td>Van mail capacity</td>
+        <td><code>PostVanData.m_MailCapacity</code></td>
+        <td>How much mail a single van can carry</td>
+      </tr>
+      <tr>
+        <td>Mailbox capacity</td>
+        <td><code>MailBoxData.m_MailCapacity</code></td>
+        <td>Capacity of facility-attached mailbox (reserved from facility capacity)</td>
+      </tr>
+      <tr>
+        <td>Accumulation rate</td>
+        <td><code>MailAccumulationData.m_AccumulationRate</code></td>
+        <td>Per-citizen (sending, receiving) rate per tick, set per zone type</td>
+      </tr>
+      <tr>
+        <td>Require collect flag</td>
+        <td><code>MailAccumulationData.m_RequireCollect</code></td>
+        <td>Whether zone type needs van collection (vs delivery-only)</td>
+      </tr>
+      <tr>
+        <td>Negligible mail</td>
+        <td><code>BuildingEfficiencyParameterData.m_NegligibleMail</code></td>
+        <td>Mail below this threshold causes no efficiency penalty</td>
+      </tr>
+      <tr>
+        <td>Mail efficiency penalty</td>
+        <td><code>BuildingEfficiencyParameterData.m_MailEfficiencyPenalty</code></td>
+        <td>Maximum efficiency penalty multiplier for undelivered mail</td>
+      </tr>
+      <tr>
+        <td>Accumulation update interval</td>
+        <td>Hardcoded: 64 frames</td>
+        <td>How often MailAccumulationSystem runs per slot</td>
+      </tr>
+      <tr>
+        <td>Mailbox check interval</td>
+        <td>Hardcoded: 512 frames</td>
+        <td>How often MailBoxSystem checks mailboxes</td>
+      </tr>
+      <tr>
+        <td>Dispatch interval</td>
+        <td>Hardcoded: 16 frames</td>
+        <td>How often PostVanDispatchSystem and MailTransferDispatchSystem run</td>
+      </tr>
+      <tr>
+        <td>Facility AI interval</td>
+        <td>Hardcoded: 256 frames, offset 176</td>
+        <td>How often PostFacilityAISystem evaluates facilities</td>
+      </tr>
+      <tr>
+        <td>Van AI interval</td>
+        <td>Hardcoded: 16 frames, offset 9</td>
+        <td>How often PostVanAISystem ticks van behavior</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Exact accumulation rate values per zone:</strong> The
+      <code>MailAccumulationData.m_AccumulationRate</code> float2 is set per zone type in prefab
+      data. The actual numeric values for residential, commercial, industrial, and office zones
+      were not extracted from game data files.
+    </li>
+    <li>
+      <strong>Outside connection mail export:</strong> Whether <code>Resource.OutgoingMail</code>
+      is actually exported through outside connections or if it is simply consumed. The
+      <code>MailTransferDispatchSystem</code> references export/import purposes but the final
+      destination is not confirmed.
+    </li>
+    <li>
+      <strong>Mailbox entity creation:</strong> How streetside mailbox entities
+      (<code>Game.Routes.MailBox</code>) are placed -- whether they are part of road prefabs,
+      building prefabs, or a separate placement system.
+    </li>
+    <li>
+      <strong>PostVanSelectData internals:</strong> The vehicle selection and creation helper
+      used by <code>PostFacilityAISystem</code>. Its internal vehicle matching and prefab selection
+      logic was not fully decompiled.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled (full systems): Game.Simulation.MailAccumulationSystem, Game.Simulation.MailBoxSystem, Game.Simulation.PostVanDispatchSystem, Game.Simulation.PostVanAISystem, Game.Simulation.PostFacilityAISystem, Game.Simulation.MailTransferDispatchSystem</li>
+    <li>Decompiled (components): Game.Buildings.MailProducer, PostFacility, PostFacilityFlags; Game.Routes.MailBox; Game.Vehicles.PostVan, PostVanFlags; Game.Simulation.PostVanRequest, PostVanRequestFlags, MailTransferRequest, MailTransferRequestFlags</li>
+    <li>Decompiled (prefab data): PostConfigurationData, PostFacilityData, MailBoxData, PostVanData, MailAccumulationData, BuildingEfficiencyParameterData</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
