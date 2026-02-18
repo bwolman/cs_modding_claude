@@ -1,0 +1,902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Parking System - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+    <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html" class="active">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Parking System -- Deep Dive</h1>
+
+  <div class="scope">
+    <h2>Scope</h2>
+    <p>
+      <strong>Question:</strong> How do vehicles find, occupy, and pay for parking in CS2?
+      What are the data structures, fee models, and capacity systems a mod can control?
+    </p>
+    <p>
+      <strong>Verdict:</strong> Parking operates in three layers: <strong>lane</strong> (ParkingLane
+      for streets, GarageLane for buildings), <strong>building</strong> (ParkingFacility tracking
+      comfort and active state), and <strong>vehicle</strong> (ParkedCar marking a parked vehicle's
+      lane and position). The <code>ParkingLaneDataSystem</code> is the central coordinator that
+      recalculates free space, fees, and comfort. Fees come from district or building modifiers.
+      Mods can directly manipulate all parking data via ECS without patches.
+    </p>
+    <p>
+      <strong>Out of scope:</strong> Vehicle navigation and lane-level driving
+      (<a href="traffic-flow.html">Traffic Flow</a>). Pathfinding cost model
+      (<a href="pathfinding.html">Pathfinding</a>). Vehicle spawning and trip initiation
+      (<a href="vehicle-spawning.html">Vehicle Spawning</a>).
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    CS2 supports two distinct parking mechanisms: <strong>street parking</strong> along road edges
+    and <strong>garage parking</strong> inside buildings. Both feed into the pathfinder so vehicles
+    can find the cheapest available parking spot.
+  </p>
+
+  <h3>Two Parking Types</h3>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Component</th><th>Location</th><th>Capacity Model</th><th>Fee Source</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Street parking</td>
+        <td><code>ParkingLane</code></td>
+        <td>Road edge lanes</td>
+        <td>Free space along curve (continuous or slotted)</td>
+        <td>District <code>DistrictModifier</code> with <code>PaidParking</code> option</td>
+      </tr>
+      <tr>
+        <td>Garage parking</td>
+        <td><code>GarageLane</code></td>
+        <td>Building interior</td>
+        <td><code>m_VehicleCount</code> / <code>m_VehicleCapacity</code> (integer)</td>
+        <td>Building <code>BuildingModifier</code> with <code>PaidParking</code> option</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>The Three Layers</h3>
+
+  <p><strong>Lane layer:</strong> <code>ParkingLane</code> and <code>GarageLane</code> are ECS
+  components on lane entities. They track free space, fees, comfort, and access restrictions.
+  The <code>ParkingLaneDataSystem</code> recalculates these values whenever a lane is updated.</p>
+
+  <p><strong>Building layer:</strong> <code>ParkingFacility</code> (Game.Buildings) is attached
+  to buildings that provide parking. It tracks the runtime comfort factor and active state.
+  The <code>ParkingFacilityAISystem</code> updates comfort based on building efficiency and
+  propagates changes to child lanes via <code>PathfindUpdated</code>.</p>
+
+  <p><strong>Vehicle layer:</strong> <code>ParkedCar</code> marks a vehicle as parked on a
+  specific lane at a specific curve position. When a vehicle parks,
+  <code>PersonalCarAISystem</code> removes 11 movement components and adds
+  <code>ParkedCar</code> + <code>Stopped</code> + <code>Updated</code>.</p>
+
+  <!-- ============================================================ -->
+  <h2>The Parking Search Algorithm</h2>
+
+  <p>
+    When a vehicle approaches its destination, <code>PersonalCarAISystem.CheckParkingSpace()</code>
+    validates whether the target parking spot is still available:
+  </p>
+
+  <ol>
+    <li>Scans ahead in the <code>PathElement</code> buffer up to <strong>40,000 path nodes</strong></li>
+    <li>For each target:
+      <ul>
+        <li><code>ParkingLane</code>: calls <code>VehicleUtils.FindFreeParkingSpace()</code> checking car size against free space</li>
+        <li><code>GarageLane</code>: checks <code>m_VehicleCount &lt; m_VehicleCapacity</code> and <code>ConnectionLaneFlags.Disabled</code> not set</li>
+      </ul>
+    </li>
+    <li>If no parking found: sets <code>PathFlags.Obsolete</code> to trigger re-pathfinding</li>
+  </ol>
+
+  <p>
+    The vanilla reroute distance of 40,000 path nodes is very large -- vehicles can sense parking
+    availability from far away, causing unrealistic U-turns. The
+    <a href="https://github.com/MasatoTakedai/RealisticParking">RealisticParking</a> mod reduces
+    this to 5 nodes.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Key Components</h2>
+
+  <h3>ParkingLane (Game.Net)</h3>
+
+  <p>Runtime component on lane entities serving as on-street parking spaces.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_AccessRestriction</td><td>Entity</td><td>Entity defining access restrictions (building with restricted parking flags)</td></tr>
+      <tr><td>m_AdditionalStartNode</td><td>PathNode</td><td>Additional pathfind start node for improved lane connectivity</td></tr>
+      <tr><td>m_Flags</td><td>ParkingLaneFlags</td><td>Parking lane behavior flags</td></tr>
+      <tr><td>m_FreeSpace</td><td>float</td><td>Available parking space on the lane (game units, 0 = full)</td></tr>
+      <tr><td>m_ParkingFee</td><td>ushort</td><td>Parking fee from district/city modifiers</td></tr>
+      <tr><td>m_ComfortFactor</td><td>ushort</td><td>Comfort multiplier (0-65535 maps to 0.0-1.0)</td></tr>
+      <tr><td>m_TaxiAvailability</td><td>ushort</td><td>Taxi availability metric</td></tr>
+      <tr><td>m_TaxiFee</td><td>ushort</td><td>Taxi starting fee for pickups</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ParkingLaneFlags (Game.Net)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Flag</th><th>Value</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Invert</td><td>0x1</td><td>Lane direction is inverted</td></tr>
+      <tr><td>StartingLane</td><td>0x2</td><td>First segment of a parking area</td></tr>
+      <tr><td>EndingLane</td><td>0x4</td><td>Last segment of a parking area</td></tr>
+      <tr><td>AdditionalStart</td><td>0x8</td><td>Has additional start node</td></tr>
+      <tr><td>ParkingInverted</td><td>0x10</td><td>Parking direction is inverted</td></tr>
+      <tr><td>LeftSide</td><td>0x20</td><td>Parking on left side of road</td></tr>
+      <tr><td>RightSide</td><td>0x40</td><td>Parking on right side of road</td></tr>
+      <tr><td>VirtualLane</td><td>0x200</td><td>Not a physical lane (abstract parking)</td></tr>
+      <tr><td>ParkingLeft</td><td>0x800</td><td>Vehicles park facing left</td></tr>
+      <tr><td>ParkingRight</td><td>0x1000</td><td>Vehicles park facing right</td></tr>
+      <tr><td><strong>ParkingDisabled</strong></td><td><strong>0x2000</strong></td><td><strong>Parking is disabled on this lane</strong></td></tr>
+      <tr><td>AllowEnter</td><td>0x4000</td><td>Vehicles can enter from this lane</td></tr>
+      <tr><td>AllowExit</td><td>0x8000</td><td>Vehicles can exit from this lane</td></tr>
+      <tr><td>SpecialVehicles</td><td>0x10000</td><td>Reserved for special vehicles</td></tr>
+    </tbody>
+  </table>
+
+  <h3>GarageLane (Game.Net)</h3>
+
+  <p>Runtime component on lane entities representing parking garage access points.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ParkingFee</td><td>ushort</td><td>Fee charged for parking</td></tr>
+      <tr><td>m_ComfortFactor</td><td>ushort</td><td>Comfort multiplier (0-65535 maps to 0.0-1.0)</td></tr>
+      <tr><td>m_VehicleCount</td><td>ushort</td><td>Current number of vehicles parked</td></tr>
+      <tr><td>m_VehicleCapacity</td><td>ushort</td><td>Maximum vehicle capacity</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ParkingFacility (Game.Buildings)</h3>
+
+  <p>Runtime component on parking facility building entities.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_ComfortFactor</td><td>float</td><td>Current comfort factor (base * efficiency)</td></tr>
+      <tr><td>m_Flags</td><td>ParkingFacilityFlags</td><td>ParkingSpacesActive (0x1) = facility is operational</td></tr>
+    </tbody>
+  </table>
+
+  <h3>ParkedCar (Game.Vehicles)</h3>
+
+  <p>Marks a vehicle as parked on a specific lane.</p>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_Lane</td><td>Entity</td><td>The parking lane entity (ParkingLane or GarageLane)</td></tr>
+      <tr><td>m_CurvePosition</td><td>float</td><td>Position along the lane curve (0.0-1.0)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Prefab Data</h3>
+
+  <h4>ParkingLaneData (Game.Prefabs)</h4>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_SlotSize</td><td>float2</td><td>Width and length of each parking slot</td></tr>
+      <tr><td>m_SlotAngle</td><td>float</td><td>Angle of slots (0 = parallel, 90 = perpendicular)</td></tr>
+      <tr><td>m_SlotInterval</td><td>float</td><td>Distance between slot centers (0 = continuous)</td></tr>
+      <tr><td>m_MaxCarLength</td><td>float</td><td>Maximum vehicle length that fits</td></tr>
+      <tr><td>m_RoadTypes</td><td>RoadTypes</td><td>Which road types supported (Car, Bicycle)</td></tr>
+    </tbody>
+  </table>
+
+  <p>When <code>m_SlotInterval</code> is 0, the lane uses <strong>continuous free-space</strong>
+  calculation (measuring gaps between parked vehicles). When non-zero, it uses <strong>slotted</strong>
+  calculation with discrete parking positions.</p>
+
+  <h4>ParkingFacilityData (Game.Prefabs)</h4>
+
+  <table>
+    <thead>
+      <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>m_RoadTypes</td><td>RoadTypes</td><td>Which vehicle types can park (Car, Bicycle)</td></tr>
+      <tr><td>m_ComfortFactor</td><td>float</td><td>Base comfort factor (0.0-1.0, higher = more desirable)</td></tr>
+      <tr><td>m_GarageMarkerCapacity</td><td>int</td><td>Parking spaces per garage marker</td></tr>
+    </tbody>
+  </table>
+
+  <p>Implements <code>ICombineData</code> -- when a building has upgrades with parking facilities,
+  capacities and comfort factors are combined (added together).</p>
+
+  <!-- ============================================================ -->
+  <h2>Data Flow</h2>
+
+  <h3>Parking Data Update Pipeline</h3>
+
+  <div class="diagram">
+<pre>
+TRIGGER: Lane created/modified (Updated or PathfindUpdated tag)
+    |
+    v
+ParkingLaneDataSystem.UpdateLaneDataJob
+    |
+    +-- STREET PARKING (ParkingLane entities)
+    |   1. Read ParkingLaneData from prefab (slot size, interval)
+    |   2. Sort LaneObject buffer by curve position
+    |   3. CalculateFreeSpace():
+    |      - Slotted mode: count occupied slots via ParkedCar lookup
+    |      - Continuous mode: measure gaps between parked vehicles
+    |      - Account for blocked ranges from adjacent CarLane
+    |   4. GetParkingStats():
+    |      - Walk owner hierarchy to root building
+    |      - Read district/building parking fee modifiers
+    |      - Compute comfort factor from ParkingFacilityData
+    |      - Determine access restrictions from BuildingFlags
+    |   5. Write: m_FreeSpace, m_ParkingFee, m_ComfortFactor, flags
+    |
+    +-- GARAGE PARKING (GarageLane entities)
+    |   1. CountVehicles() via SearchSystem quad-tree spatial query
+    |   2. Expand bounds using ActivityLocationElement (GarageSpot)
+    |   3. GetParkingStats() for capacity, fee, comfort
+    |   4. Write: m_VehicleCount, m_VehicleCapacity, m_ParkingFee
+    |
+    v
+PATHFINDER reads ParkingLane/GarageLane data
+    Uses m_FreeSpace, m_ComfortFactor, m_ParkingFee
+    to weight PathMethod.Parking edges in route cost
+</pre>
+  </div>
+
+  <h3>Vehicle Parking Lifecycle</h3>
+
+  <div class="diagram">
+<pre>
+VEHICLE APPROACHING DESTINATION
+    PersonalCarAISystem.PersonalCarTickJob
+        |
+        v
+    CheckParkingSpace()
+        Scans ahead in PathElement buffer (up to 40000 nodes)
+        For each parking target:
+          ParkingLane -&gt; VehicleUtils.FindFreeParkingSpace()
+          GarageLane  -&gt; check m_VehicleCount &lt; m_VehicleCapacity
+        If no parking found:
+          Set PathFlags.Obsolete -&gt; triggers re-pathfinding
+        |
+        v
+    PARKING SPOT FOUND
+        Vehicle drives to target lane + curve position
+        |
+        v
+    StartDisembarking()
+        1. Read fee: ParkingLane.m_ParkingFee or GarageLane.m_ParkingFee
+        2. Create MoneyTransfer (household -&gt; city)
+        3. Create FeeEvent(PlayerResource.Parking, fee)
+        4. Passengers disembark
+        |
+        v
+    MovingToParked TRANSITION
+        Remove: Moving, TransformFrame, InterpolatedTransform, Swaying,
+                CarNavigation, CarNavigationLane, CarCurrentLane,
+                PathOwner, Target, Blocker, PathElement
+        Add:    ParkedCar(lane, curvePos), Stopped, Updated
+        |
+        v
+    PARKED
+        ParkedCar.m_Lane = parking lane entity
+        ParkingLaneDataSystem recalculates free space on next update
+        |
+        v
+    DEPARTURE (citizen needs to travel again)
+        TripSource added -&gt; VehicleSpawnSystem processes
+        ParkedCar removed, movement components re-added
+</pre>
+  </div>
+
+  <h3>Parking Fee Flow</h3>
+
+  <div class="diagram">
+<pre>
+DISTRICT LEVEL (street parking)
+    District entity with DistrictOption.PaidParking enabled
+    DistrictModifier buffer: DistrictModifierType.ParkingFee
+        |
+        v
+    ParkingLaneDataSystem.GetDistrictParkingFee()
+        Reads modifier value, clamps to ushort (0-65535)
+        Writes to ParkingLane.m_ParkingFee
+
+BUILDING LEVEL (garage parking)
+    Building entity with BuildingOption.PaidParking enabled
+    BuildingModifier buffer: BuildingModifierType.ParkingFee
+        |
+        v
+    ParkingLaneDataSystem.GetBuildingParkingFee()
+        Reads modifier value, clamps to ushort (0-65535)
+        Writes to GarageLane.m_ParkingFee
+
+TAXI LEVEL
+    City entity with CityOption.PaidTaxiStart enabled
+    CityModifier buffer: CityModifierType.TaxiStartingFee
+        |
+        v
+    Written to ParkingLane.m_TaxiFee
+
+ALL PATHS:
+    Vehicle parks -&gt; PersonalCarAISystem.StartDisembarking()
+    Fee collected via MoneyTransfer + ServiceFeeSystem.FeeEvent
+    Revenue tracked as PlayerResource.Parking
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Capacity Calculation Details</h2>
+
+  <h3>Street Parking (Free Space)</h3>
+
+  <p>
+    <code>ParkingLaneDataSystem.CalculateFreeSpace()</code> computes available space in two modes:
+  </p>
+
+  <p><strong>Slotted mode</strong> (when <code>ParkingLaneData.m_SlotInterval != 0</code>):</p>
+  <ol>
+    <li>Compute total slot count via <code>NetUtils.GetParkingSlotCount()</code></li>
+    <li>Compute slot interval via <code>NetUtils.GetParkingSlotInterval()</code></li>
+    <li>Walk the curve in 16 segments, checking each slot position against:
+      <ul>
+        <li><code>LaneObject</code> buffer entries with <code>ParkedCar</code> component</li>
+        <li><code>LaneOverlap</code> buffer entries (intersections block parking)</li>
+        <li>Blocked ranges from adjacent <code>CarLane</code> blockage data</li>
+      </ul>
+    </li>
+    <li>Returns <code>m_MaxCarLength</code> if any slot is free, 0 if all occupied</li>
+  </ol>
+
+  <p><strong>Continuous mode</strong> (when <code>m_SlotInterval == 0</code>):</p>
+  <ol>
+    <li>Walk through <code>LaneObject</code> entries sorted by curve position</li>
+    <li>Measure gap between each pair of parked vehicles using <code>VehicleUtils.GetParkingOffsets()</code></li>
+    <li>Track the largest gap, accounting for overlaps and blocked ranges</li>
+    <li>Returns the largest contiguous free space (capped by <code>m_MaxCarLength</code> if set)</li>
+  </ol>
+
+  <h3>Garage Parking (Vehicle Count)</h3>
+
+  <p>
+    <code>ParkingLaneDataSystem.CountVehicles()</code> uses a spatial quad-tree search:
+  </p>
+
+  <ol>
+    <li>Gets the connection parking bounds from <code>VehicleUtils.GetConnectionParkingBounds()</code></li>
+    <li>Walks the owner hierarchy to find the root building</li>
+    <li>Expands search bounds using <code>ActivityLocationElement</code> with <code>ActivityType.GarageSpot</code> mask</li>
+    <li>Queries <code>SearchSystem.GetMovingSearchTree()</code> with a <code>CountVehiclesIterator</code></li>
+    <li>Iterator checks each entity for <code>ParkedCar.m_Lane == garageEntity</code></li>
+    <li>Result clamped to ushort (0-65535)</li>
+  </ol>
+
+  <h3>Capacity Fallbacks (Buildings Without ParkingFacilityData)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Building Type</th><th>Capacity Formula</th><th>Comfort</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Residential (has BuildingPropertyData)</td>
+        <td><code>max(1, round(m_SpaceMultiplier))</code></td>
+        <td>0.8</td>
+      </tr>
+      <tr>
+        <td>Workplace (has WorkplaceData)</td>
+        <td><code>max(2, m_MaxWorkers / 20)</code></td>
+        <td>0.8</td>
+      </tr>
+      <tr>
+        <td>Other</td>
+        <td>2 per garage marker</td>
+        <td>0.8</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Examples</h2>
+
+  <h3>Example 1: Read Parking Availability on a Road</h3>
+
+  <p>Query all parking lanes on a road segment and log their free space and fees.</p>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Reads parking availability for all parking lanes on a road entity.
+/// &lt;/summary&gt;
+public void CheckRoadParking(EntityManager em, Entity road)
+{
+    if (!em.HasBuffer&lt;SubLane&gt;(road)) return;
+
+    DynamicBuffer&lt;SubLane&gt; subLanes = em.GetBuffer&lt;SubLane&gt;(road);
+    int totalSlots = 0;
+    int occupiedSlots = 0;
+
+    for (int i = 0; i &lt; subLanes.Length; i++)
+    {
+        Entity lane = subLanes[i].m_SubLane;
+        if (em.HasComponent&lt;ParkingLane&gt;(lane))
+        {
+            ParkingLane parking = em.GetComponentData&lt;ParkingLane&gt;(lane);
+            bool isDisabled = (parking.m_Flags
+                &amp; ParkingLaneFlags.ParkingDisabled) != 0;
+            bool isVirtual = (parking.m_Flags
+                &amp; ParkingLaneFlags.VirtualLane) != 0;
+
+            if (!isVirtual)
+            {
+                totalSlots++;
+                if (parking.m_FreeSpace &lt;= 0f)
+                    occupiedSlots++;
+            }
+
+            float fee = (float)parking.m_ParkingFee;
+            float comfort = (float)parking.m_ComfortFactor / 65535f;
+            string side = (parking.m_Flags &amp; ParkingLaneFlags.RightSide) != 0
+                ? "right" : "left";
+
+            Log.Info($"  Parking lane {lane}: side={side}, "
+                + $"free={parking.m_FreeSpace:F1}, fee={fee}, "
+                + $"comfort={comfort:F2}, "
+                + $"disabled={isDisabled}");
+        }
+    }
+    Log.Info($"Road {road}: {occupiedSlots}/{totalSlots} lanes occupied");
+}</code></pre>
+
+  <h3>Example 2: Disable Street Parking on a Road</h3>
+
+  <p>Set the <code>ParkingDisabled</code> flag on all parking lanes and trigger pathfind recalculation.</p>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Disables street parking on all parking lanes of a road segment.
+/// Adds PathfindUpdated so the pathfinder picks up the change.
+/// &lt;/summary&gt;
+public void DisableStreetParking(EntityManager em, Entity road)
+{
+    if (!em.HasBuffer&lt;SubLane&gt;(road)) return;
+
+    DynamicBuffer&lt;SubLane&gt; subLanes = em.GetBuffer&lt;SubLane&gt;(road);
+    int modified = 0;
+
+    for (int i = 0; i &lt; subLanes.Length; i++)
+    {
+        Entity lane = subLanes[i].m_SubLane;
+        if (em.HasComponent&lt;ParkingLane&gt;(lane))
+        {
+            ParkingLane parking = em.GetComponentData&lt;ParkingLane&gt;(lane);
+            if ((parking.m_Flags &amp; ParkingLaneFlags.VirtualLane) != 0)
+                continue;
+
+            parking.m_Flags |= ParkingLaneFlags.ParkingDisabled;
+            em.SetComponentData(lane, parking);
+
+            // Signal pathfind graph to recalculate this lane's edge
+            if (!em.HasComponent&lt;PathfindUpdated&gt;(lane))
+                em.AddComponent&lt;PathfindUpdated&gt;(lane);
+
+            modified++;
+        }
+    }
+    Log.Info($"Disabled parking on {modified} lanes of road {road}");
+}</code></pre>
+
+  <h3>Example 3: Modify Parking Fees via District Modifiers</h3>
+
+  <p>Write to the district modifier buffer and let <code>ParkingLaneDataSystem</code> propagate naturally.</p>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Sets the parking fee for a district by writing to its modifier buffer.
+/// The district must have PaidParking option enabled.
+/// &lt;/summary&gt;
+public void SetDistrictParkingFee(EntityManager em, Entity district,
+    float newFee)
+{
+    if (!em.HasComponent&lt;District&gt;(district)) return;
+    if (!em.HasBuffer&lt;DistrictModifier&gt;(district)) return;
+
+    DynamicBuffer&lt;DistrictModifier&gt; modifiers =
+        em.GetBuffer&lt;DistrictModifier&gt;(district);
+
+    // Find and update the ParkingFee modifier
+    bool found = false;
+    for (int i = 0; i &lt; modifiers.Length; i++)
+    {
+        DistrictModifier mod = modifiers[i];
+        if (mod.m_Type == DistrictModifierType.ParkingFee)
+        {
+            mod.m_Delta = newFee;
+            modifiers[i] = mod;
+            found = true;
+            break;
+        }
+    }
+
+    if (!found)
+    {
+        modifiers.Add(new DistrictModifier
+        {
+            m_Type = DistrictModifierType.ParkingFee,
+            m_Delta = newFee
+        });
+    }
+
+    Log.Info($"Set parking fee to {newFee} for district {district}");
+}</code></pre>
+
+  <h3>Example 4: Monitor Garage Occupancy</h3>
+
+  <p>Query all parking facility buildings to calculate city-wide garage occupancy.</p>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Calculates city-wide parking garage occupancy statistics.
+/// &lt;/summary&gt;
+public partial class GarageOccupancySystem : GameSystemBase
+{
+    private EntityQuery _facilityQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _facilityQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Buildings.ParkingFacility&gt;(),
+            ComponentType.ReadOnly&lt;SubLane&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = _facilityQuery.ToEntityArray(Allocator.Temp);
+        int totalCapacity = 0;
+        int totalOccupied = 0;
+        int facilitiesActive = 0;
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            var facility = EntityManager
+                .GetComponentData&lt;Game.Buildings.ParkingFacility&gt;(
+                    entities[i]);
+            bool active = (facility.m_Flags
+                &amp; ParkingFacilityFlags.ParkingSpacesActive) != 0;
+
+            if (!active) continue;
+            facilitiesActive++;
+
+            DynamicBuffer&lt;SubLane&gt; subLanes =
+                EntityManager.GetBuffer&lt;SubLane&gt;(entities[i]);
+
+            for (int j = 0; j &lt; subLanes.Length; j++)
+            {
+                Entity lane = subLanes[j].m_SubLane;
+                if (EntityManager.HasComponent&lt;GarageLane&gt;(lane))
+                {
+                    GarageLane garage =
+                        EntityManager.GetComponentData&lt;GarageLane&gt;(lane);
+                    totalCapacity += garage.m_VehicleCapacity;
+                    totalOccupied += garage.m_VehicleCount;
+                }
+            }
+        }
+
+        if (facilitiesActive &gt; 0)
+        {
+            float occupancy = (totalCapacity &gt; 0)
+                ? (float)totalOccupied / totalCapacity * 100f : 0f;
+            Log.Info($"Garages: {facilitiesActive} active, "
+                + $"{totalOccupied}/{totalCapacity} occupied "
+                + $"({occupancy:F1}%)");
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 5: Adjust Parking Facility Comfort Factor</h3>
+
+  <p>
+    Modify the comfort factor on a parking facility building to make it more or less desirable.
+    Higher comfort makes the pathfinder prefer this facility.
+  </p>
+
+  <pre><code class="language-csharp">/// &lt;summary&gt;
+/// Adjusts the comfort factor of a parking facility building.
+/// Higher comfort makes vehicles prefer this facility.
+/// &lt;/summary&gt;
+public void AdjustFacilityComfort(EntityManager em,
+    Entity facilityBuilding, float newComfort)
+{
+    if (!em.HasComponent&lt;Game.Buildings.ParkingFacility&gt;(
+        facilityBuilding))
+        return;
+
+    // Modify the runtime comfort factor
+    var facility = em
+        .GetComponentData&lt;Game.Buildings.ParkingFacility&gt;(
+            facilityBuilding);
+    facility.m_ComfortFactor = math.saturate(newComfort);
+    em.SetComponentData(facilityBuilding, facility);
+
+    // Propagate to all child parking/garage lanes
+    if (em.HasBuffer&lt;SubLane&gt;(facilityBuilding))
+    {
+        DynamicBuffer&lt;SubLane&gt; subLanes =
+            em.GetBuffer&lt;SubLane&gt;(facilityBuilding);
+        for (int i = 0; i &lt; subLanes.Length; i++)
+        {
+            Entity lane = subLanes[i].m_SubLane;
+            if (em.HasComponent&lt;ParkingLane&gt;(lane)
+                || em.HasComponent&lt;GarageLane&gt;(lane))
+            {
+                if (!em.HasComponent&lt;PathfindUpdated&gt;(lane))
+                    em.AddComponent&lt;PathfindUpdated&gt;(lane);
+            }
+        }
+    }
+
+    Log.Info($"Set comfort to {newComfort:F2} on facility "
+        + $"{facilityBuilding}");
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Configuration</h2>
+
+  <table>
+    <thead>
+      <tr><th>Parameter</th><th>Source</th><th>Default</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Slot size</td>
+        <td>ParkingLaneData.m_SlotSize</td>
+        <td>Varies by road prefab</td>
+        <td>Width and length of parking slots</td>
+      </tr>
+      <tr>
+        <td>Slot angle</td>
+        <td>ParkingLaneData.m_SlotAngle</td>
+        <td>0 (parallel)</td>
+        <td>Angle of parking (0=parallel, 90=perpendicular)</td>
+      </tr>
+      <tr>
+        <td>Slot interval</td>
+        <td>ParkingLaneData.m_SlotInterval</td>
+        <td>Varies (0=continuous)</td>
+        <td>Distance between slot centers; 0 = continuous mode</td>
+      </tr>
+      <tr>
+        <td>Max car length</td>
+        <td>ParkingLaneData.m_MaxCarLength</td>
+        <td>Varies by road prefab</td>
+        <td>Maximum vehicle length that fits in a slot</td>
+      </tr>
+      <tr>
+        <td>Garage marker capacity</td>
+        <td>ParkingFacilityData.m_GarageMarkerCapacity</td>
+        <td>Varies per building</td>
+        <td>Parking spaces per garage access point</td>
+      </tr>
+      <tr>
+        <td>Comfort factor (facility)</td>
+        <td>ParkingFacilityData.m_ComfortFactor</td>
+        <td>0.5</td>
+        <td>Base desirability for pathfinding (multiplied by efficiency)</td>
+      </tr>
+      <tr>
+        <td>Default garage capacity</td>
+        <td>Hardcoded fallback</td>
+        <td>2 per marker</td>
+        <td>Used when building lacks ParkingFacilityData</td>
+      </tr>
+      <tr>
+        <td>Default comfort</td>
+        <td>Hardcoded fallback</td>
+        <td>0.8</td>
+        <td>Used when building lacks ParkingFacilityData</td>
+      </tr>
+      <tr>
+        <td>Residential capacity</td>
+        <td>BuildingPropertyData.m_SpaceMultiplier</td>
+        <td>max(1, round(multiplier))</td>
+        <td>Fallback garage capacity for residential buildings</td>
+      </tr>
+      <tr>
+        <td>Workplace capacity</td>
+        <td>WorkplaceData.m_MaxWorkers</td>
+        <td>max(2, workers/20)</td>
+        <td>Fallback garage capacity for workplaces</td>
+      </tr>
+      <tr>
+        <td>ParkingFacilityAI update frame</td>
+        <td>UpdateFrameData</td>
+        <td>12</td>
+        <td>Frame group for facility AI updates</td>
+      </tr>
+      <tr>
+        <td>Parking reroute scan distance</td>
+        <td>Hardcoded</td>
+        <td>40000 path nodes</td>
+        <td>How far ahead vehicles check for parking</td>
+      </tr>
+      <tr>
+        <td>Parking pathfind cost</td>
+        <td>PathfindCarData.ParkingCost</td>
+        <td>Prefab-defined</td>
+        <td>Base cost for parking edges in pathfinding</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Open Questions</h2>
+
+  <ul>
+    <li>
+      <strong>Parking search radius:</strong> The vanilla scan distance of 40,000 path nodes in
+      <code>CheckParkingSpace</code> seems very large. The exact distance-to-game-units
+      conversion for this value is not clear.
+    </li>
+    <li>
+      <strong>Bicycle parking:</strong> <code>BicycleParkingFacility</code> and
+      <code>BicycleParking</code> route components exist but the bicycle parking search algorithm
+      was not fully traced. It likely follows a similar pattern to car parking.
+    </li>
+    <li>
+      <strong>SpecialParking PathMethod:</strong> The <code>PathMethod.SpecialParking</code>
+      (0x1000) flag exists but its exact use case needs further tracing.
+    </li>
+    <li>
+      <strong>ParkingFacilityMode:</strong> The managed <code>ParkingFacilityMode</code> class
+      can modify comfort factors per game mode. How this interacts with district policies at
+      runtime is not fully documented.
+    </li>
+    <li>
+      <strong>Taxi availability:</strong> The <code>m_TaxiAvailability</code> field and the
+      <code>TaxiAvailabilityUpdated</code>/<code>TaxiAvailabilityChanged</code> flags suggest
+      a taxi dispatch optimization system that was not fully traced.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Sources</h2>
+
+  <ul>
+    <li>Decompiled: ParkingLane (Game.Net), ParkingLaneFlags, GarageLane, ParkingFacility (Game.Buildings), ParkingFacilityFlags, CarParkingFacility, BicycleParkingFacility</li>
+    <li>Decompiled: ParkedCar (Game.Vehicles), FixParkingLocation, PersonalCar</li>
+    <li>Decompiled: ParkingLaneData, ParkingFacilityData, ParkingSpaceData, ParkingFacility (managed), ParkingLane (managed), ParkingSpace (managed), ParkingFacilityMode</li>
+    <li>Decompiled: ParkingLaneDataSystem (Game.Pathfind), ParkingFacilityAISystem (Game.Simulation)</li>
+    <li>Decompiled: ParkingSpace, CarParking, BicycleParking (Game.Routes), PlayerResource (Game.City)</li>
+    <li>Related: <a href="traffic-flow.html">Traffic Flow &amp; Lane Control</a>, <a href="vehicle-spawning.html">Vehicle Spawning</a>, <a href="pathfinding.html">Pathfinding</a></li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+</body>
+</html>
