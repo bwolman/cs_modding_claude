@@ -911,6 +911,100 @@ bool yellowDivider = theme.assetPrefix is not "EU";</code></pre>
     <p><code>TempFlags</code>: Delete, Replace, Combine, Cancel. Custom apply systems register before <code>ApplyNetSystem</code>.</p>
 
     <!-- ============================================================ -->
+    <h2>Mod Blueprint: Custom Network Prefab Creation (RoadBuilder Pattern)</h2>
+
+    <p>
+      A comprehensive blueprint for mods that create custom network prefabs (roads, tracks, paths, fences)
+      at runtime, based on the RoadBuilder mod architecture.
+    </p>
+
+    <p>
+      <strong>Mod archetype:</strong> Runtime network asset creator. The mod defines custom road/track/path/fence
+      configurations, generates prefabs from them at runtime, registers them with the game, and persists the
+      configuration in save files.
+    </p>
+
+    <h3>Systems to Create</h3>
+
+    <table>
+      <thead><tr><th>System</th><th>Phase</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>GenerationDataSystem</td><td>PrefabUpdate</td><td>Collects all game prefab references (sections, pieces, lanes) into lookup dictionaries for prefab assembly</td></tr>
+        <tr><td>NetSectionsSystem</td><td>PrefabUpdate</td><td>Indexes available <code>NetSectionPrefab</code>, <code>NetPiecePrefab</code>, and lane prefabs for section composition</td></tr>
+        <tr><td>InitializerSystem</td><td>MainLoop</td><td>Loads saved configurations and queues prefab creation/update on game load</td></tr>
+        <tr><td>CoreSystem</td><td>Modification1</td><td>Queues and applies prefab updates -- the central orchestrator for create/modify/delete operations</td></tr>
+        <tr><td>ApplyTagSystem</td><td>Modification2</td><td>Tags newly placed edges with a custom <code>IEmptySerializable</code> marker component for tracking</td></tr>
+        <tr><td>TrackerSystem</td><td>Modification3</td><td>Tracks which custom prefabs are actually placed in the city (for cleanup and save optimization)</td></tr>
+        <tr><td>ToolSystem</td><td>ToolUpdate</td><td>Custom <code>ToolBaseSystem</code> for picking/editing existing network segments with raycast and highlighting</td></tr>
+        <tr><td>SerializeSystem</td><td>Serialize</td><td>Save/load integration using <code>ISerializable</code> custom components</td></tr>
+        <tr><td>UI Systems (4)</td><td>UIUpdate</td><td>Various panels for configuration, selection, and toolbar integration</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Components to Create</h3>
+
+    <table>
+      <thead><tr><th>Component</th><th>Type</th><th>Purpose</th></tr></thead>
+      <tbody>
+        <tr><td>CustomNetworkConfig</td><td><code>IComponentData : ISerializable</code></td><td>Stores the full network configuration (lanes, sections, options) embedded in save files</td></tr>
+        <tr><td>CustomNetworkTag</td><td><code>IComponentData : IEmptySerializable</code></td><td>Empty tag on placed edges for efficient queries -- persists across save/load</td></tr>
+        <tr><td>CustomNetworkPrefabData</td><td><code>IComponentData</code></td><td>Marks prefab entities as mod-generated for query filtering</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Harmony Patches Needed</h3>
+
+    <ul>
+      <li><strong>None required for core functionality</strong> -- prefab creation uses <code>PrefabSystem.AddPrefab()</code> and <code>PrefabSystem.UpdatePrefab()</code> directly</li>
+      <li><strong>Optional:</strong> Patch <code>PrefabSystem</code> internals only if <code>m_PrefabIndices</code> fixup via reflection proves insufficient</li>
+    </ul>
+
+    <h3>Key Game Components</h3>
+
+    <ul>
+      <li><code>NetGeometryPrefab</code> (and subclasses <code>RoadPrefab</code>, <code>TrackPrefab</code>, <code>PathwayPrefab</code>, <code>FencePrefab</code>) -- base classes for custom prefab instances via <code>ScriptableObject.CreateInstance&lt;T&gt;()</code></li>
+      <li><code>NetSectionPrefab</code> / <code>NetPieceInfo</code> / <code>NetPieceLanes</code> -- section composition hierarchy that defines lane layout</li>
+      <li><code>NetCompositionLane</code> -- buffer on composition entities defining lane positions, carriageway, and group</li>
+      <li><code>UIObject.m_Group</code> / <code>ServiceObject.m_Service</code> -- toolbar placement for custom prefabs</li>
+      <li><code>UIGroupElement</code> -- buffer on toolbar group entities that must be cleaned up before <code>UpdatePrefab()</code></li>
+      <li><code>PrefabSystem.m_PrefabIndices</code> -- internal dictionary requiring reflection-based fixup after <code>UpdatePrefab()</code></li>
+      <li><code>AggregateNetPrefab</code> -- aggregate type assignment for road naming and statistics</li>
+    </ul>
+
+    <h3>Core Pattern</h3>
+
+    <pre><code>// 1. Create custom prefab
+var customRoad = ScriptableObject.CreateInstance&lt;RoadPrefab&gt;();
+customRoad.name = "MyMod_CustomRoad";
+customRoad.m_SpeedLimit = 16.67f; // 60 km/h
+customRoad.m_Sections = BuildSections(); // Compose from existing NetSectionPrefabs
+customRoad.m_AggregateType = existingAggregateType;
+
+// 2. Add toolbar integration
+var uiObject = customRoad.AddComponent&lt;UIObject&gt;();
+uiObject.m_Group = targetToolbarGroup;
+var serviceObj = customRoad.AddComponent&lt;ServiceObject&gt;();
+serviceObj.m_Service = roadsService;
+
+// 3. Register with PrefabSystem
+prefabSystem.AddPrefab(customRoad);
+
+// 4. To update later: clean UIGroupElement buffer, then call UpdatePrefab
+prefabSystem.UpdatePrefab(customRoad);
+// Fix m_PrefabIndices via reflection if needed</code></pre>
+
+    <h3>Key Considerations</h3>
+
+    <ul>
+      <li><strong>12+ systems</strong> is typical for a full-featured network prefab mod -- plan for significant architecture</li>
+      <li>Use <code>ISerializable</code> (not <code>IEmptySerializable</code>) for config data that must survive save/load with actual values</li>
+      <li>Use <code>IEmptySerializable</code> for tag components that just need to persist (no data payload)</li>
+      <li><code>GenericUIWriter</code> enables serializing complex configuration objects to the UI layer</li>
+      <li>React/TypeScript frontend with <code>ValueBinding</code>/<code>TriggerBinding</code> for rich configuration UI</li>
+      <li>Embedded JSON locale resources with a <code>LocaleHelper</code> pattern for multi-language support</li>
+    </ul>
+
+    <!-- ============================================================ -->
     <h2>Open Questions</h2>
 
     <ul>

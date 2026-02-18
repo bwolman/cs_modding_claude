@@ -1079,6 +1079,82 @@ Temp entities follow a multi-phase lifecycle in the tool pipeline:
 
 Custom mods can register apply systems at `SystemUpdatePhase.ApplyTool` **before** `ApplyNetSystem` using `UpdateBefore<CustomApplySystem, ApplyNetSystem>` to process custom definition types (e.g., `TempLaneConnection`, `TempLanePriority`) during the promotion step.
 
+## Mod Blueprint: Custom Network Prefab Creation (RoadBuilder Pattern)
+
+A comprehensive blueprint for mods that create custom network prefabs (roads, tracks, paths, fences) at runtime, based on the RoadBuilder mod architecture.
+
+**Mod archetype**: Runtime network asset creator. The mod defines custom road/track/path/fence configurations, generates prefabs from them at runtime, registers them with the game, and persists the configuration in save files.
+
+### Systems to Create
+
+| System | Phase | Purpose |
+|--------|-------|---------|
+| GenerationDataSystem | PrefabUpdate | Collects all game prefab references (sections, pieces, lanes) into lookup dictionaries for prefab assembly |
+| NetSectionsSystem | PrefabUpdate | Indexes available `NetSectionPrefab`, `NetPiecePrefab`, and lane prefabs for section composition |
+| InitializerSystem | MainLoop | Loads saved configurations and queues prefab creation/update on game load |
+| CoreSystem | Modification1 | Queues and applies prefab updates -- the central orchestrator for create/modify/delete operations |
+| ApplyTagSystem | Modification2 | Tags newly placed edges with a custom `IEmptySerializable` marker component for tracking |
+| TrackerSystem | Modification3 | Tracks which custom prefabs are actually placed in the city (for cleanup and save optimization) |
+| ToolSystem | ToolUpdate | Custom `ToolBaseSystem` for picking/editing existing network segments with raycast and highlighting |
+| SerializeSystem | Serialize | Save/load integration using `ISerializable` custom components |
+| UI Systems (4) | UIUpdate | Various panels for configuration, selection, and toolbar integration |
+
+### Components to Create
+
+| Component | Type | Purpose |
+|-----------|------|---------|
+| CustomNetworkConfig | `IComponentData : ISerializable` | Stores the full network configuration (lanes, sections, options) embedded in save files |
+| CustomNetworkTag | `IComponentData : IEmptySerializable` | Empty tag on placed edges for efficient queries -- persists across save/load |
+| CustomNetworkPrefabData | `IComponentData` | Marks prefab entities as mod-generated for query filtering |
+
+### Harmony Patches Needed
+
+- **None required for core functionality** -- prefab creation uses `PrefabSystem.AddPrefab()` and `PrefabSystem.UpdatePrefab()` directly
+- **Optional**: Patch `PrefabSystem` internals only if `m_PrefabIndices` fixup via reflection proves insufficient
+
+### Key Game Components
+
+- `NetGeometryPrefab` (and subclasses `RoadPrefab`, `TrackPrefab`, `PathwayPrefab`, `FencePrefab`) -- base classes for custom prefab instances via `ScriptableObject.CreateInstance<T>()`
+- `NetSectionPrefab` / `NetPieceInfo` / `NetPieceLanes` -- section composition hierarchy that defines lane layout
+- `NetCompositionLane` -- buffer on composition entities defining lane positions, carriageway, and group
+- `UIObject.m_Group` / `ServiceObject.m_Service` -- toolbar placement for custom prefabs
+- `UIGroupElement` -- buffer on toolbar group entities that must be cleaned up before `UpdatePrefab()`
+- `PrefabSystem.m_PrefabIndices` -- internal dictionary requiring reflection-based fixup after `UpdatePrefab()`
+- `AggregateNetPrefab` -- aggregate type assignment for road naming and statistics
+
+### Core Pattern
+
+```csharp
+// 1. Create custom prefab
+var customRoad = ScriptableObject.CreateInstance<RoadPrefab>();
+customRoad.name = "MyMod_CustomRoad";
+customRoad.m_SpeedLimit = 16.67f; // 60 km/h
+customRoad.m_Sections = BuildSections(); // Compose from existing NetSectionPrefabs
+customRoad.m_AggregateType = existingAggregateType;
+
+// 2. Add toolbar integration
+var uiObject = customRoad.AddComponent<UIObject>();
+uiObject.m_Group = targetToolbarGroup;
+var serviceObj = customRoad.AddComponent<ServiceObject>();
+serviceObj.m_Service = roadsService;
+
+// 3. Register with PrefabSystem
+prefabSystem.AddPrefab(customRoad);
+
+// 4. To update later: clean UIGroupElement buffer, then call UpdatePrefab
+prefabSystem.UpdatePrefab(customRoad);
+// Fix m_PrefabIndices via reflection if needed
+```
+
+### Key Considerations
+
+- **12+ systems** is typical for a full-featured network prefab mod -- plan for significant architecture
+- Use `ISerializable` (not `IEmptySerializable`) for config data that must survive save/load with actual values
+- Use `IEmptySerializable` for tag components that just need to persist (no data payload)
+- `GenericUIWriter` enables serializing complex configuration objects to the UI layer
+- React/TypeScript frontend with `ValueBinding`/`TriggerBinding` for rich configuration UI
+- Embedded JSON locale resources with a `LocaleHelper` pattern for multi-language support
+
 ## Open Questions
 
 - How does `NetToolSystem` handle the Grid mode internally? The control point collection differs from curve modes but the exact grid generation logic was not fully traced.
