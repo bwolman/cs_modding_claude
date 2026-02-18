@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Common Errors - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <hr class="sidebar-divider">
+
+    <h3>Concepts</h3>
+    <a href="concepts-ecs.html">Unity ECS for CS2</a>
+    <a href="concepts-harmony.html">Harmony Patching</a>
+    <a href="concepts-cohtml.html">The cohtml UI Model</a>
+    <a href="concepts-prefabs.html">Prefab System</a>
+    <a href="concepts-update-phases.html">Update Phases</a>
+    <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+
+    <h3>Troubleshooting</h3>
+    <a href="troubleshooting-common-errors.html" class="active">Common Errors</a>
+    <a href="troubleshooting-debugging.html">Debugging Guide</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Common Errors <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What This Page Covers</h2>
+    <p>
+      A reference for the most frequently encountered errors when developing CS2 mods.
+      Each error includes symptoms, cause, and fix. Organized by category: mod loading,
+      system execution, Harmony patching, ECS queries, and build errors.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Mod Not Loading</h2>
+
+  <h3>MissedDependenciesError</h3>
+
+  <p><strong>Symptoms:</strong> The mod appears in the mod list but is greyed out
+  with a "missing dependencies" warning. <code>IMod.OnLoad</code> is never called.</p>
+
+  <p><strong>Cause:</strong> The mod's DLL references an assembly that the game
+  cannot find. During <code>ExecutableAsset.ResolveModAssets()</code>, each assembly
+  reference is checked. If any cannot be resolved, the mod's state is set to
+  <code>MissedDependenciesError</code> and loading is skipped.</p>
+
+  <p><strong>Fix:</strong></p>
+  <ul>
+    <li>Check that all referenced game assemblies exist in <code>Cities2_Data/Managed/</code></li>
+    <li>Ensure game assembly references have <code>Private="false"</code> (Copy Local = No) in the <code>.csproj</code></li>
+    <li>If the mod depends on another mod, ensure that mod is installed and loaded</li>
+    <li>Verify the target framework is <code>netstandard2.1</code></li>
+  </ul>
+
+  <h3>LoadAssemblyError</h3>
+
+  <p><strong>Symptoms:</strong> The mod fails to load with an error in the game log
+  referencing assembly loading failure.</p>
+
+  <p><strong>Cause:</strong> The DLL itself cannot be loaded -- typically due to
+  targeting the wrong .NET version, a corrupted DLL, or missing native dependencies.</p>
+
+  <p><strong>Fix:</strong></p>
+  <ul>
+    <li>Confirm the project targets <code>netstandard2.1</code> (not <code>net6.0</code> or <code>net8.0</code>)</li>
+    <li>Rebuild the mod from clean (<code>dotnet clean &amp;&amp; dotnet build</code>)</li>
+    <li>Check that the DLL was copied to the correct <code>Mods/</code> directory</li>
+  </ul>
+
+  <h3>IsNotModWarning</h3>
+
+  <p><strong>Symptoms:</strong> The DLL loads but the game says "not a mod."</p>
+
+  <p><strong>Cause:</strong> The assembly does not contain any class implementing
+  <code>IMod</code>. The <code>ModManager</code> scans for <code>IMod</code>
+  implementations via reflection -- if none are found, the assembly is treated
+  as a shared library, not a mod.</p>
+
+  <p><strong>Fix:</strong> Ensure your entry-point class implements <code>IMod</code>
+  with both <code>OnLoad(UpdateSystem)</code> and <code>OnDispose()</code> methods.</p>
+
+  <!-- ============================================================ -->
+  <h2>System Not Running</h2>
+
+  <h3>RequireForUpdate Blocking</h3>
+
+  <p><strong>Symptoms:</strong> <code>OnUpdate</code> is never called. No errors
+  in the log.</p>
+
+  <p><strong>Cause:</strong> The system calls <code>RequireForUpdate(query)</code>
+  in <code>OnCreate</code>, but the entity query matches zero entities. The system
+  is silently skipped.</p>
+
+  <p><strong>Fix:</strong></p>
+  <ul>
+    <li>Temporarily remove <code>RequireForUpdate</code> to confirm the system runs</li>
+    <li>Log the query's entity count: <code>Log.Info($"Count: {m_Query.CalculateEntityCount()}")</code></li>
+    <li>Verify the query components are correct (check spelling, namespace, <code>ReadOnly</code> vs <code>ReadWrite</code>)</li>
+    <li>Ensure entities with those components actually exist (e.g., place a building first)</li>
+  </ul>
+
+  <h3>Wrong SystemUpdatePhase</h3>
+
+  <p><strong>Symptoms:</strong> The system runs but at the wrong time -- entities
+  it expects to exist have not been created yet, or data it reads is stale.</p>
+
+  <p><strong>Cause:</strong> The system is registered in a phase that runs before
+  the systems that produce its input data.</p>
+
+  <p><strong>Fix:</strong> Check the <a href="concepts-update-phases.html">Update Phases</a>
+  page and move your system to a later phase, or use
+  <code>UpdateAfter&lt;T, TOther&gt;</code> to explicitly order it after the
+  producing system.</p>
+
+  <h3>Enabled = false</h3>
+
+  <p><strong>Symptoms:</strong> System never runs. No errors in the log.</p>
+
+  <p><strong>Cause:</strong> Something (another mod, or your own code) set
+  <code>Enabled = false</code> on the system.</p>
+
+  <p><strong>Fix:</strong> Check for <code>Enabled = false</code> in your
+  <code>OnCreate</code> and in any Harmony patches that might target your system.
+  Also check if <code>UISystemBase.gameMode</code> is filtering out the current
+  game mode.</p>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Not Applying</h2>
+
+  <h3>Wrong Method Signature</h3>
+
+  <p><strong>Symptoms:</strong> No errors, but the patch has no effect. The
+  original method runs unmodified.</p>
+
+  <p><strong>Cause:</strong> The <code>[HarmonyPatch]</code> attribute targets
+  a method that does not exist with that exact name or parameter types. Harmony
+  silently skips patches that cannot resolve their target.</p>
+
+  <p><strong>Fix:</strong></p>
+  <ul>
+    <li>Verify the method name is exact (case-sensitive)</li>
+    <li>Check parameter types match the decompiled signature</li>
+    <li>For overloaded methods, specify types: <code>[HarmonyPatch("Method", new Type[] { typeof(int) })]</code></li>
+    <li>Use <code>AccessTools.Method()</code> to verify the method resolves: if it returns null, the name or types are wrong</li>
+  </ul>
+
+  <h3>Target Method is Burst-Compiled</h3>
+
+  <p><strong>Symptoms:</strong> Patch silently fails. No errors, no effect.</p>
+
+  <p><strong>Cause:</strong> The target method is inside a Burst-compiled job.
+  Harmony operates on managed .NET IL; Burst jobs are compiled to native code.</p>
+
+  <p><strong>Fix:</strong> You cannot Harmony-patch Burst code. Use the ECS
+  system replacement pattern instead (disable the vanilla system, register a
+  custom replacement). See <a href="concepts-harmony.html">Harmony Patching</a>.</p>
+
+  <h3>Access Modifier Issues</h3>
+
+  <p><strong>Symptoms:</strong> <code>MissingMethodException</code> or patch
+  does not apply.</p>
+
+  <p><strong>Cause:</strong> The target method is <code>private</code> or
+  <code>internal</code> and Harmony cannot find it via the attribute.</p>
+
+  <p><strong>Fix:</strong> Use <code>AccessTools.Method()</code> to find private
+  methods, then apply the patch manually:
+  </p>
+
+  <pre><code class="language-csharp">var target = AccessTools.Method(typeof(TargetClass), "PrivateMethod");
+var prefix = new HarmonyMethod(typeof(MyPatch), nameof(MyPatch.Prefix));
+_harmony.Patch(target, prefix: prefix);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>NullReferenceException in OnUpdate</h2>
+
+  <h3>Entity Query Returning Nothing</h3>
+
+  <p><strong>Symptoms:</strong> <code>NullReferenceException</code> when calling
+  <code>EntityManager.GetComponentData</code> on an entity from a query result.</p>
+
+  <p><strong>Cause:</strong> The entity was destroyed between the query and the
+  component access, or the entity does not have the expected component.</p>
+
+  <p><strong>Fix:</strong></p>
+  <ul>
+    <li>Use <code>EntityManager.Exists(entity)</code> before accessing components</li>
+    <li>Use <code>EntityManager.TryGetComponent&lt;T&gt;(entity, out var data)</code> for safe access</li>
+    <li>Add <code>ComponentType.Exclude&lt;Deleted&gt;()</code> to your query</li>
+  </ul>
+
+  <h3>System Reference Not Initialized</h3>
+
+  <p><strong>Symptoms:</strong> <code>NullReferenceException</code> on a system
+  reference field like <code>m_PrefabSystem</code>.</p>
+
+  <p><strong>Cause:</strong> The field was not initialized in <code>OnCreate</code>,
+  or <code>base.OnCreate()</code> was not called.</p>
+
+  <p><strong>Fix:</strong> Always call <code>base.OnCreate()</code> first, then
+  initialize system references:</p>
+
+  <pre><code class="language-csharp">protected override void OnCreate()
+{
+    base.OnCreate(); // Always call base first
+    m_PrefabSystem = World.GetOrCreateSystemManaged&lt;PrefabSystem&gt;();
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Build Errors</h2>
+
+  <h3>Wrong Target Framework</h3>
+
+  <p><strong>Symptoms:</strong> Build succeeds but mod fails to load with
+  <code>LoadAssemblyError</code>.</p>
+
+  <p><strong>Cause:</strong> The <code>.csproj</code> targets <code>net6.0</code>,
+  <code>net7.0</code>, or <code>net8.0</code> instead of <code>netstandard2.1</code>.
+  CS2 runs on Unity's Mono runtime which only supports .NET Standard 2.1.</p>
+
+  <p><strong>Fix:</strong> Set <code>&lt;TargetFramework&gt;netstandard2.1&lt;/TargetFramework&gt;</code>
+  in your <code>.csproj</code>.</p>
+
+  <h3>Missing Assembly Reference</h3>
+
+  <p><strong>Symptoms:</strong> Build fails with "The type or namespace 'X'
+  could not be found."</p>
+
+  <p><strong>Cause:</strong> A game assembly reference is missing from the
+  <code>.csproj</code>.</p>
+
+  <p><strong>Fix:</strong> Add the reference with the correct path and
+  <code>Private="false"</code>:</p>
+
+  <pre><code class="language-xml">&lt;Reference Include="Game"&gt;
+  &lt;HintPath&gt;$(ManagedPath)/Game.dll&lt;/HintPath&gt;
+  &lt;Private&gt;false&lt;/Private&gt;
+&lt;/Reference&gt;</code></pre>
+
+  <h3>Copy Local = Yes (DLL Bloat)</h3>
+
+  <p><strong>Symptoms:</strong> The mod's output directory contains copies of
+  game DLLs (Game.dll, Unity.Entities.dll, etc.). Mod loads but may conflict.</p>
+
+  <p><strong>Cause:</strong> Assembly references have <code>Private="true"</code>
+  (the default), causing them to be copied to the output.</p>
+
+  <p><strong>Fix:</strong> Set <code>Private="false"</code> on all game assembly
+  references. Only your mod's DLL and any third-party NuGet packages should be
+  in the output.</p>
+
+  <div class="quick-start">
+    <h2>Quick Diagnostic Checklist</h2>
+    <ul>
+      <li>Check the game log for error messages (see <a href="troubleshooting-debugging.html">Debugging Guide</a>)</li>
+      <li>Verify <code>netstandard2.1</code> target framework</li>
+      <li>Verify all game assembly references are <code>Private="false"</code></li>
+      <li>Verify <code>IMod</code> is implemented with both <code>OnLoad</code> and <code>OnDispose</code></li>
+      <li>Add <code>Log.Info("System running")</code> at the top of <code>OnUpdate</code> to confirm execution</li>
+      <li>Check <code>RequireForUpdate</code> queries are not empty</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II). Based on ModLoading and HarmonyTranspilers research.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

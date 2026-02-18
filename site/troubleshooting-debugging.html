@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Debugging Guide - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <hr class="sidebar-divider">
+
+    <h3>Concepts</h3>
+    <a href="concepts-ecs.html">Unity ECS for CS2</a>
+    <a href="concepts-harmony.html">Harmony Patching</a>
+    <a href="concepts-cohtml.html">The cohtml UI Model</a>
+    <a href="concepts-prefabs.html">Prefab System</a>
+    <a href="concepts-update-phases.html">Update Phases</a>
+    <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+
+    <h3>Troubleshooting</h3>
+    <a href="troubleshooting-common-errors.html">Common Errors</a>
+    <a href="troubleshooting-debugging.html" class="active">Debugging Guide</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Debugging Guide <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What This Page Covers</h2>
+    <p>
+      How to find and diagnose problems in CS2 mods. Covers game log locations,
+      the LogManager API, attaching a debugger, common debugging patterns,
+      and performance profiling.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Game Log Location</h2>
+
+  <p>
+    CS2 writes log output to a file on disk. The location depends on your
+    operating system:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Platform</th><th>Log File Path</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Windows</td>
+        <td><code>%APPDATA%\..\LocalLow\Colossal Order\Cities Skylines II\Logs\</code></td>
+      </tr>
+      <tr>
+        <td>macOS</td>
+        <td><code>~/Library/Logs/Colossal Order/Cities Skylines II/</code></td>
+      </tr>
+      <tr>
+        <td>Linux</td>
+        <td><code>~/.local/share/Colossal Order/Cities Skylines II/Logs/</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The main log file is <code>Player.log</code>. On Windows, you can also find
+    <code>Player-prev.log</code> which contains the log from the previous game session
+    (useful after a crash).
+  </p>
+
+  <p>
+    <strong>Tip:</strong> Keep a terminal window open with <code>tail -f Player.log</code>
+    (macOS/Linux) or use a tool like BareTail (Windows) to watch the log in real time
+    while testing your mod.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>LogManager Usage in Mods</h2>
+
+  <p>
+    CS2 provides <code>LogManager</code> from the <code>Colossal.Logging</code>
+    namespace. This is the standard way for mods to write log messages.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Logging;
+
+public class Mod : IMod
+{
+    // Create a logger named after your mod
+    // SetShowsErrorsInUI(true) makes Error-level messages appear
+    // as in-game notifications
+    internal static ILog Log { get; } =
+        LogManager.GetLogger(nameof(Mod)).SetShowsErrorsInUI(true);
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        Log.Info("Mod loaded successfully");
+        Log.Warn("Something unexpected but not fatal");
+        Log.Error("Something went wrong");
+    }
+
+    public void OnDispose()
+    {
+        Log.Info("Mod disposed");
+    }
+}</code></pre>
+
+  <h3>Log Levels</h3>
+
+  <table>
+    <thead>
+      <tr><th>Level</th><th>Method</th><th>When to Use</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Info</td>
+        <td><code>Log.Info(message)</code></td>
+        <td>Normal operation: startup, shutdown, state changes</td>
+      </tr>
+      <tr>
+        <td>Warning</td>
+        <td><code>Log.Warn(message)</code></td>
+        <td>Unexpected but recoverable situations</td>
+      </tr>
+      <tr>
+        <td>Error</td>
+        <td><code>Log.Error(message)</code></td>
+        <td>Failures that prevent correct operation</td>
+      </tr>
+      <tr>
+        <td>Critical</td>
+        <td><code>Log.Critical(message)</code></td>
+        <td>Fatal errors requiring immediate attention</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    With <code>SetShowsErrorsInUI(true)</code>, Error and Critical messages appear
+    as pop-up notifications in the game UI, making them immediately visible during
+    testing.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Defensive Logging Pattern</h2>
+
+  <p>
+    Wrap risky operations in try/catch blocks and log exceptions. This prevents
+    a single error from crashing the entire system.
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnUpdate()
+{
+    try
+    {
+        var entities = m_Query.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            ProcessEntity(entities[i]);
+        }
+        entities.Dispose();
+    }
+    catch (Exception ex)
+    {
+        Mod.Log.Error($"Error in OnUpdate: {ex}");
+    }
+}
+
+private void ProcessEntity(Entity entity)
+{
+    if (!EntityManager.Exists(entity))
+    {
+        Mod.Log.Warn($"Entity {entity} no longer exists, skipping");
+        return;
+    }
+
+    if (!EntityManager.TryGetComponent&lt;Building&gt;(entity, out var building))
+    {
+        Mod.Log.Warn($"Entity {entity} missing Building component");
+        return;
+    }
+
+    // Safe to proceed
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Debugging with Breakpoints</h2>
+
+  <h3>Attaching a Debugger</h3>
+
+  <p>
+    You can attach JetBrains Rider or Visual Studio to the running game process
+    to set breakpoints, inspect variables, and step through code.
+  </p>
+
+  <h4>JetBrains Rider</h4>
+  <ol>
+    <li>Open your mod solution in Rider</li>
+    <li>Go to <strong>Run &gt; Attach to Process</strong></li>
+    <li>Find and select the <code>Cities2.exe</code> (Windows) or <code>Cities2</code> (macOS/Linux) process</li>
+    <li>Set breakpoints in your mod code</li>
+    <li>Trigger the code path in-game</li>
+  </ol>
+
+  <h4>Visual Studio</h4>
+  <ol>
+    <li>Open your mod solution in Visual Studio</li>
+    <li>Go to <strong>Debug &gt; Attach to Process</strong></li>
+    <li>Select <code>Cities2.exe</code> from the process list</li>
+    <li>Choose "Managed (.NET)" as the code type</li>
+    <li>Set breakpoints and trigger in-game</li>
+  </ol>
+
+  <p>
+    <strong>Limitation:</strong> Breakpoints only work in managed .NET code.
+    Burst-compiled jobs run as native code and cannot be debugged with a .NET
+    debugger. Build in Debug configuration (without Burst) for full debugging
+    support.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Common Debugging Patterns</h2>
+
+  <h3>Pattern 1: Log-Based Debugging</h3>
+
+  <p>
+    The simplest and most reliable approach. Add log statements at key points
+    to trace execution flow:
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnUpdate()
+{
+    int count = m_Query.CalculateEntityCount();
+    Mod.Log.Info($"OnUpdate: processing {count} entities");
+
+    var entities = m_Query.ToEntityArray(Allocator.Temp);
+    for (int i = 0; i &lt; entities.Length; i++)
+    {
+        var car = EntityManager.GetComponentData&lt;Car&gt;(entities[i]);
+        Mod.Log.Info($"  Entity {entities[i].Index}: flags={car.m_Flags}");
+    }
+    entities.Dispose();
+}</code></pre>
+
+  <p>
+    <strong>Warning:</strong> Remove or gate verbose logging before release.
+    Logging inside <code>OnUpdate</code> every frame can severely impact performance.
+    Use the <code>[Conditional]</code> attribute for debug-only logging:
+  </p>
+
+  <pre><code class="language-csharp">using System.Diagnostics;
+
+[Conditional("DEBUG")]
+private void DebugLog(string message) =&gt; Mod.Log.Info(message);</code></pre>
+
+  <h3>Pattern 2: Entity Inspector</h3>
+
+  <p>
+    Create a utility method to dump all components on an entity:
+  </p>
+
+  <pre><code class="language-csharp">public void InspectEntity(Entity entity)
+{
+    if (!EntityManager.Exists(entity))
+    {
+        Mod.Log.Info($"Entity {entity} does not exist");
+        return;
+    }
+
+    var types = EntityManager.GetComponentTypes(entity);
+    Mod.Log.Info($"Entity {entity} has {types.Length} components:");
+    for (int i = 0; i &lt; types.Length; i++)
+    {
+        Mod.Log.Info($"  - {types[i].GetManagedType()?.Name ?? "unknown"}");
+    }
+    types.Dispose();
+}</code></pre>
+
+  <h3>Pattern 3: One-Shot Debug System</h3>
+
+  <p>
+    Create a system that runs once, logs diagnostic info, then disables itself:
+  </p>
+
+  <pre><code class="language-csharp">public partial class DiagnosticSystem : GameSystemBase
+{
+    private bool m_HasRun;
+
+    protected override void OnUpdate()
+    {
+        if (m_HasRun) { Enabled = false; return; }
+        m_HasRun = true;
+
+        // Dump all police car states
+        var query = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Vehicles.PoliceCar&gt;());
+        Mod.Log.Info($"Total police cars: {query.CalculateEntityCount()}");
+
+        Enabled = false;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Debugging</h2>
+
+  <p>
+    Enable Harmony's built-in debug logging to see exactly what is being patched:
+  </p>
+
+  <pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
+{
+    // Enable Harmony debug output
+    Harmony.DEBUG = true;
+
+    _harmony = new Harmony("com.myname.mymod");
+    _harmony.PatchAll(typeof(Mod).Assembly);
+
+    // Disable after patching (verbose output every call)
+    Harmony.DEBUG = false;
+}</code></pre>
+
+  <p>
+    Harmony debug output goes to the game log and shows the IL instructions
+    before and after each patch, which is invaluable for diagnosing transpiler
+    issues.
+  </p>
+
+  <p>
+    You can also enable debug output for a single patch class:
+  </p>
+
+  <pre><code class="language-csharp">[HarmonyDebug]
+[HarmonyPatch(typeof(TargetClass), "TargetMethod")]
+public static class MyDebugPatch { /* ... */ }</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Performance Debugging</h2>
+
+  <h3>System Profiler</h3>
+
+  <p>
+    CS2 includes a built-in system profiler accessible from the developer console.
+    It shows how long each ECS system takes per frame, helping you identify
+    performance bottlenecks.
+  </p>
+
+  <h3>Timing Your Code</h3>
+
+  <pre><code class="language-csharp">protected override void OnUpdate()
+{
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+
+    // ... your logic ...
+
+    sw.Stop();
+    if (sw.ElapsedMilliseconds &gt; 5)
+    {
+        Mod.Log.Warn($"OnUpdate took {sw.ElapsedMilliseconds}ms " +
+                     $"({m_Query.CalculateEntityCount()} entities)");
+    }
+}</code></pre>
+
+  <h3>Update Interval Optimization</h3>
+
+  <p>
+    If your system does not need to run every frame, use
+    <code>GetUpdateInterval()</code> to reduce frequency. A system processing
+    statistics every 512 frames instead of every frame reduces CPU usage by
+    99.8%.
+  </p>
+
+  <pre><code class="language-csharp">public override int GetUpdateInterval(SystemUpdatePhase phase) =&gt; 512;</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>UI Debugging</h2>
+
+  <p>
+    CS2's cohtml UI can be debugged via the built-in developer tools at
+    <code>http://localhost:9444/</code> while the game is running. This provides
+    a Chrome DevTools-like interface for inspecting the DOM, CSS, and JavaScript
+    console.
+  </p>
+
+  <p>
+    Use the JavaScript console to test binding values:
+  </p>
+
+  <pre><code class="language-javascript">// Check if a binding exists and its current value
+engine.trigger("MyMod.ToggleTool");</code></pre>
+
+  <div class="quick-start">
+    <h2>Debugging Checklist</h2>
+    <ul>
+      <li>Check <code>Player.log</code> for errors and warnings</li>
+      <li>Add <code>Log.Info</code> at the top of <code>OnUpdate</code> to confirm the system runs</li>
+      <li>Use <code>try/catch</code> around all risky operations</li>
+      <li>Use <code>EntityManager.Exists()</code> and <code>TryGetComponent</code> for safe entity access</li>
+      <li>Enable <code>Harmony.DEBUG = true</code> to diagnose patch failures</li>
+      <li>Attach Rider or Visual Studio for breakpoint debugging</li>
+      <li>Use <code>Stopwatch</code> to identify performance bottlenecks</li>
+      <li>Use <code>[Conditional("DEBUG")]</code> to strip verbose logging from release builds</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II). Based on ModLoading and HarmonyTranspilers research.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unity ECS for CS2 Modders - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <hr class="sidebar-divider">
+
+    <h3>Concepts</h3>
+    <a href="concepts-ecs.html" class="active">Unity ECS for CS2</a>
+    <a href="concepts-harmony.html">Harmony Patching</a>
+    <a href="concepts-cohtml.html">The cohtml UI Model</a>
+    <a href="concepts-prefabs.html">Prefab System</a>
+    <a href="concepts-update-phases.html">Update Phases</a>
+    <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+
+    <h3>Troubleshooting</h3>
+    <a href="troubleshooting-common-errors.html">Common Errors</a>
+    <a href="troubleshooting-debugging.html">Debugging Guide</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Unity ECS for CS2 Modders <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      This page explains the Entity Component System (ECS) architecture that underpins
+      Cities: Skylines II. You will learn what entities, components, and systems are,
+      how CS2 implements ECS differently from standard Unity DOTS, and how to write
+      your first ECS system as a mod.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>What is ECS?</h2>
+
+  <p>
+    ECS stands for <strong>Entity Component System</strong>. It is an architectural
+    pattern that separates data from behavior. Instead of objects that combine state
+    and methods (like traditional OOP), ECS uses three distinct concepts:
+  </p>
+
+  <ul>
+    <li><strong>Entities</strong> -- lightweight identifiers (like database row IDs) that represent game objects</li>
+    <li><strong>Components</strong> -- pure data containers attached to entities (no methods, no logic)</li>
+    <li><strong>Systems</strong> -- classes that contain all the logic, operating on entities that have specific component combinations</li>
+  </ul>
+
+  <p>
+    In CS2, a police car is not a <code>PoliceCar</code> class with methods. Instead,
+    it is an entity with components like <code>Car</code>, <code>PoliceCar</code>,
+    <code>Target</code>, and <code>PathOwner</code>. The <code>PoliceCarAISystem</code>
+    queries all entities that have these components and runs the dispatch logic.
+  </p>
+
+  <h3>Why ECS?</h3>
+
+  <p>
+    ECS enables Cities: Skylines II to simulate hundreds of thousands of entities
+    (citizens, vehicles, buildings) efficiently. Components of the same type are
+    stored contiguously in memory, enabling cache-friendly iteration and parallel
+    processing via jobs.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>How CS2 Implements ECS</h2>
+
+  <p>
+    CS2 uses Unity's ECS framework but with its own managed system layer. The game
+    does <strong>not</strong> use standard Unity DOTS patterns exactly. Key differences:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Aspect</th><th>Standard Unity DOTS</th><th>CS2's Approach</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>System base class</td>
+        <td><code>SystemBase</code></td>
+        <td><code>GameSystemBase</code> (extends <code>SystemBase</code>)</td>
+      </tr>
+      <tr>
+        <td>System scheduling</td>
+        <td><code>[UpdateInGroup]</code> attributes</td>
+        <td><code>UpdateSystem.UpdateAt&lt;T&gt;(phase)</code> in <code>IMod.OnLoad</code></td>
+      </tr>
+      <tr>
+        <td>Update frequency</td>
+        <td>Every frame by default</td>
+        <td>Configurable via <code>GetUpdateInterval()</code></td>
+      </tr>
+      <tr>
+        <td>UI systems</td>
+        <td>Separate MonoBehaviours</td>
+        <td><code>UISystemBase</code> (ECS system with binding support)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>GameSystemBase Lifecycle</h2>
+
+  <p>
+    Every ECS system in CS2 extends <code>GameSystemBase</code>. The three core
+    lifecycle methods are:
+  </p>
+
+  <h3>OnCreate</h3>
+  <p>
+    Called once when the system is first created. Use it to cache references to
+    other systems, create entity queries, and allocate persistent data structures.
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnCreate()
+{
+    base.OnCreate();
+    m_PrefabSystem = World.GetOrCreateSystemManaged&lt;PrefabSystem&gt;();
+    m_Query = GetEntityQuery(
+        ComponentType.ReadOnly&lt;Building&gt;(),
+        ComponentType.Exclude&lt;Deleted&gt;());
+}</code></pre>
+
+  <h3>OnUpdate</h3>
+  <p>
+    Called every frame (or at the interval set by <code>GetUpdateInterval()</code>).
+    This is where your main logic runs -- iterating entities, reading/writing
+    components, scheduling jobs.
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnUpdate()
+{
+    var entities = m_Query.ToEntityArray(Allocator.Temp);
+    for (int i = 0; i &lt; entities.Length; i++)
+    {
+        // Process each entity
+    }
+    entities.Dispose();
+}</code></pre>
+
+  <h3>OnDestroy</h3>
+  <p>
+    Called when the system is destroyed (game shutdown or mod unload). Dispose
+    any native containers you allocated in <code>OnCreate</code>.
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnDestroy()
+{
+    m_NativeArray.Dispose();
+    base.OnDestroy();
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>EntityQuery: Finding Entities</h2>
+
+  <p>
+    An <code>EntityQuery</code> defines a filter for entities based on which
+    components they have. This is how systems find the entities they care about.
+  </p>
+
+  <pre><code class="language-csharp">// Find all buildings that are NOT deleted
+EntityQuery buildingQuery = GetEntityQuery(
+    ComponentType.ReadOnly&lt;Building&gt;(),
+    ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+    ComponentType.Exclude&lt;Deleted&gt;());
+
+// Find all police cars currently in emergency mode
+EntityQuery emergencyQuery = GetEntityQuery(
+    ComponentType.ReadOnly&lt;Game.Vehicles.PoliceCar&gt;(),
+    ComponentType.ReadWrite&lt;Car&gt;(),
+    ComponentType.Exclude&lt;Deleted&gt;());</code></pre>
+
+  <p>
+    Use <code>RequireForUpdate(query)</code> in <code>OnCreate</code> to make your
+    system skip <code>OnUpdate</code> entirely when the query matches zero entities.
+    This is an important optimization.
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnCreate()
+{
+    base.OnCreate();
+    m_Query = GetEntityQuery(ComponentType.ReadOnly&lt;MyComponent&gt;());
+    RequireForUpdate(m_Query); // OnUpdate only runs when entities exist
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>IComponentData vs IBufferElementData</h2>
+
+  <h3>IComponentData</h3>
+  <p>
+    A struct implementing <code>IComponentData</code> stores a fixed-size data
+    block on an entity. Each entity can have at most one component of each type.
+  </p>
+
+  <pre><code class="language-csharp">public struct Building : IComponentData
+{
+    public BuildingFlags m_Flags;
+    public int m_CrimeCounter;
+}
+
+// An entity either has Building or it does not.
+// If it has Building, there is exactly one.</code></pre>
+
+  <h3>IBufferElementData</h3>
+  <p>
+    A struct implementing <code>IBufferElementData</code> stores a variable-length
+    list of elements on an entity. Think of it as a resizable array attached to
+    an entity.
+  </p>
+
+  <pre><code class="language-csharp">public struct ServiceDispatch : IBufferElementData
+{
+    public Entity m_Request;
+}
+
+// An entity can have zero, one, or many ServiceDispatch entries.
+DynamicBuffer&lt;ServiceDispatch&gt; buffer =
+    EntityManager.GetBuffer&lt;ServiceDispatch&gt;(entity);
+buffer.Add(new ServiceDispatch { m_Request = requestEntity });</code></pre>
+
+  <p>
+    CS2 uses buffers extensively for things like path elements, sub-meshes,
+    service dispatches, and event targets.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>EntityCommandBuffer for Deferred Changes</h2>
+
+  <p>
+    When running parallel jobs, you cannot modify entities directly (it would
+    cause race conditions). Instead, you record changes in an
+    <code>EntityCommandBuffer</code> (ECB) and play them back on the main thread.
+  </p>
+
+  <pre><code class="language-csharp">// Create an ECB from a barrier system
+var ecb = m_EndSimulationECBSystem.CreateCommandBuffer();
+
+// Queue structural changes (safe from parallel code)
+ecb.AddComponent&lt;EffectsUpdated&gt;(policeCarEntity);
+ecb.RemoveComponent&lt;Deleted&gt;(buildingEntity);
+ecb.DestroyEntity(tempEntity);
+
+// Changes are applied when the barrier system runs</code></pre>
+
+  <p>
+    For simple main-thread code, you can use <code>EntityManager</code> directly.
+    ECBs are only required when deferring changes from jobs or when you need
+    changes to happen at a specific sync point.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Comparison: OOP vs ECS</h2>
+
+  <p>
+    If you are coming from traditional OOP game code, the mental shift to ECS
+    can feel unfamiliar. Here is the same concept expressed both ways:
+  </p>
+
+  <h3>Traditional OOP</h3>
+  <pre><code class="language-csharp">public class PoliceCar : Vehicle
+{
+    public bool IsEmergency { get; set; }
+    public Entity Target { get; set; }
+
+    public void ActivateSirens()
+    {
+        IsEmergency = true;
+        UpdateEffects();
+    }
+}</code></pre>
+
+  <h3>CS2 ECS</h3>
+  <pre><code class="language-csharp">// Components (pure data, no methods)
+public struct Car : IComponentData { public CarFlags m_Flags; }
+public struct PoliceCar : IComponentData { public PoliceCarFlags m_State; }
+public struct Target : IComponentData { public Entity m_Target; }
+
+// System (all logic lives here)
+public partial class ActivateSirensSystem : GameSystemBase
+{
+    protected override void OnUpdate()
+    {
+        // Find police cars, set Emergency flag, add EffectsUpdated
+    }
+}</code></pre>
+
+  <p>
+    The key insight: in ECS, data and behavior are completely separated. Components
+    are just structs with fields. All logic lives in systems that query for entities
+    with specific component combinations.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Putting It Together: A Minimal System</h2>
+
+  <pre><code class="language-csharp">public partial class MyFirstSystem : GameSystemBase
+{
+    private EntityQuery m_BuildingQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_BuildingQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Building&gt;(),
+            ComponentType.ReadOnly&lt;PrefabRef&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;());
+        RequireForUpdate(m_BuildingQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        int count = m_BuildingQuery.CalculateEntityCount();
+        Mod.Log.Info($"There are {count} buildings in the city");
+    }
+}
+
+// Register in IMod.OnLoad:
+updateSystem.UpdateAt&lt;MyFirstSystem&gt;(SystemUpdatePhase.GameSimulation);</code></pre>
+
+  <div class="quick-start">
+    <h2>Key Takeaways</h2>
+    <ul>
+      <li>Entities are IDs, components are data, systems are logic</li>
+      <li>CS2 systems extend <code>GameSystemBase</code> with OnCreate/OnUpdate/OnDestroy</li>
+      <li>Use <code>EntityQuery</code> to find entities by component combination</li>
+      <li>Use <code>RequireForUpdate</code> to skip updates when there is nothing to process</li>
+      <li>Register systems via <code>UpdateSystem.UpdateAt&lt;T&gt;(phase)</code> in <code>OnLoad</code></li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II). Based on research from ModLoading and PrefabSystem topics.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

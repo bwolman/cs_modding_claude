@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How CS2 Uses Harmony - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <hr class="sidebar-divider">
+
+    <h3>Concepts</h3>
+    <a href="concepts-ecs.html">Unity ECS for CS2</a>
+    <a href="concepts-harmony.html" class="active">Harmony Patching</a>
+    <a href="concepts-cohtml.html">The cohtml UI Model</a>
+    <a href="concepts-prefabs.html">Prefab System</a>
+    <a href="concepts-update-phases.html">Update Phases</a>
+    <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+
+    <h3>Troubleshooting</h3>
+    <a href="troubleshooting-common-errors.html">Common Errors</a>
+    <a href="troubleshooting-debugging.html">Debugging Guide</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>How CS2 Uses Harmony <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      This page explains Harmony, the runtime method patching library used by CS2 mods.
+      You will learn the three patch types (prefix, postfix, transpiler), when to use
+      each one, and how to manage the Harmony lifecycle properly.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>What is Harmony?</h2>
+
+  <p>
+    <strong>Harmony</strong> is a .NET library that modifies game methods at runtime
+    without changing the original DLL files. It works by rewriting method entry points
+    in memory, inserting your code before, after, or inside the original method body.
+  </p>
+
+  <p>
+    CS2 mods use Harmony (via <code>0Harmony.dll</code>) to intercept game behavior
+    that cannot be changed through ECS alone -- for example, modifying how the UI
+    renders data, changing a hardcoded formula, or skipping part of a vanilla system's
+    logic.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>The Three Patch Types</h2>
+
+  <h3>Prefix: Run Before the Original</h3>
+
+  <p>
+    A prefix runs <strong>before</strong> the original method. It can inspect
+    arguments, modify them, or skip the original method entirely by returning
+    <code>false</code>.
+  </p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.SomeSystem), "OnUpdate")]
+public static class MyPrefixPatch
+{
+    // Return true = let original run. Return false = skip original.
+    public static bool Prefix(Game.Simulation.SomeSystem __instance)
+    {
+        if (ModSettings.DisableFeature)
+            return false; // Skip original OnUpdate entirely
+
+        return true; // Let original run normally
+    }
+}</code></pre>
+
+  <p><strong>Use when:</strong> You want to conditionally skip the original method,
+  or modify its arguments before it runs.</p>
+
+  <h3>Postfix: Run After the Original</h3>
+
+  <p>
+    A postfix runs <strong>after</strong> the original method. It can read or
+    modify the return value, and it always runs (even if a prefix skipped the
+    original).
+  </p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.SomeSystem), "CalculateValue")]
+public static class MyPostfixPatch
+{
+    // __result is the return value of the original method
+    public static void Postfix(ref float __result)
+    {
+        // Double the calculated value
+        __result *= 2.0f;
+    }
+}</code></pre>
+
+  <p><strong>Use when:</strong> You want to modify the return value, log method
+  calls, or run additional logic after the original completes.</p>
+
+  <h3>Transpiler: Modify IL Code (Advanced)</h3>
+
+  <p>
+    A transpiler rewrites the <strong>IL instructions</strong> inside the original
+    method. It receives the instruction list and returns a modified version. This
+    is the most powerful but also the most fragile patch type.
+  </p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.SomeSystem), "OnUpdate")]
+public static class MyTranspilerPatch
+{
+    static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+        IEnumerable&lt;CodeInstruction&gt; instructions)
+    {
+        var matcher = new CodeMatcher(instructions);
+        // Find and replace a method call in the IL
+        matcher.MatchStartForward(
+            new CodeMatch(OpCodes.Call,
+                AccessTools.Method(typeof(OriginalClass), "OldMethod")))
+        .SetInstruction(new CodeInstruction(OpCodes.Call,
+            AccessTools.Method(typeof(MyTranspilerPatch), nameof(NewMethod))));
+        return matcher.Instructions();
+    }
+
+    static void NewMethod(/* same parameters */) { /* custom logic */ }
+}</code></pre>
+
+  <p><strong>Use when:</strong> You need to change logic <em>inside</em> a method
+  (not just at entry/exit) -- for example, replacing a hardcoded constant or
+  swapping one method call for another. See the
+  <a href="harmony-transpilers.html">Harmony Transpilers</a> deep dive for
+  full details.</p>
+
+  <!-- ============================================================ -->
+  <h2>When to Use Each Type</h2>
+
+  <table>
+    <thead>
+      <tr><th>Goal</th><th>Patch Type</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Skip a method entirely</td>
+        <td>Prefix (return false)</td>
+        <td>Disable a vanilla system's OnUpdate</td>
+      </tr>
+      <tr>
+        <td>Modify arguments before execution</td>
+        <td>Prefix</td>
+        <td>Change a damage value before it is applied</td>
+      </tr>
+      <tr>
+        <td>Change a return value</td>
+        <td>Postfix</td>
+        <td>Multiply a calculated cost by a factor</td>
+      </tr>
+      <tr>
+        <td>Run code after a method finishes</td>
+        <td>Postfix</td>
+        <td>Log when a system completes its update</td>
+      </tr>
+      <tr>
+        <td>Replace one method call inside another</td>
+        <td>Transpiler</td>
+        <td>Swap a damage formula for a custom one</td>
+      </tr>
+      <tr>
+        <td>Change a hardcoded constant</td>
+        <td>Transpiler</td>
+        <td>Change update interval from 128 to 64</td>
+      </tr>
+      <tr>
+        <td>Add a conditional check mid-method</td>
+        <td>Transpiler</td>
+        <td>Skip expensive logic based on a mod setting</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Lifecycle in CS2 Mods</h2>
+
+  <p>
+    Harmony patches must be applied in <code>IMod.OnLoad</code> and removed in
+    <code>IMod.OnDispose</code>. Use a unique Harmony ID (reverse domain notation)
+    to identify your patches.
+  </p>
+
+  <pre><code class="language-csharp">public class MyMod : IMod
+{
+    private Harmony _harmony;
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // Create Harmony instance with unique ID
+        _harmony = new Harmony("com.myname.mymod");
+
+        // Apply all [HarmonyPatch] methods in this assembly
+        _harmony.PatchAll(typeof(MyMod).Assembly);
+    }
+
+    public void OnDispose()
+    {
+        // Remove all patches from this Harmony instance
+        _harmony?.UnpatchAll("com.myname.mymod");
+    }
+}</code></pre>
+
+  <p>
+    <strong>Always unpatch in OnDispose.</strong> Failing to do so leaves stale
+    patches active if the mod is reloaded, which can cause crashes or duplicate
+    behavior.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>CS2 Limitation: Burst-Compiled Code</h2>
+
+  <p>
+    CS2 uses Unity's Burst compiler to convert performance-critical ECS jobs into
+    native machine code. <strong>Harmony cannot patch Burst-compiled methods</strong>
+    because they are no longer managed .NET code.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Can Be Patched</th><th>Cannot Be Patched</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Managed system methods (<code>OnUpdate</code>, <code>OnCreate</code>)</td>
+        <td>Burst-compiled job <code>Execute()</code> methods</td>
+      </tr>
+      <tr>
+        <td>UI systems (<code>UISystemBase</code> subclasses)</td>
+        <td>Methods marked with <code>[BurstCompile]</code></td>
+      </tr>
+      <tr>
+        <td>Prefab initialization methods</td>
+        <td>Native code generated by Burst</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    For Burst-compiled simulation logic, use the ECS system replacement pattern
+    instead: disable the vanilla system with <code>Enabled = false</code> and
+    register a custom replacement. See <a href="mod-loading-dependencies.html">Mod Loading</a>
+    for details.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Common Mistakes</h2>
+
+  <ul>
+    <li>
+      <strong>Wrong method signature in patch:</strong> If your prefix/postfix
+      parameter names or types do not match the original method, Harmony silently
+      ignores the patch. Use <code>__instance</code> for the target object,
+      <code>__result</code> for the return value, and exact parameter names for
+      arguments.
+    </li>
+    <li>
+      <strong>Forgetting to unpatch:</strong> Call <code>UnpatchAll(harmonyId)</code>
+      in <code>OnDispose</code>. Without this, patches persist across mod reloads.
+    </li>
+    <li>
+      <strong>Patching Burst-compiled methods:</strong> The patch silently fails.
+      If your patch is not working, check whether the target method runs inside
+      a Burst job.
+    </li>
+    <li>
+      <strong>Multiple mods patching the same method:</strong> Harmony chains patches
+      from different mods, but order is unpredictable. Use <code>[HarmonyBefore]</code>
+      or <code>[HarmonyAfter]</code> attributes if ordering matters.
+    </li>
+    <li>
+      <strong>Transpiler breaking on game update:</strong> When the game updates,
+      IL instruction patterns may change. Use <code>CodeMatcher.ThrowIfInvalid()</code>
+      to fail loudly rather than silently producing broken IL.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>ECS vs Harmony: Which to Use?</h2>
+
+  <table>
+    <thead>
+      <tr><th>Approach</th><th>Best For</th><th>Drawbacks</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Custom ECS systems</td>
+        <td>New features, full system replacements, Burst-compatible logic</td>
+        <td>Must reimplement entire system logic</td>
+      </tr>
+      <tr>
+        <td>Harmony prefix/postfix</td>
+        <td>Small tweaks, modifying returns, conditional skips</td>
+        <td>Cannot change mid-method logic; fragile across updates</td>
+      </tr>
+      <tr>
+        <td>Harmony transpiler</td>
+        <td>Changing constants, replacing calls, surgical IL edits</td>
+        <td>Hard to debug; breaks when IL changes</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="quick-start">
+    <h2>Key Takeaways</h2>
+    <ul>
+      <li>Prefix runs before a method; postfix runs after; transpiler edits IL inside</li>
+      <li>Always use a unique Harmony ID and unpatch in <code>OnDispose</code></li>
+      <li>Harmony cannot patch Burst-compiled jobs -- use ECS replacement instead</li>
+      <li>Prefer ECS systems for new features; use Harmony for targeted tweaks</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Source: Harmony library documentation and decompiled from Game.dll (Cities: Skylines II). Based on HarmonyTranspilers and ModLoading research.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

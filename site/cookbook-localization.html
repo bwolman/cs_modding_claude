@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook: Adding Localized Strings - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Cookbook</h3>
+    <a href="cookbook-entity-queries.html">Entity Queries</a>
+    <a href="cookbook-emergency-dispatch.html">Dispatching Vehicles</a>
+    <a href="cookbook-game-events.html">Triggering Game Events</a>
+    <a href="cookbook-game-mode.html">Game Mode Detection</a>
+    <a href="cookbook-update-frequency.html">Update Frequency</a>
+    <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+    <a href="cookbook-localization.html" class="active">Adding Localized Strings</a>
+    <a href="cookbook-static-assets.html">Deploying Static Assets</a>
+
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Adding Localized Strings <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What you'll learn</h2>
+    <p>How to add translatable strings to your mod using <code>MemorySource</code>, how to reference them with <code>LocalizedString</code>, the key naming convention, and how to load multi-locale translations from a CSV file.</p>
+    <p><strong>Related:</strong> <a href="localization.html">Localization System</a> (full reference).</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>MemorySource Pattern</h2>
+
+  <p>The simplest way to add mod strings. Create a <code>Dictionary&lt;string, string&gt;</code> and wrap it in a <code>MemorySource</code>. Call <code>AddSource</code> once per locale in <code>OnLoad</code>.</p>
+
+<pre><code class="language-csharp">using Colossal.Localization;
+using Game.SceneFlow;
+using System.Collections.Generic;
+
+public void OnLoad(UpdateSystem updateSystem)
+{
+    var locManager = GameManager.instance.localizationManager;
+
+    var strings = new Dictionary&lt;string, string&gt;
+    {
+        { "MyMod.Title", "My Custom Mod" },
+        { "MyMod.Description", "Adds cool features to your city" },
+        { "MyMod.Setting.Enabled", "Enable Feature" },
+        { "MyMod.Setting.Enabled.Desc", "Toggle the main feature on or off" }
+    };
+
+    locManager.AddSource("en-US", new MemorySource(strings));
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>LocalizedString Usage</h2>
+
+  <p>Reference localized strings in UI bindings with <code>LocalizedString</code>. The UI resolves the ID against the active locale dictionary.</p>
+
+<pre><code class="language-csharp">using Game.UI.Localization;
+
+// Lookup by ID (resolved by the UI layer)
+LocalizedString label = LocalizedString.Id("MyMod.Title");
+
+// Literal value (no localization lookup)
+LocalizedString literal = LocalizedString.Value("Fixed text");
+
+// ID with fallback if key is missing
+LocalizedString safe = LocalizedString.IdWithFallback(
+    "MyMod.MaybeExists", "Default Text");
+
+// With substitution parameters
+LocalizedString greeting = LocalizedString.Id("MyMod.Welcome",
+    ("PLAYER_NAME", LocalizedString.Value("Mayor")));
+
+// Direct dictionary lookup (for logging, not UI)
+var dict = GameManager.instance.localizationManager.activeDictionary;
+if (dict.TryGetValue("MyMod.Title", out string title))
+{
+    Log.Info($"Title: {title}");
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Key Naming Convention</h2>
+
+  <p>CS2 uses a hierarchical dot-separated ID format with square brackets for entity/prefab references:</p>
+
+<pre><code class="language-csharp">// Mod UI strings
+"MyMod.Title"                    // Top-level mod name
+"MyMod.Feature.Description"     // Feature description
+
+// Settings (must match ModSetting key helpers)
+"Options.SECTION[MyMod.MyMod.Mod]:GroupName"
+"Options.OPTION[MyMod.MyMod.Mod]:EnableFeature"
+"Options.OPTION_DESCRIPTION[MyMod.MyMod.Mod]:EnableFeature"
+
+// When using ModSetting helper methods:
+_setting.GetSettingsLocaleID()                   // Section key
+_setting.GetOptionLabelLocaleID("EnableFeature") // Option label
+_setting.GetOptionDescLocaleID("EnableFeature")  // Option description
+_setting.GetOptionTabLocaleID("General")         // Tab label
+_setting.GetOptionGroupLocaleID("Main")          // Group label</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Multi-Locale CSV Loading</h2>
+
+  <p>For mods supporting many languages, store all translations in a single tab-separated CSV file embedded as an assembly resource.</p>
+
+  <h3>CSV format (tab-separated, embedded as resource)</h3>
+
+<pre><code>KEY	en-US	de-DE	fr-FR	zh-HANS
+MyMod.Title	My Custom Mod	Mein Mod	Mon Mod	&#25105;&#30340;&#27169;&#32452;
+MyMod.Greeting	Hello, Mayor!	Hallo!	Bonjour!	&#20320;&#22909;!</code></pre>
+
+  <h3>Loader</h3>
+
+<pre><code class="language-csharp">using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using Colossal.Localization;
+
+public static class CsvLocalizationLoader
+{
+    public static void Load(LocalizationManager locManager)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        string resourceName = $"{assembly.GetName().Name}.Resources.l10n.csv";
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream == null) return;
+        using var reader = new StreamReader(stream);
+
+        // Parse header: KEY, en-US, de-DE, ...
+        string headerLine = reader.ReadLine();
+        if (headerLine == null) return;
+        string[] headers = headerLine.Split('\t');
+
+        var supported = new HashSet&lt;string&gt;(
+            locManager.GetSupportedLocales());
+
+        // Map column index -&gt; locale ID
+        var localeColumns = new Dictionary&lt;int, string&gt;();
+        for (int i = 1; i &lt; headers.Length; i++)
+        {
+            string localeId = headers[i].Trim();
+            if (supported.Contains(localeId))
+                localeColumns[i] = localeId;
+        }
+
+        // Build per-locale dictionaries
+        var dicts = new Dictionary&lt;string, Dictionary&lt;string, string&gt;&gt;();
+        foreach (var localeId in localeColumns.Values)
+            dicts[localeId] = new Dictionary&lt;string, string&gt;();
+
+        string line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            string[] cols = line.Split('\t');
+            if (cols.Length &lt; 2) continue;
+
+            string key = cols[0].Trim();
+            foreach (var (colIdx, localeId) in localeColumns)
+            {
+                if (colIdx &lt; cols.Length &amp;&amp; !string.IsNullOrEmpty(cols[colIdx]))
+                    dicts[localeId][key] = cols[colIdx];
+            }
+        }
+
+        // Register a MemorySource per locale
+        foreach (var (localeId, dict) in dicts)
+        {
+            if (dict.Count &gt; 0)
+                locManager.AddSource(localeId, new MemorySource(dict));
+        }
+    }
+}
+
+// In .csproj -- embed the CSV:
+// &lt;ItemGroup&gt;
+//   &lt;EmbeddedResource Include="Resources\l10n.csv" /&gt;
+// &lt;/ItemGroup&gt;
+//
+// Call in Mod.OnLoad():
+// CsvLocalizationLoader.Load(GameManager.instance.localizationManager);</code></pre>
+
+  <footer>
+    <p>Source: Decompiled from Colossal.Localization.dll and Game.dll (Cities: Skylines II) using ilspycmd v9.1.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

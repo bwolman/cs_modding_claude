@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook: Triggering Game Events - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Cookbook</h3>
+    <a href="cookbook-entity-queries.html">Entity Queries</a>
+    <a href="cookbook-emergency-dispatch.html">Dispatching Vehicles</a>
+    <a href="cookbook-game-events.html" class="active">Triggering Game Events</a>
+    <a href="cookbook-game-mode.html">Game Mode Detection</a>
+    <a href="cookbook-update-frequency.html">Update Frequency</a>
+    <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+    <a href="cookbook-localization.html">Adding Localized Strings</a>
+    <a href="cookbook-static-assets.html">Deploying Static Assets</a>
+
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Triggering Game Events <span class="badge-intermediate">Intermediate</span></h1>
+
+  <div class="scope">
+    <h2>What you'll learn</h2>
+    <p>How to create fire, crime, and sickness events programmatically using CS2's event entity archetype pattern. Each event uses a prefab-defined archetype, a <code>TargetElement</code> buffer, and a short-lived command entity processed by a dedicated system.</p>
+    <p><strong>Related:</strong> <a href="event-entity-archetype.html">Event Entity Archetype</a>, <a href="fire-ignition.html">Fire Ignition</a>, <a href="crime-trigger.html">Crime Trigger</a>, <a href="citizen-sickness.html">Citizen Sickness</a>.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>The Pattern</h2>
+
+  <p>All game events share a common structure:</p>
+
+  <ol>
+    <li>Find the event <strong>prefab entity</strong> (has <code>EventData</code> + domain-specific data)</li>
+    <li>Create an <strong>event entity</strong> from the prefab's <code>EventData.m_Archetype</code></li>
+    <li>Create a short-lived <strong>command entity</strong> (tagged with <code>Game.Common.Event</code>) that a system processes within one frame</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Recipe 1: Start a Fire</h2>
+
+  <p>Create an <code>Ignite</code> command entity. <code>IgniteSystem</code> processes it next frame and adds <code>OnFire</code> to the target.</p>
+
+<pre><code class="language-csharp">using Game.Common;
+using Game.Events;
+using Game.Prefabs;
+using Unity.Collections;
+using Unity.Entities;
+
+public void StartFire(EntityManager em, Entity targetBuilding)
+{
+    // 1. Find the fire event prefab (Building target type)
+    var prefabQuery = em.CreateEntityQuery(
+        ComponentType.ReadOnly&lt;EventData&gt;(),
+        ComponentType.ReadOnly&lt;FireData&gt;());
+    var prefabs = prefabQuery.ToEntityArray(Allocator.Temp);
+    if (prefabs.Length == 0) { prefabs.Dispose(); return; }
+
+    Entity firePrefab = Entity.Null;
+    for (int i = 0; i &lt; prefabs.Length; i++)
+    {
+        var fd = em.GetComponentData&lt;FireData&gt;(prefabs[i]);
+        if (fd.m_RandomTargetType == EventTargetType.Building)
+        {
+            firePrefab = prefabs[i];
+            break;
+        }
+    }
+    prefabs.Dispose();
+    if (firePrefab == Entity.Null) return;
+
+    // 2. Create fire event entity from prefab archetype
+    var eventData = em.GetComponentData&lt;EventData&gt;(firePrefab);
+    Entity fireEvent = em.CreateEntity(eventData.m_Archetype);
+    em.SetComponentData(fireEvent, new PrefabRef(firePrefab));
+
+    // 3. Create Ignite command entity
+    Entity ignite = em.CreateEntity(
+        ComponentType.ReadWrite&lt;Event&gt;(),
+        ComponentType.ReadWrite&lt;Ignite&gt;());
+    em.SetComponentData(ignite, new Ignite
+    {
+        m_Event = fireEvent,
+        m_Target = targetBuilding,
+        m_Intensity = 1f,       // default start intensity
+        m_RequestFrame = 0      // auto-calculate rescue delay
+    });
+    // IgniteSystem adds OnFire next frame.
+    // FireSimulationSystem escalates and creates rescue request.
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Recipe 2: Trigger a Crime</h2>
+
+  <p>Create a crime event entity and an <code>AddCriminal</code> command. <code>AddCriminalSystem</code> adds the <code>Criminal</code> component; <code>CriminalSystem</code> drives the full lifecycle.</p>
+
+<pre><code class="language-csharp">using Game.Citizens;
+using Game.Common;
+using Game.Events;
+using Game.Prefabs;
+using Unity.Collections;
+using Unity.Entities;
+
+public void TriggerCrime(EntityManager em, Entity citizenEntity)
+{
+    // 1. Find crime event prefab
+    var crimeQuery = em.CreateEntityQuery(
+        ComponentType.ReadOnly&lt;CrimeData&gt;(),
+        ComponentType.ReadOnly&lt;EventData&gt;(),
+        ComponentType.Exclude&lt;Locked&gt;());
+    var prefabs = crimeQuery.ToEntityArray(Allocator.Temp);
+    if (prefabs.Length == 0) { prefabs.Dispose(); return; }
+
+    Entity crimePrefab = prefabs[0];
+    var eventData = em.GetComponentData&lt;EventData&gt;(crimePrefab);
+    prefabs.Dispose();
+
+    // 2. Create crime event entity
+    Entity crimeEvent = em.CreateEntity(eventData.m_Archetype);
+    em.SetComponentData(crimeEvent, new PrefabRef(crimePrefab));
+    em.GetBuffer&lt;TargetElement&gt;(crimeEvent)
+        .Add(new TargetElement { m_Entity = citizenEntity });
+
+    // 3. Create AddCriminal command
+    Entity cmd = em.CreateEntity(
+        ComponentType.ReadWrite&lt;Event&gt;(),
+        ComponentType.ReadWrite&lt;AddCriminal&gt;());
+    em.SetComponentData(cmd, new AddCriminal
+    {
+        m_Event = crimeEvent,
+        m_Target = citizenEntity,
+        m_Flags = CriminalFlags.Robber | CriminalFlags.Planning
+    });
+    // AddCriminalSystem adds Criminal component next frame.
+    // CriminalSystem drives: Planning -&gt; Preparing -&gt; Crime -&gt; Arrest/Escape
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Recipe 3: Make a Citizen Sick</h2>
+
+  <p>Create an <code>AddHealthProblem</code> command entity. <code>AddHealthProblemSystem</code> handles stopping the citizen, firing trigger events, and merging flags.</p>
+
+<pre><code class="language-csharp">using Game.Citizens;
+using Game.Events;
+using Unity.Entities;
+
+public void MakeCitizenSick(EntityManager em, Entity citizenEntity)
+{
+    // Create AddHealthProblem command entity
+    Entity cmd = em.CreateEntity(
+        ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+        ComponentType.ReadWrite&lt;AddHealthProblem&gt;());
+    em.SetComponentData(cmd, new AddHealthProblem
+    {
+        m_Event = Entity.Null,
+        m_Target = citizenEntity,
+        m_Flags = HealthProblemFlags.Sick
+                | HealthProblemFlags.RequireTransport
+    });
+    // AddHealthProblemSystem processes next frame:
+    //   - Stops citizen movement
+    //   - Fires CitizenGotSick trigger
+    //   - Adds HealthProblem component
+    // HealthProblemSystem then creates HealthcareRequest for ambulance
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Common Mistakes</h2>
+
+  <ul>
+    <li><strong>Wrong Event namespace:</strong> Use <code>Game.Common.Event</code> for command entities, NOT <code>Game.Events.Event</code>. Using the wrong one causes silent failure.</li>
+    <li><strong>Direct component addition:</strong> Do NOT add <code>HealthProblem</code> directly. The <code>AddHealthProblem</code> command handles critical side effects (stopping movement, firing triggers).</li>
+    <li><strong>Missing PrefabRef:</strong> Event entities created from <code>EventData.m_Archetype</code> need <code>PrefabRef</code> set to the prefab entity so downstream systems can read configuration data.</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

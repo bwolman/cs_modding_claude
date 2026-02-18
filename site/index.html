@@ -16,96 +16,183 @@
 <div class="page-layout">
 
   <aside class="sidebar">
-    <h3>Events &amp; Simulation</h3>
-    <a href="event-entity-archetype.html">Event Entity Archetype</a>
-    <a href="fire-ignition.html">Fire Ignition</a>
-    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
-    <a href="crime-trigger.html">Crime Trigger</a>
-    <a href="citizen-sickness.html">Citizen Sickness</a>
-    <a href="water-system.html">Water System</a>
-    <a href="emergency-dispatch.html">Emergency Dispatch</a>
-    <a href="disaster-simulation.html">Disaster Simulation</a>
-
-    <h3>Infrastructure</h3>
-    <a href="electricity-grid.html">Electricity Grid</a>
-    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
-    <a href="road-network.html">Road &amp; Network Building</a>
-    <a href="zoning.html">Zoning</a>
-    <a href="pathfinding.html">Pathfinding</a>
-    <a href="traffic-flow.html">Traffic Flow</a>
-
-    <h3>Economy &amp; Population</h3>
-    <a href="citizens-households.html">Citizens &amp; Households</a>
-    <a href="economy-budget.html">Economy &amp; Budget</a>
-    <a href="demand-systems.html">Demand Systems</a>
-    <a href="resource-production.html">Resource Production</a>
-    <a href="company-simulation.html">Company Simulation</a>
-    <a href="workplace-labor.html">Workplace &amp; Labor</a>
-    <a href="land-value-property.html">Land Value &amp; Property</a>
-    <a href="trade-connections.html">Trade &amp; Connections</a>
-    <a href="tourism-economy.html">Tourism Economy</a>
-    <a href="cargo-transport.html">Cargo Transport</a>
-
-    <h3>City Services</h3>
-    <a href="garbage-collection.html">Garbage Collection</a>
-    <a href="education.html">Education</a>
-    <a href="public-transit.html">Public Transit</a>
-    <a href="healthcare.html">Healthcare</a>
-    <a href="deathcare.html">Deathcare</a>
-    <a href="parks-recreation.html">Parks &amp; Recreation</a>
-    <a href="police-dispatch.html">Police Dispatch</a>
-
-    <h3>Governance</h3>
-    <a href="districts-policies.html">Districts &amp; Policies</a>
-    <a href="map-tile-purchase.html">Map Tile Purchase</a>
-
-    <h3>Environment</h3>
-    <a href="weather-climate.html">Weather &amp; Climate</a>
-    <a href="pollution.html">Pollution</a>
-    <a href="terrain-resources.html">Terrain &amp; Resources</a>
-
-    <h3>Vehicles &amp; Transport</h3>
-    <a href="vehicle-spawning.html">Vehicle Spawning</a>
-
-    <h3>Tools &amp; Input</h3>
-    <a href="tool-activation.html">Tool Activation</a>
-    <a href="tool-raycast.html">Tool Raycast</a>
-    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
-    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
-    <a href="object-tool-system.html">Object Placement Tool</a>
-
-    <h3>UI &amp; Settings</h3>
-    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
-    <a href="mod-options-ui.html">Mod Options UI</a>
-    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
-    <a href="chirper-notifications.html">Chirper Notifications</a>
-
-    <h3>Modding Framework</h3>
-    <a href="save-load-persistence.html">Save/Load Persistence</a>
-    <a href="prefab-system.html">Prefab System</a>
-    <a href="localization.html">Localization</a>
-    <a href="harmony-transpilers.html">Harmony Transpilers</a>
-    <a href="mod-loading-dependencies.html">Mod Loading</a>
+    <h3 class="sidebar-toggle expanded">Getting Started</h3>
+    <div class="sidebar-links expanded">
+      <a href="getting-started-setup.html">Setup Your Environment</a>
+      <a href="getting-started-first-mod.html">Your First Mod</a>
+      <a href="getting-started-build-deploy.html">Build &amp; Deploy</a>
+      <a href="getting-started-architecture.html">Architecture Overview</a>
+    </div>
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html">Your First System</a>
+      <a href="tutorial-reading-data.html">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html">Settings Panel</a>
+      <a href="tutorial-toolbar-button.html">Toolbar Button</a>
+      <a href="tutorial-harmony-patching.html">Harmony Patching</a>
+      <a href="tutorial-system-replacement.html">System Replacement</a>
+      <a href="tutorial-data-persistence.html">Data Persistence</a>
+      <a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a>
+      <a href="tutorial-complete-mod.html">Complete Mod</a>
+    </div>
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+      <a href="cookbook-entity-queries.html">Entity Queries</a>
+      <a href="cookbook-emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="cookbook-game-events.html">Game Events</a>
+      <a href="cookbook-game-mode.html">Game Mode Detection</a>
+      <a href="cookbook-update-frequency.html">Update Frequency</a>
+      <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+      <a href="cookbook-localization.html">Localization</a>
+      <a href="cookbook-static-assets.html">Static Assets</a>
+    </div>
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+      <a href="concepts-ecs.html">Unity ECS Primer</a>
+      <a href="concepts-harmony.html">Harmony Overview</a>
+      <a href="concepts-cohtml.html">cohtml UI Model</a>
+      <a href="concepts-prefabs.html">Prefab System</a>
+      <a href="concepts-update-phases.html">Update Phases</a>
+      <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+    </div>
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+      <a href="troubleshooting-common-errors.html">Common Errors</a>
+      <a href="troubleshooting-debugging.html">Debugging Guide</a>
+    </div>
+    <hr class="sidebar-divider">
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="telecom-internet.html">Telecom &amp; Internet</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+      <a href="mail-post-service.html">Mail &amp; Post Service</a>
+    </div>
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+      <a href="notifications-advisor.html">Notifications &amp; Advisor</a>
+      <a href="city-statistics.html">City Statistics</a>
+    </div>
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
   </aside>
 
   <main class="content">
 
     <h1>Cities: Skylines II Modding Research</h1>
 
-    <p>
-      Decompiled game systems documented for mod developers. Each topic traces the relevant
-      ECS components, systems, data flow, and Harmony patch points -- with working C# examples
-      you can drop into a mod project.
-    </p>
+    <div class="hero">
+      <h2>Build mods for Cities: Skylines II</h2>
+      <p>
+        Decompiled game systems documented for mod developers. Each topic traces the relevant
+        ECS components, systems, data flow, and Harmony patch points -- with working C# examples
+        you can drop into a mod project.
+      </p>
+      <p>
+        All research is based on decompiled source from <code>Game.dll</code> and related assemblies
+        using <code>ilspycmd</code>. The raw decompiled snippets are available in the
+        <a href="https://github.com/skywolf-net/cs_modding_claude">source repository</a>.
+      </p>
+    </div>
 
-    <p>
-      All research is based on decompiled source from <code>Game.dll</code> and related assemblies
-      using <code>ilspycmd</code>. The raw decompiled snippets are available in the
-      <a href="https://github.com/skywolf-net/cs_modding_claude">source repository</a>.
-    </p>
+    <div class="path-cards">
+      <div class="path-card">
+        <h3>New to Modding?</h3>
+        <p>Set up your environment, create your first mod, and learn how the game engine works under the hood.</p>
+        <a href="getting-started-setup.html" class="path-link">Getting Started &rarr;</a>
+      </div>
+      <div class="path-card">
+        <h3>Looking for How-To?</h3>
+        <p>Step-by-step tutorials and copy-paste cookbook recipes for common modding tasks.</p>
+        <a href="tutorial-first-system.html" class="path-link">Tutorials &amp; Cookbook &rarr;</a>
+      </div>
+      <div class="path-card">
+        <h3>Need Deep Reference?</h3>
+        <p>Detailed decompilation-based research on every major game system, from ECS internals to dispatch pipelines.</p>
+        <a href="#reference-topics" class="path-link">Reference Topics &rarr;</a>
+      </div>
+    </div>
 
     <!-- ============================================================ -->
-    <h2>Events &amp; Simulation</h2>
+    <h2 id="reference-topics">Reference Topics</h2>
+
+    <!-- ============================================================ -->
+    <h3>Events &amp; Simulation</h3>
 
     <div class="topic-grid">
 
@@ -192,7 +279,7 @@
     </div>
 
     <!-- ============================================================ -->
-    <h2>Infrastructure</h2>
+    <h3>Infrastructure</h3>
 
     <div class="topic-grid">
 
@@ -217,6 +304,16 @@
       </div>
 
       <div class="topic-card">
+        <h3><a href="telecom-internet.html">Telecom &amp; Internet Service</a></h3>
+        <p>How telecom towers broadcast wireless signal coverage across a 128x128 cell map. Quadratic signal falloff with terrain obstruction, network capacity vs. population load, and the efficiency penalty pipeline for buildings without coverage.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">TelecomCoverageSystem</span>
+          <span class="tag">TelecomFacilityData</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
         <h3><a href="road-network.html">Road &amp; Network Building</a></h3>
         <p>How NetToolSystem creates road segments, nodes, and lanes. The Edge/Node/Curve component model, 7 drawing modes, and the temp-to-permanent entity pipeline.</p>
         <div class="tags">
@@ -233,6 +330,16 @@
           <span class="tag">Game.Zones</span>
           <span class="tag">ZoneSpawnSystem</span>
           <span class="tag">BlockSystem</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="building-construction.html">Building Construction &amp; Upgrades</a></h3>
+        <p>The full building lifecycle from spawning through construction progress, completion, service upgrades, level-ups, abandonment, condemnation, and demolition. The UnderConstruction state machine and the ICombineData upgrade aggregation pipeline.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">BuildingConstructionSystem</span>
+          <span class="tag">UnderConstruction</span>
         </div>
       </div>
 
@@ -259,7 +366,7 @@
     </div>
 
     <!-- ============================================================ -->
-    <h2>Economy &amp; Population</h2>
+    <h3>Economy &amp; Population</h3>
 
     <div class="topic-grid">
 
@@ -366,7 +473,7 @@
     </div>
 
     <!-- ============================================================ -->
-    <h2>City Services</h2>
+    <h3>City Services</h3>
 
     <div class="topic-grid">
 
@@ -440,10 +547,20 @@
         </div>
       </div>
 
+      <div class="topic-card">
+        <h3><a href="mail-post-service.html">Mail &amp; Post Service</a></h3>
+        <p>The full postal pipeline: mail accumulation on buildings, mailbox collection, post van dispatch, inter-facility truck transfers, sorting at post offices, and last-mile delivery. Three mail resource types, bidirectional dispatch, and quadratic efficiency penalties.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">Game.Buildings</span>
+          <span class="tag">PostFacilityAISystem</span>
+        </div>
+      </div>
+
     </div>
 
     <!-- ============================================================ -->
-    <h2>Governance</h2>
+    <h3>Governance</h3>
 
     <div class="topic-grid">
 
@@ -467,10 +584,20 @@
         </div>
       </div>
 
+      <div class="topic-card">
+        <h3><a href="milestones-unlocks.html">Milestones &amp; Unlocks</a></h3>
+        <p>How XP accumulates from population, happiness, and construction; milestone thresholds trigger level-ups awarding money, dev tree points, and map tiles; and the Locked/Unlock cascade chain gates services, zones, buildings, and policies.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">Game.Prefabs</span>
+          <span class="tag">MilestoneSystem</span>
+        </div>
+      </div>
+
     </div>
 
     <!-- ============================================================ -->
-    <h2>Environment</h2>
+    <h3>Environment</h3>
 
     <div class="topic-grid">
 
@@ -507,7 +634,7 @@
     </div>
 
     <!-- ============================================================ -->
-    <h2>Vehicles &amp; Transport</h2>
+    <h3>Vehicles &amp; Transport</h3>
 
     <div class="topic-grid">
 
@@ -521,10 +648,20 @@
         </div>
       </div>
 
+      <div class="topic-card">
+        <h3><a href="parking-system.html">Parking System</a></h3>
+        <p>How vehicles find, occupy, and pay for parking. Street parking (ParkingLane), garage parking (GarageLane), parking facilities, fee calculation from district/building modifiers, capacity tracking, and the parking search algorithm.</p>
+        <div class="tags">
+          <span class="tag">Game.Net</span>
+          <span class="tag">Game.Pathfind</span>
+          <span class="tag">ParkingLaneDataSystem</span>
+        </div>
+      </div>
+
     </div>
 
     <!-- ============================================================ -->
-    <h2>Tools &amp; Input</h2>
+    <h3>Tools &amp; Input</h3>
 
     <div class="topic-grid">
 
@@ -578,7 +715,7 @@
     </div>
 
     <!-- ============================================================ -->
-    <h2>UI &amp; Settings</h2>
+    <h3>UI &amp; Settings</h3>
 
     <div class="topic-grid">
 
@@ -620,10 +757,30 @@
         </div>
       </div>
 
+      <div class="topic-card">
+        <h3><a href="notifications-advisor.html">Notifications &amp; Advisor</a></h3>
+        <p>All four notification channels: building problem icons via IconCommandBuffer, banner notifications via NotificationSystem.Push/Pop, Chirper social feed, and the advisor/tutorial state machine.</p>
+        <div class="tags">
+          <span class="tag">Game.Notifications</span>
+          <span class="tag">Game.PSI</span>
+          <span class="tag">Game.Tutorials</span>
+        </div>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="city-statistics.html">City Statistics &amp; Data Panels</a></h3>
+        <p>How CS2 collects, stores, and displays city-wide statistics. The producer-consumer event queue, time-series CityStatistic buffers, 64 StatisticTypes, and the Statistics UI panel bindings.</p>
+        <div class="tags">
+          <span class="tag">Game.Simulation</span>
+          <span class="tag">Game.City</span>
+          <span class="tag">CityStatisticsSystem</span>
+        </div>
+      </div>
+
     </div>
 
     <!-- ============================================================ -->
-    <h2>Modding Framework</h2>
+    <h3>Modding Framework</h3>
 
     <div class="topic-grid">
 
@@ -691,5 +848,6 @@
 
 </div>
 
+<script src="sidebar.js"></script>
 </body>
 </html>

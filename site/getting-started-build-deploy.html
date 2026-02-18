@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Build &amp; Deploy - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Getting Started</h3>
+    <div class="sidebar-links expanded">
+      <a href="getting-started-setup.html">Setup Your Environment</a>
+      <a href="getting-started-first-mod.html">Your First Mod</a>
+      <a href="getting-started-build-deploy.html" class="active">Build &amp; Deploy</a>
+      <a href="getting-started-architecture.html">Architecture Overview</a>
+    </div>
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html">Your First System</a>
+      <a href="tutorial-reading-data.html">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html">Settings Panel</a>
+      <a href="tutorial-toolbar-button.html">Toolbar Button</a>
+      <a href="tutorial-harmony-patching.html">Harmony Patching</a>
+      <a href="tutorial-system-replacement.html">System Replacement</a>
+      <a href="tutorial-data-persistence.html">Data Persistence</a>
+      <a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a>
+      <a href="tutorial-complete-mod.html">Complete Mod</a>
+    </div>
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+      <a href="cookbook-entity-queries.html">Entity Queries</a>
+      <a href="cookbook-emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="cookbook-game-events.html">Game Events</a>
+      <a href="cookbook-game-mode.html">Game Mode Detection</a>
+      <a href="cookbook-update-frequency.html">Update Frequency</a>
+      <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+      <a href="cookbook-localization.html">Localization</a>
+      <a href="cookbook-static-assets.html">Static Assets</a>
+    </div>
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+      <a href="concepts-ecs.html">Unity ECS Primer</a>
+      <a href="concepts-harmony.html">Harmony Overview</a>
+      <a href="concepts-cohtml.html">cohtml UI Model</a>
+      <a href="concepts-prefabs.html">Prefab System</a>
+      <a href="concepts-update-phases.html">Update Phases</a>
+      <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+    </div>
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+      <a href="troubleshooting-common-errors.html">Common Errors</a>
+      <a href="troubleshooting-debugging.html">Debugging Guide</a>
+    </div>
+    <hr class="sidebar-divider">
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="telecom-internet.html">Telecom &amp; Internet</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+      <a href="mail-post-service.html">Mail &amp; Post Service</a>
+    </div>
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+      <a href="notifications-advisor.html">Notifications &amp; Advisor</a>
+      <a href="city-statistics.html">City Statistics</a>
+    </div>
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <h1>Build &amp; Deploy <span class="badge-beginner">Beginner</span></h1>
+
+  <p>
+    How to compile your mod, deploy it to the game, find the logs, and iterate quickly.
+    This page covers the full edit-build-test loop and common build errors you may encounter.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>The dotnet build Workflow</h2>
+
+  <p>
+    CS2 mods are compiled with the standard .NET CLI. From your solution root or project
+    directory, run:
+  </p>
+
+  <pre><code># Build from the solution root
+dotnet build
+
+# Or build a specific project
+dotnet build src/MyFirstMod/MyFirstMod.csproj
+
+# Build in Release configuration
+dotnet build -c Release</code></pre>
+
+  <p>
+    A successful build produces your mod DLL in the standard output directory
+    (<code>bin/Debug/net472/</code> or <code>bin/Release/net472/</code>). If you have
+    <code>Mod.targets</code> configured (see
+    <a href="getting-started-setup.html">Setup Your Environment</a>), the post-build
+    step automatically copies the DLL to the game's Mods folder.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Auto-Deployment with Mod.targets</h2>
+
+  <p>
+    The <code>Mod.targets</code> file runs after every successful build and copies your
+    DLL to the game's streaming assets Mods folder:
+  </p>
+
+  <pre><code>&lt;Project&gt;
+  &lt;Target Name="DeployMod" AfterTargets="Build"&gt;
+    &lt;Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(ModsPath)/$(AssemblyName)"
+          SkipUnchangedFiles="true" /&gt;
+  &lt;/Target&gt;
+&lt;/Project&gt;</code></pre>
+
+  <p>The deployment path resolves to something like:</p>
+
+  <pre><code># Windows
+C:\Program Files (x86)\Steam\steamapps\common\Cities Skylines II\Cities2_Data\StreamingAssets\~Mods\MyFirstMod\
+
+# macOS / Linux
+~/.steam/steam/steamapps/common/Cities Skylines II/Cities2_Data/StreamingAssets/~Mods/MyFirstMod/</code></pre>
+
+  <p>
+    The game discovers mods in this folder on startup. Each mod sits in its own
+    subfolder named after the assembly.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Finding and Reading Game Logs</h2>
+
+  <p>
+    After launching the game with your mod loaded, check the logs to verify it loaded
+    correctly. CS2 writes logs to the user data path:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Platform</th><th>Log Location</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Windows</td>
+        <td><code>%APPDATA%\..\LocalLow\Colossal Order\Cities Skylines II\Logs\</code></td>
+      </tr>
+      <tr>
+        <td>macOS</td>
+        <td><code>~/Library/Logs/Colossal Order/Cities Skylines II/</code></td>
+      </tr>
+      <tr>
+        <td>Linux</td>
+        <td><code>~/.config/unity3d/Colossal Order/Cities Skylines II/Logs/</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The main log file is <code>Player.log</code>. Search for your mod name to find
+    load/unload messages:
+  </p>
+
+  <pre><code># Search for your mod's log output
+# Windows (PowerShell)
+Select-String "MyFirstMod" "$env:APPDATA\..\LocalLow\Colossal Order\Cities Skylines II\Logs\Player.log"
+
+# macOS / Linux
+grep "MyFirstMod" ~/Library/Logs/Colossal\ Order/Cities\ Skylines\ II/Player.log</code></pre>
+
+  <p>
+    If your mod loaded successfully, you will see the <code>OnLoad</code> message from
+    your <code>Mod.cs</code>:
+  </p>
+
+  <pre><code>[MyFirstMod] OnLoad</code></pre>
+
+  <p>
+    If there are errors, look for stack traces near your mod name. Common load failures
+    include missing assembly references, wrong target framework, and exceptions thrown
+    during <code>OnLoad</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>The Edit-Build-Test Loop</h2>
+
+  <p>
+    CS2 mod development follows a straightforward cycle. Since there are no unit tests
+    (behavior must be verified in-game), this loop is your primary development workflow:
+  </p>
+
+  <ol>
+    <li><strong>Edit</strong> your C# source files in your IDE</li>
+    <li><strong>Build</strong> with <code>dotnet build</code> (auto-deploys via Mod.targets)</li>
+    <li><strong>Launch</strong> the game (or restart if already running -- mods are loaded at startup)</li>
+    <li><strong>Test</strong> your changes in-game</li>
+    <li><strong>Check logs</strong> for your mod's output and any errors</li>
+    <li>Repeat</li>
+  </ol>
+
+  <div class="scope">
+    <h2>Tip</h2>
+    <p>
+      The game must be restarted to pick up mod changes. There is no hot-reload for
+      code mods. Keep a terminal open with <code>dotnet build</code> ready to run, and
+      use the game's log file to verify each iteration.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Common Build Errors and Fixes</h2>
+
+  <h3>Missing assembly reference</h3>
+
+  <pre><code>error CS0246: The type or namespace name 'Game' could not be found</code></pre>
+
+  <p>
+    <strong>Fix:</strong> Your <code>$(ManagedPath)</code> is not resolving correctly.
+    Verify that <code>CSII_TOOLPATH</code> is set and that
+    <code>Mod.props</code> is imported in your <code>.csproj</code>. Check that
+    <code>Game.dll</code> exists at the resolved path.
+  </p>
+
+  <h3>Wrong target framework</h3>
+
+  <pre><code>error NETSDK1045: The current .NET SDK does not support targeting .NET Framework</code></pre>
+
+  <p>
+    <strong>Fix:</strong> On non-Windows platforms, you may need the
+    <code>Microsoft.NETFramework.ReferenceAssemblies</code> NuGet package to target
+    <code>net472</code>:
+  </p>
+
+  <pre><code>&lt;ItemGroup&gt;
+  &lt;PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies"
+                    Version="1.0.3"
+                    PrivateAssets="all" /&gt;
+&lt;/ItemGroup&gt;</code></pre>
+
+  <h3>Type exists in multiple assemblies</h3>
+
+  <pre><code>error CS0433: The type 'X' exists in both 'Assembly1' and 'Assembly2'</code></pre>
+
+  <p>
+    <strong>Fix:</strong> You have conflicting references. Make sure all game assembly
+    references use <code>Private="false"</code> and that you are not also pulling in
+    NuGet packages that overlap with game assemblies (e.g., Unity.Collections).
+  </p>
+
+  <h3>Mod DLL not found by game</h3>
+
+  <p>The game does not show your mod or nothing appears in logs.</p>
+
+  <p>
+    <strong>Fix:</strong> Verify the DLL was actually copied to the correct Mods folder.
+    Check that the folder name matches the assembly name. The game scans
+    <code>Cities2_Data/StreamingAssets/~Mods/</code> for subfolders containing DLLs with
+    <code>IMod</code> implementations.
+  </p>
+
+  <h3>NullReferenceException in OnLoad</h3>
+
+  <pre><code>NullReferenceException: Object reference not set to an instance of an object
+  at MyFirstMod.Mod.OnLoad(UpdateSystem updateSystem)</code></pre>
+
+  <p>
+    <strong>Fix:</strong> The <code>UpdateSystem</code> parameter is valid, but other
+    game systems may not be fully initialized yet. Avoid querying game state during
+    <code>OnLoad</code>. Instead, defer initialization to your ECS system's
+    <code>OnCreate</code> or first <code>OnUpdate</code> call.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Distribution via PDX Mods</h2>
+
+  <p>
+    When your mod is ready for release, distribute it through
+    <strong>PDX Mods</strong> (Paradox's mod platform). The platform handles
+    versioning, downloads, and dependency management. Follow SemVer for releases:
+  </p>
+
+  <ul>
+    <li><strong>Major</strong> -- Breaking changes or major feature overhauls</li>
+    <li><strong>Minor</strong> -- New features, backward compatible</li>
+    <li><strong>Patch</strong> -- Bug fixes</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <p>
+    Now that you can build and test, learn about the game's underlying architecture
+    in <a href="getting-started-architecture.html">Architecture Overview</a>. Understanding
+    ECS, systems, and prefabs is essential before writing gameplay code.
+  </p>
+
+  <footer>
+    <p>Source: Project setup and coding standards from the CS2 modding repository.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

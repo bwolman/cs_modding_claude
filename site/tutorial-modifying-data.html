@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Modifying Game Data - CS2 Modding Tutorials</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle">Getting Started</h3>
+    <div class="sidebar-links">
+      <a href="index.html">Home</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html">Your First ECS System</a>
+      <a href="tutorial-reading-data.html">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html" class="active">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html">Adding a Settings Panel</a>
+      <a href="tutorial-toolbar-button.html">Adding a Toolbar Button</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <hr class="sidebar-divider">
+
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <h1>Modifying Game Data <span class="badge-intermediate">Intermediate</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      How to write data back to ECS components using <code>SetComponentData</code>,
+      add and remove components with <code>EntityManager</code>, and create new entities.
+      You will build a system that reduces crime accumulation on buildings within range
+      of a park.
+    </p>
+    <p>
+      <strong>Prerequisites:</strong> Familiarity with entity queries and reading data from
+      the <a href="tutorial-reading-data.html">Reading Game Data</a> tutorial.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Writing Component Data</h2>
+
+  <h3>SetComponentData</h3>
+
+  <p>
+    <code>EntityManager.SetComponentData&lt;T&gt;(entity, value)</code> writes a new value to
+    a component on an entity. Because ECS components are value types (structs), you read
+    the struct, modify it, and write it back.
+  </p>
+
+  <pre><code class="language-csharp">// Read the current value
+Game.Buildings.CrimeProducer crime =
+    EntityManager.GetComponentData&lt;Game.Buildings.CrimeProducer&gt;(buildingEntity);
+
+// Modify the struct
+crime.m_Crime = Math.Max(0f, crime.m_Crime - 10f);
+
+// Write the modified struct back
+EntityManager.SetComponentData(buildingEntity, crime);</code></pre>
+
+  <p>
+    <strong>Important:</strong> Components are structs, not classes. When you call
+    <code>GetComponentData</code>, you get a copy. Modifying the local copy does not
+    affect the entity until you call <code>SetComponentData</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Adding and Removing Components</h2>
+
+  <h3>AddComponent</h3>
+
+  <p>
+    Add a new component to an existing entity. This changes the entity's archetype, which
+    can cause a structural change (the entity moves to a different chunk).
+  </p>
+
+  <pre><code class="language-csharp">// Add a tag component (zero-size marker)
+if (!EntityManager.HasComponent&lt;Game.Common.Updated&gt;(entity))
+{
+    EntityManager.AddComponent&lt;Game.Common.Updated&gt;(entity);
+}
+
+// Add a component with data
+EntityManager.AddComponentData(entity, new Game.Common.Target
+{
+    m_Target = targetEntity
+});</code></pre>
+
+  <h3>RemoveComponent</h3>
+
+  <pre><code class="language-csharp">// Remove a component from an entity
+if (EntityManager.HasComponent&lt;Game.Common.Updated&gt;(entity))
+{
+    EntityManager.RemoveComponent&lt;Game.Common.Updated&gt;(entity);
+}</code></pre>
+
+  <h3>Structural Changes: When to Be Careful</h3>
+
+  <p>
+    Adding or removing components causes <strong>structural changes</strong> -- the entity
+    moves between archetype chunks. This invalidates any <code>NativeArray</code> you obtained
+    from a query. Rules of thumb:
+  </p>
+
+  <ul>
+    <li>Do not add/remove components while iterating a <code>ToEntityArray</code> from the same query</li>
+    <li>Collect entities to modify in a <code>NativeList</code>, then modify after the loop</li>
+    <li>Or use an <code>EntityCommandBuffer</code> to defer structural changes (see below)</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>EntityCommandBuffer</h2>
+
+  <p>
+    An <code>EntityCommandBuffer</code> (ECB) records structural changes (add, remove, create,
+    destroy) and plays them back later. This is the safe way to modify entities while
+    iterating queries.
+  </p>
+
+  <pre><code class="language-csharp">// Create a command buffer
+EntityCommandBuffer ecb = new EntityCommandBuffer(Allocator.Temp);
+
+var entities = m_Query.ToEntityArray(Allocator.Temp);
+for (int i = 0; i &lt; entities.Length; i++)
+{
+    // Record commands -- no structural changes happen yet
+    ecb.AddComponent&lt;Updated&gt;(entities[i]);
+    ecb.RemoveComponent&lt;Temp&gt;(entities[i]);
+}
+entities.Dispose();
+
+// Play back all commands at once -- structural changes happen here
+ecb.Playback(EntityManager);
+ecb.Dispose();</code></pre>
+
+  <p>
+    The ECB approach is particularly important in Burst-compiled jobs, where you cannot
+    call <code>EntityManager</code> directly. For main-thread code in simple systems,
+    direct <code>EntityManager</code> calls are also acceptable when you are careful
+    about iteration invalidation.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Creating Entities</h2>
+
+  <p>
+    <code>EntityManager.CreateEntity()</code> creates a new empty entity. Add components
+    to give it meaning.
+  </p>
+
+  <pre><code class="language-csharp">// Create a new entity with specific components
+Entity newEntity = EntityManager.CreateEntity();
+EntityManager.AddComponentData(newEntity, new Game.Common.Owner
+{
+    m_Owner = parentEntity
+});
+EntityManager.AddComponentData(newEntity, new Game.Objects.Transform
+{
+    m_Position = new Unity.Mathematics.float3(100f, 0f, 200f),
+    m_Rotation = Unity.Mathematics.quaternion.identity
+});</code></pre>
+
+  <h3>Destroying Entities</h3>
+
+  <pre><code class="language-csharp">// Destroy an entity -- removes it from the world entirely
+EntityManager.DestroyEntity(entity);
+
+// Destroy all entities matching a query
+EntityManager.DestroyEntity(m_CleanupQuery);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Practical Example: Crime Reduction Near Parks</h2>
+
+  <p>
+    This system finds buildings with crime accumulation that are within 200 meters of a
+    park, and reduces their crime value. It runs every 256 frames to limit performance impact.
+  </p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Buildings;
+using Game.Common;
+using Game.Objects;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+using Unity.Mathematics;
+using Colossal.Logging;
+
+namespace CrimeReduction
+{
+    public class Mod : IMod
+    {
+        internal static ILog Log = LogManager.GetLogger(nameof(Mod))
+            .SetShowsErrorsInUI(true);
+
+        public void OnLoad(UpdateSystem updateSystem)
+        {
+            Log.Info("CrimeReduction mod loaded");
+            updateSystem.UpdateAt&lt;ParkCrimeReductionSystem&gt;(
+                SystemUpdatePhase.GameSimulation);
+        }
+
+        public void OnDispose() { }
+    }
+
+    /// &lt;summary&gt;
+    /// Reduces crime accumulation on buildings within 200m of a park.
+    /// Demonstrates SetComponentData for modifying simulation values.
+    /// &lt;/summary&gt;
+    public partial class ParkCrimeReductionSystem : GameSystemBase
+    {
+        private EntityQuery m_CrimeBuildings;
+        private EntityQuery m_Parks;
+        private const float k_ParkRadius = 200f;
+        private const float k_CrimeReductionPerTick = 5f;
+
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+
+            // Buildings that have accumulated crime
+            m_CrimeBuildings = GetEntityQuery(
+                ComponentType.ReadWrite&lt;CrimeProducer&gt;(),
+                ComponentType.ReadOnly&lt;Building&gt;(),
+                ComponentType.ReadOnly&lt;Transform&gt;(),
+                ComponentType.Exclude&lt;Deleted&gt;(),
+                ComponentType.Exclude&lt;Temp&gt;()
+            );
+
+            // Park buildings
+            m_Parks = GetEntityQuery(
+                ComponentType.ReadOnly&lt;Game.Buildings.Park&gt;(),
+                ComponentType.ReadOnly&lt;Transform&gt;(),
+                ComponentType.Exclude&lt;Deleted&gt;(),
+                ComponentType.Exclude&lt;Temp&gt;()
+            );
+
+            // Only run when both parks and crime buildings exist
+            RequireForUpdate(m_CrimeBuildings);
+            RequireForUpdate(m_Parks);
+        }
+
+        public override int GetUpdateInterval(SystemUpdatePhase phase)
+        {
+            return 256;
+        }
+
+        protected override void OnUpdate()
+        {
+            // Step 1: Collect park positions
+            NativeArray&lt;Entity&gt; parkEntities =
+                m_Parks.ToEntityArray(Allocator.Temp);
+            NativeList&lt;float3&gt; parkPositions =
+                new NativeList&lt;float3&gt;(parkEntities.Length, Allocator.Temp);
+
+            for (int i = 0; i &lt; parkEntities.Length; i++)
+            {
+                Transform parkTransform =
+                    EntityManager.GetComponentData&lt;Transform&gt;(parkEntities[i]);
+                parkPositions.Add(parkTransform.m_Position);
+            }
+            parkEntities.Dispose();
+
+            // Step 2: Iterate crime buildings and reduce crime if near a park
+            NativeArray&lt;Entity&gt; crimeEntities =
+                m_CrimeBuildings.ToEntityArray(Allocator.Temp);
+            int reducedCount = 0;
+
+            for (int i = 0; i &lt; crimeEntities.Length; i++)
+            {
+                Entity building = crimeEntities[i];
+                CrimeProducer crime =
+                    EntityManager.GetComponentData&lt;CrimeProducer&gt;(building);
+
+                // Skip buildings with no crime
+                if (crime.m_Crime &lt;= 0f) continue;
+
+                Transform buildingTransform =
+                    EntityManager.GetComponentData&lt;Transform&gt;(building);
+
+                // Check distance to each park
+                bool nearPark = false;
+                for (int p = 0; p &lt; parkPositions.Length; p++)
+                {
+                    float dist = math.distance(
+                        buildingTransform.m_Position, parkPositions[p]);
+                    if (dist &lt; k_ParkRadius)
+                    {
+                        nearPark = true;
+                        break;
+                    }
+                }
+
+                if (nearPark)
+                {
+                    // Reduce crime, clamped to zero
+                    crime.m_Crime = math.max(0f,
+                        crime.m_Crime - k_CrimeReductionPerTick);
+
+                    // Write the modified data back to the entity
+                    EntityManager.SetComponentData(building, crime);
+                    reducedCount++;
+                }
+            }
+
+            crimeEntities.Dispose();
+            parkPositions.Dispose();
+
+            if (reducedCount &gt; 0)
+            {
+                Mod.Log.Info(
+                    $"Reduced crime on {reducedCount} buildings near parks");
+            }
+        }
+    }
+}</code></pre>
+
+  <h3>Expected Log Output</h3>
+
+  <pre><code>[CrimeReduction] Reduced crime on 34 buildings near parks
+[CrimeReduction] Reduced crime on 31 buildings near parks</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Common Patterns</h2>
+
+  <h3>Read-Modify-Write Pattern</h3>
+
+  <p>The standard pattern for modifying components:</p>
+
+  <pre><code class="language-csharp">// 1. Read the current value (gets a copy)
+MyComponent data = EntityManager.GetComponentData&lt;MyComponent&gt;(entity);
+
+// 2. Modify the copy
+data.m_Value += 10;
+
+// 3. Write the copy back
+EntityManager.SetComponentData(entity, data);</code></pre>
+
+  <h3>Conditional Add-or-Update</h3>
+
+  <pre><code class="language-csharp">if (EntityManager.HasComponent&lt;MyTag&gt;(entity))
+{
+    // Component exists -- update it
+    var data = EntityManager.GetComponentData&lt;MyTag&gt;(entity);
+    data.m_Counter++;
+    EntityManager.SetComponentData(entity, data);
+}
+else
+{
+    // Component does not exist -- add it
+    EntityManager.AddComponentData(entity, new MyTag { m_Counter = 1 });
+}</code></pre>
+
+  <h3>Batch Modify with Deferred Structural Changes</h3>
+
+  <pre><code class="language-csharp">protected override void OnUpdate()
+{
+    EntityCommandBuffer ecb = new EntityCommandBuffer(Allocator.Temp);
+    NativeArray&lt;Entity&gt; entities = m_Query.ToEntityArray(Allocator.Temp);
+
+    for (int i = 0; i &lt; entities.Length; i++)
+    {
+        // Safe: modify component data directly (no structural change)
+        var data = EntityManager.GetComponentData&lt;MyComponent&gt;(entities[i]);
+        data.m_Value *= 2;
+        EntityManager.SetComponentData(entities[i], data);
+
+        // Deferred: structural changes go through the ECB
+        if (data.m_Value &gt; 100)
+        {
+            ecb.AddComponent&lt;OverLimitTag&gt;(entities[i]);
+        }
+    }
+
+    entities.Dispose();
+    ecb.Playback(EntityManager);
+    ecb.Dispose();
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Quick Reference: Write Methods</h2>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>What It Does</th><th>Structural Change?</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>SetComponentData&lt;T&gt;(entity, value)</code></td>
+        <td>Write new value to existing component</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td><code>AddComponent&lt;T&gt;(entity)</code></td>
+        <td>Add a zero-size tag component</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td><code>AddComponentData&lt;T&gt;(entity, value)</code></td>
+        <td>Add component with initial data</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td><code>RemoveComponent&lt;T&gt;(entity)</code></td>
+        <td>Remove a component from entity</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td><code>CreateEntity()</code></td>
+        <td>Create a new empty entity</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td><code>DestroyEntity(entity)</code></td>
+        <td>Destroy an entity entirely</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td><code>EntityCommandBuffer</code></td>
+        <td>Defer all structural changes to playback</td>
+        <td>Deferred</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="tutorial-settings-panel.html">Adding a Settings Panel</a> -- make the crime reduction radius and rate configurable by players</li>
+    <li><a href="tutorial-toolbar-button.html">Adding a Toolbar Button</a> -- add a UI button to toggle the system on/off</li>
+    <li><a href="crime-trigger.html">Crime Trigger</a> reference -- deep dive into how CS2's crime system works</li>
+  </ul>
+
+  <footer>
+    <p>
+      Based on decompiled source from Game.dll (Cities: Skylines II) and the
+      <a href="mod-loading-dependencies.html">Mod Loading</a> research topic.
+    </p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook: Entity Queries - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Cookbook</h3>
+    <a href="cookbook-entity-queries.html" class="active">Entity Queries</a>
+    <a href="cookbook-emergency-dispatch.html">Dispatching Vehicles</a>
+    <a href="cookbook-game-events.html">Triggering Game Events</a>
+    <a href="cookbook-game-mode.html">Game Mode Detection</a>
+    <a href="cookbook-update-frequency.html">Update Frequency</a>
+    <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+    <a href="cookbook-localization.html">Adding Localized Strings</a>
+    <a href="cookbook-static-assets.html">Deploying Static Assets</a>
+
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Entity Queries <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What you'll learn</h2>
+    <p>How to query for entities in a <code>GameSystemBase</code> using <code>EntityQuery</code> -- filtering by component presence, shared component values, and singleton access.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Basic Query: WithAll, WithAny, WithNone</h2>
+
+  <p>Build queries in <code>OnCreate</code> using <code>ComponentType</code> filters. <code>ReadOnly</code> avoids write locks; <code>ReadWrite</code> is the default. <code>Exclude</code> filters out entities with that component.</p>
+
+<pre><code class="language-csharp">private EntityQuery m_BuildingQuery;
+
+protected override void OnCreate()
+{
+    base.OnCreate();
+    m_BuildingQuery = GetEntityQuery(
+        // Must have all of these
+        ComponentType.ReadOnly&lt;Game.Buildings.Building&gt;(),
+        ComponentType.ReadOnly&lt;Game.Prefabs.PrefabRef&gt;(),
+        // Must NOT have these
+        ComponentType.Exclude&lt;Game.Common.Deleted&gt;(),
+        ComponentType.Exclude&lt;Game.Tools.Temp&gt;()
+    );
+    // Skip OnUpdate when query is empty
+    RequireForUpdate(m_BuildingQuery);
+}</code></pre>
+
+  <h3>Multiple component sets (WithAny)</h3>
+
+  <p>Use <code>EntityQueryDesc</code> directly for <code>Any</code> semantics -- match entities that have at least one of the listed components:</p>
+
+<pre><code class="language-csharp">m_VehicleQuery = GetEntityQuery(new EntityQueryDesc
+{
+    All = new[] {
+        ComponentType.ReadOnly&lt;Game.Vehicles.Car&gt;()
+    },
+    Any = new[] {
+        ComponentType.ReadOnly&lt;Game.Vehicles.PoliceCar&gt;(),
+        ComponentType.ReadOnly&lt;Game.Vehicles.Ambulance&gt;(),
+        ComponentType.ReadOnly&lt;Game.Vehicles.FireEngine&gt;()
+    },
+    None = new[] {
+        ComponentType.ReadOnly&lt;Game.Common.Deleted&gt;()
+    }
+});</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>SharedComponentFilter for UpdateFrame</h2>
+
+  <p>Many game systems process only a subset of entities per tick using the <code>UpdateFrame</code> shared component. Apply a filter before iterating:</p>
+
+<pre><code class="language-csharp">private SimulationSystem m_SimulationSystem;
+private EntityQuery m_TreeQuery;
+
+protected override void OnCreate()
+{
+    base.OnCreate();
+    m_SimulationSystem = World.GetOrCreateSystemManaged&lt;SimulationSystem&gt;();
+    m_TreeQuery = GetEntityQuery(
+        ComponentType.ReadOnly&lt;Game.Objects.Tree&gt;(),
+        ComponentType.ReadOnly&lt;Game.Simulation.UpdateFrame&gt;(),
+        ComponentType.Exclude&lt;Game.Common.Deleted&gt;()
+    );
+}
+
+protected override void OnUpdate()
+{
+    // 32 updates/day, 16 groups
+    uint updateFrame = SimulationUtils.GetUpdateFrame(
+        m_SimulationSystem.frameIndex, 32, 16);
+
+    m_TreeQuery.ResetFilter();
+    m_TreeQuery.SetSharedComponentFilter(
+        new Game.Simulation.UpdateFrame(updateFrame));
+
+    // Now m_TreeQuery only contains 1/16 of all trees
+    var entities = m_TreeQuery.ToEntityArray(
+        Unity.Collections.Allocator.Temp);
+    // ... process entities ...
+    entities.Dispose();
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>ToEntityArray with Allocator.TempJob</h2>
+
+  <p>Use <code>Allocator.Temp</code> for immediate main-thread iteration. Use <code>Allocator.TempJob</code> when passing arrays to scheduled jobs:</p>
+
+<pre><code class="language-csharp">// Main thread -- short-lived, auto-disposed at end of frame
+var entities = m_Query.ToEntityArray(Allocator.Temp);
+for (int i = 0; i &lt; entities.Length; i++)
+{
+    // read/write components on entities[i]
+}
+entities.Dispose();
+
+// For jobs -- lives until explicitly disposed
+var jobEntities = m_Query.ToEntityArray(Allocator.TempJob);
+var job = new MyJob { Entities = jobEntities };
+var handle = job.Schedule(jobEntities.Length, 64);
+handle.Complete();
+jobEntities.Dispose();</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Singleton Queries</h2>
+
+  <p>Some game data lives on a single entity (singletons). Access them with <code>SystemAPI.GetSingleton</code> or query directly:</p>
+
+<pre><code class="language-csharp">// Read a singleton component
+var fireConfig = SystemAPI.GetSingleton&lt;FireConfigurationData&gt;();
+float defaultIntegrity = fireConfig.m_DefaultStructuralIntegrity;
+
+// Write to a singleton
+var config = SystemAPI.GetSingleton&lt;PoliceConfigurationData&gt;();
+config.m_CrimeAccumulationTolerance = 500f;
+SystemAPI.SetSingleton(config);
+
+// Query-based approach (useful in OnCreate)
+var configQuery = GetEntityQuery(
+    ComponentType.ReadOnly&lt;PoliceConfigurationData&gt;(),
+    ComponentType.Exclude&lt;Game.Prefabs.Locked&gt;()
+);
+if (!configQuery.IsEmptyIgnoreFilter)
+{
+    var data = configQuery.GetSingleton&lt;PoliceConfigurationData&gt;();
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Quick Reference</h2>
+
+  <table>
+    <thead>
+      <tr><th>Pattern</th><th>When to use</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>ComponentType.ReadOnly&lt;T&gt;</code></td><td>Filter + read only, no write lock</td></tr>
+      <tr><td><code>ComponentType.ReadWrite&lt;T&gt;</code></td><td>Filter + read/write access</td></tr>
+      <tr><td><code>ComponentType.Exclude&lt;T&gt;</code></td><td>Skip entities that have T</td></tr>
+      <tr><td><code>RequireForUpdate(query)</code></td><td>Skip OnUpdate when query is empty</td></tr>
+      <tr><td><code>SetSharedComponentFilter</code></td><td>Process entity subsets (UpdateFrame)</td></tr>
+      <tr><td><code>Allocator.Temp</code></td><td>Main-thread iteration</td></tr>
+      <tr><td><code>Allocator.TempJob</code></td><td>Passing data to scheduled jobs</td></tr>
+      <tr><td><code>SystemAPI.GetSingleton&lt;T&gt;</code></td><td>Read global config components</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

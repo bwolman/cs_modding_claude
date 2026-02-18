@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>The cohtml UI Model - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <hr class="sidebar-divider">
+
+    <h3>Concepts</h3>
+    <a href="concepts-ecs.html">Unity ECS for CS2</a>
+    <a href="concepts-harmony.html">Harmony Patching</a>
+    <a href="concepts-cohtml.html" class="active">The cohtml UI Model</a>
+    <a href="concepts-prefabs.html">Prefab System</a>
+    <a href="concepts-update-phases.html">Update Phases</a>
+    <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+
+    <h3>Troubleshooting</h3>
+    <a href="troubleshooting-common-errors.html">Common Errors</a>
+    <a href="troubleshooting-debugging.html">Debugging Guide</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>The cohtml UI Model <span class="badge-intermediate">Intermediate</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      This page explains how CS2 renders its entire UI using cohtml (Coherent),
+      an embedded HTML/CSS/JavaScript rendering engine inside Unity. You will learn
+      the <code>coui://</code> protocol, C# binding types, the TypeScript/React
+      component model, and how data flows between game code and the UI.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>What is cohtml?</h2>
+
+  <p>
+    <strong>cohtml</strong> (by Coherent Labs) is an HTML rendering engine embedded
+    inside Unity. CS2's entire UI -- toolbars, panels, info views, settings menus --
+    is built with HTML, CSS, and JavaScript rendered by cohtml on top of the 3D game
+    view.
+  </p>
+
+  <p>
+    This means CS2 modders write UI code using web technologies (TypeScript, React, SCSS)
+    rather than Unity's built-in UI systems (UGUI, UI Toolkit). The C# side communicates
+    with the JavaScript side through a binding system.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>The coui:// Protocol</h2>
+
+  <p>
+    Resources (icons, stylesheets, scripts) are loaded via the <code>coui://</code>
+    protocol instead of <code>http://</code>. The game registers host locations
+    that map protocol hostnames to directories on disk.
+  </p>
+
+  <pre><code class="language-csharp">// Register a custom host in C# (during OnLoad)
+UIManager.defaultUISystem.AddHostLocation(
+    "mymod",                                    // hostname
+    Path.Combine(modDirectory, "Resources"),    // directory on disk
+    false);                                     // not read-only
+
+// Now coui://mymod/icons/tool.svg resolves to
+// {modDirectory}/Resources/icons/tool.svg</code></pre>
+
+  <pre><code class="language-typescript">// Reference in TypeScript/JSX
+&lt;img src="coui://mymod/icons/tool.svg" /&gt;</code></pre>
+
+  <p>
+    Always call <code>RemoveHostLocation("mymod")</code> in <code>OnDispose</code>
+    to clean up when your mod is unloaded.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>C# Bindings: The Bridge Between Worlds</h2>
+
+  <p>
+    The binding system provides typed communication channels between C# and JavaScript.
+    There are three categories:
+  </p>
+
+  <h3>ValueBinding: C# Pushes Data to JS</h3>
+
+  <p>
+    A <code>ValueBinding&lt;T&gt;</code> holds a value in C# and pushes it to the
+    JavaScript frontend whenever it changes. The binding uses
+    <code>EqualityComparer&lt;T&gt;</code> to avoid sending duplicate updates.
+  </p>
+
+  <pre><code class="language-csharp">// C# side: create and register the binding
+_isActive = new ValueBinding&lt;bool&gt;("MyMod", "IsActive", false);
+AddBinding(_isActive);
+
+// Later, push a new value to JS
+_isActive.Update(true);</code></pre>
+
+  <pre><code class="language-typescript">// TypeScript side: subscribe to the C# value
+const isActive$ = bindValue&lt;boolean&gt;("MyMod", "IsActive", false);
+
+function MyComponent() {
+    const isActive = useValue(isActive$);
+    return &lt;div&gt;{isActive ? "Active" : "Inactive"}&lt;/div&gt;;
+}</code></pre>
+
+  <h3>GetterValueBinding: Automatic Polling</h3>
+
+  <p>
+    A <code>GetterValueBinding&lt;T&gt;</code> takes a getter function that is
+    called every frame. If the returned value differs from the previous frame,
+    it automatically pushes the update to JS.
+  </p>
+
+  <pre><code class="language-csharp">AddBinding(new GetterValueBinding&lt;int&gt;(
+    "MyMod", "EntityCount", () =&gt; m_EntityCount));</code></pre>
+
+  <h3>TriggerBinding: JS Sends Events to C#</h3>
+
+  <p>
+    A <code>TriggerBinding</code> receives events from the JavaScript frontend.
+    Typed variants support up to 4 arguments.
+  </p>
+
+  <pre><code class="language-csharp">// C# side: register the callback
+AddBinding(new TriggerBinding("MyMod", "ToggleTool", OnToggle));
+AddBinding(new TriggerBinding&lt;string&gt;("MyMod", "SetName", OnSetName));
+
+private void OnToggle() { /* handle toggle */ }
+private void OnSetName(string name) { /* handle name change */ }</code></pre>
+
+  <pre><code class="language-typescript">// TypeScript side: fire the trigger
+const toggleTool = trigger.bind(null, "MyMod", "ToggleTool");
+const setName = (name: string) =&gt; trigger("MyMod", "SetName", name);</code></pre>
+
+  <h3>CallBinding: JS Calls C#, Gets a Return Value</h3>
+
+  <p>
+    A <code>CallBinding&lt;TResult&gt;</code> is like a trigger but returns a
+    value back to JavaScript. Useful for request-response patterns.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>The TypeScript/React Component Model</h2>
+
+  <p>
+    CS2 mod UI is built with React components bundled via webpack. Every mod with
+    UI exports a <code>ModRegistrar</code> function from <code>index.tsx</code>:
+  </p>
+
+  <pre><code class="language-typescript">import { ModRegistrar } from "cs2/modding";
+import MyToolbarButton from "mods/Components/MyToolbarButton";
+
+const register: ModRegistrar = (moduleRegistry) =&gt; {
+    // Inject components into game UI slots
+    moduleRegistry.append("GameTopLeft", MyToolbarButton);
+    moduleRegistry.append("Game", MyGamePanel);
+};
+
+export default register;</code></pre>
+
+  <h3>Key Injection Slots</h3>
+
+  <table>
+    <thead>
+      <tr><th>Slot</th><th>Location</th><th>Usage</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>"GameTopLeft"</code></td><td>Top-left toolbar area</td><td>Toolbar buttons</td></tr>
+      <tr><td><code>"Game"</code></td><td>Game view root</td><td>Full panels during gameplay</td></tr>
+      <tr><td><code>"Editor"</code></td><td>Editor view root</td><td>Panels during map/asset editor</td></tr>
+      <tr><td><code>"GameBottomRight"</code></td><td>Bottom-right area</td><td>Floating buttons/indicators</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    Use <code>moduleRegistry.extend(path, exportName, WrapperComponent)</code> to
+    wrap or replace existing vanilla components.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>How Data Flows</h2>
+
+  <div class="diagram">
+<pre>
+C# Game Code                        TypeScript/React UI
+=============                       ===================
+
+ValueBinding&lt;T&gt;.Update(value)
+    |                                     |
+    +-- EqualityComparer check            |
+    |   (skip if unchanged)               |
+    +-- Serialize via IJsonWriter          |
+    +-- cohtml native bridge ----------&gt; binding$ observable fires
+                                          |
+                                     useValue(binding$)
+                                          |
+                                     React component re-renders
+
+
+                                     trigger("MyMod", "Toggle")
+                                          |
+    cohtml native bridge &lt;-----------+
+    |
+TriggerBinding callback fires
+    |
+OnToggle() executes in C#
+</pre>
+  </div>
+
+  <p>The key principle: <strong>C# owns the state, JS renders it.</strong>
+  Value bindings push state from C# to JS. Trigger bindings send user actions
+  from JS back to C#. The UI never modifies game state directly.</p>
+
+  <!-- ============================================================ -->
+  <h2>UISystemBase: The Foundation</h2>
+
+  <p>
+    All mod UI systems extend <code>UISystemBase</code>, which is itself a
+    <code>GameSystemBase</code>. It provides binding management and automatic
+    update polling.
+  </p>
+
+  <pre><code class="language-csharp">public partial class MyUISystem : UISystemBase
+{
+    private ValueBinding&lt;bool&gt; _isOpen;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _isOpen = new ValueBinding&lt;bool&gt;("MyMod", "IsOpen", false);
+        AddBinding(_isOpen);
+        AddBinding(new TriggerBinding("MyMod", "Toggle", OnToggle));
+    }
+
+    private void OnToggle() =&gt; _isOpen.Update(!_isOpen.value);
+}
+
+// Register in OnLoad:
+updateSystem.UpdateAt&lt;MyUISystem&gt;(SystemUpdatePhase.UIUpdate);</code></pre>
+
+  <p>
+    Register UI systems at <code>SystemUpdatePhase.UIUpdate</code> so bindings
+    are polled after simulation but before rendering.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Custom Type Serialization</h2>
+
+  <p>
+    To push complex objects to JS, implement <code>IJsonWritable</code>:
+  </p>
+
+  <pre><code class="language-csharp">public struct PanelData : IJsonWritable
+{
+    public string Title;
+    public int Progress;
+
+    public void Write(IJsonWriter writer)
+    {
+        writer.TypeBegin("PanelData");
+        writer.PropertyName("title");
+        writer.Write(Title);
+        writer.PropertyName("progress");
+        writer.Write(Progress);
+        writer.TypeEnd();
+    }
+}
+
+// Use directly with ValueBinding -- auto-detected
+var binding = new ValueBinding&lt;PanelData&gt;("MyMod", "Data", default);</code></pre>
+
+  <p>
+    For simpler cases, community mods use <code>GenericUIWriter&lt;T&gt;</code>
+    which auto-serializes any object via reflection. See
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a> for details.
+  </p>
+
+  <div class="quick-start">
+    <h2>Key Takeaways</h2>
+    <ul>
+      <li>CS2's UI is rendered by cohtml -- an HTML/CSS/JS engine inside Unity</li>
+      <li>Resources are served via the <code>coui://</code> protocol</li>
+      <li><code>ValueBinding</code> pushes C# state to JS; <code>TriggerBinding</code> sends JS events to C#</li>
+      <li>Mod UI uses React components injected via <code>moduleRegistry.append()</code></li>
+      <li>Register UI systems at <code>SystemUpdatePhase.UIUpdate</code></li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Source: Decompiled from Colossal.UI.Binding.dll and Game.dll (Cities: Skylines II). Based on ModUIButtons research.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

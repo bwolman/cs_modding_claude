@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your First ECS System - CS2 Modding Tutorials</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle">Getting Started</h3>
+    <div class="sidebar-links">
+      <a href="index.html">Home</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html" class="active">Your First ECS System</a>
+      <a href="tutorial-reading-data.html">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html">Adding a Settings Panel</a>
+      <a href="tutorial-toolbar-button.html">Adding a Toolbar Button</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <hr class="sidebar-divider">
+
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <h1>Your First ECS System <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Build</h2>
+    <p>
+      A <code>GameSystemBase</code> that runs every 256 simulation frames, counts all
+      residential buildings in the city, and logs the result. This teaches you the core
+      ECS system lifecycle: <code>OnCreate</code>, <code>OnUpdate</code>,
+      <code>GetEntityQuery</code>, and <code>GetUpdateInterval</code>.
+    </p>
+    <p>
+      <strong>Prerequisites:</strong> A working CS2 mod project with <code>IMod</code>
+      entry point. See the <a href="mod-loading-dependencies.html">Mod Loading</a>
+      reference for project setup.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How ECS Systems Work in CS2</h2>
+
+  <p>
+    Cities: Skylines II uses Unity's Entity Component System (ECS). Instead of traditional
+    object-oriented game objects, the game stores data in <strong>components</strong> attached
+    to lightweight <strong>entities</strong>. <strong>Systems</strong> contain the logic that
+    queries and processes those entities each frame.
+  </p>
+
+  <p>
+    Every mod system extends <code>GameSystemBase</code>, which provides:
+  </p>
+
+  <ul>
+    <li><code>OnCreate()</code> -- called once when the system is first created; set up queries and cache references here</li>
+    <li><code>OnUpdate()</code> -- called repeatedly on each tick; this is where your logic runs</li>
+    <li><code>OnDestroy()</code> -- called when the system is removed; clean up resources here</li>
+    <li><code>GetUpdateInterval()</code> -- controls how many frames between each <code>OnUpdate</code> call</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Step 1: Create the Mod Entry Point</h2>
+
+  <p>
+    Every mod needs a class implementing <code>IMod</code>. This is where you register your
+    system with the game's update loop via the <code>UpdateSystem</code> parameter.
+  </p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Modding;
+using Colossal.Logging;
+
+namespace ResidentialCounter
+{
+    public class Mod : IMod
+    {
+        internal static ILog Log = LogManager.GetLogger(nameof(Mod))
+            .SetShowsErrorsInUI(true);
+
+        public void OnLoad(UpdateSystem updateSystem)
+        {
+            Log.Info("ResidentialCounter mod loaded");
+
+            // Register our system to run during the main simulation phase.
+            // SystemUpdatePhase.GameSimulation runs once per simulation tick.
+            updateSystem.UpdateAt&lt;ResidentialCounterSystem&gt;(
+                SystemUpdatePhase.GameSimulation);
+        }
+
+        public void OnDispose()
+        {
+            Log.Info("ResidentialCounter mod disposed");
+        }
+    }
+}</code></pre>
+
+  <h3>SystemUpdatePhase Choices</h3>
+
+  <p>
+    The <code>SystemUpdatePhase</code> enum determines <em>when</em> your system runs in
+    the frame. Common choices for mod systems:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Phase</th><th>When It Runs</th><th>Use For</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>GameSimulation</code></td><td>Main simulation tick</td><td>Reading/writing game state</td></tr>
+      <tr><td><code>UIUpdate</code></td><td>After simulation</td><td>UI binding systems</td></tr>
+      <tr><td><code>PreSimulation</code></td><td>Before simulation tick</td><td>Preparing data for simulation</td></tr>
+      <tr><td><code>Serialize</code></td><td>Save game</td><td>Persisting mod data</td></tr>
+      <tr><td><code>Deserialize</code></td><td>Load game</td><td>Restoring mod data</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Step 2: Create the System</h2>
+
+  <p>
+    The system uses <code>GetEntityQuery</code> to define which entities it cares about, and
+    <code>GetUpdateInterval</code> to run every 256 frames instead of every frame (reducing
+    CPU overhead for non-time-critical work).
+  </p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Buildings;
+using Game.Common;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
+namespace ResidentialCounter
+{
+    /// &lt;summary&gt;
+    /// Counts residential buildings every 256 simulation frames and logs the total.
+    /// Demonstrates the core GameSystemBase lifecycle:
+    /// OnCreate for setup, OnUpdate for logic, GetUpdateInterval for tick rate.
+    /// &lt;/summary&gt;
+    public partial class ResidentialCounterSystem : GameSystemBase
+    {
+        private EntityQuery m_ResidentialQuery;
+
+        /// &lt;summary&gt;
+        /// Called once when the system is created. Build your entity queries here.
+        /// &lt;/summary&gt;
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+
+            // GetEntityQuery builds a query that matches entities having ALL
+            // of the specified component types. This query matches entities
+            // that have both a ResidentialProperty component AND a Building
+            // component, while excluding deleted or temporary entities.
+            m_ResidentialQuery = GetEntityQuery(
+                ComponentType.ReadOnly&lt;ResidentialProperty&gt;(),
+                ComponentType.ReadOnly&lt;Building&gt;(),
+                ComponentType.Exclude&lt;Deleted&gt;(),
+                ComponentType.Exclude&lt;Temp&gt;()
+            );
+
+            // RequireForUpdate makes this system skip OnUpdate entirely
+            // when zero entities match the query. This avoids unnecessary
+            // work before any residential buildings exist.
+            RequireForUpdate(m_ResidentialQuery);
+        }
+
+        /// &lt;summary&gt;
+        /// Controls how often OnUpdate is called.
+        /// Default is 1 (every frame). We use 256 for a lightweight periodic check.
+        /// The game's simulation day is 262144 frames, so 256 means ~1024 checks/day.
+        /// &lt;/summary&gt;
+        public override int GetUpdateInterval(SystemUpdatePhase phase)
+        {
+            return 256;
+        }
+
+        /// &lt;summary&gt;
+        /// Called every 256 frames. Counts matching entities and logs the result.
+        /// &lt;/summary&gt;
+        protected override void OnUpdate()
+        {
+            // CalculateEntityCount() returns the number of entities matching
+            // the query. This is fast -- ECS tracks counts per archetype chunk.
+            int count = m_ResidentialQuery.CalculateEntityCount();
+
+            Mod.Log.Info($"Residential buildings: {count}");
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 3: Understanding the Key Concepts</h2>
+
+  <h3>EntityQuery</h3>
+
+  <p>
+    An <code>EntityQuery</code> is a filter that selects entities based on their component
+    composition. Think of it as a database query: "give me all entities that have components
+    A and B but not component C."
+  </p>
+
+  <ul>
+    <li><code>ComponentType.ReadOnly&lt;T&gt;()</code> -- entity must have this component (read access only)</li>
+    <li><code>ComponentType.ReadWrite&lt;T&gt;()</code> -- entity must have this component (read/write access)</li>
+    <li><code>ComponentType.Exclude&lt;T&gt;()</code> -- entity must NOT have this component</li>
+  </ul>
+
+  <p>
+    Always exclude <code>Deleted</code> and <code>Temp</code> to avoid processing entities
+    that are being destroyed or are temporary construction previews.
+  </p>
+
+  <h3>GetUpdateInterval</h3>
+
+  <p>
+    Not every system needs to run every frame. <code>GetUpdateInterval</code> returns
+    the number of frames between ticks. Common intervals used by vanilla systems:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Interval</th><th>Checks/Day</th><th>Example Vanilla System</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>262,144</td><td>CarNavigationSystem (every frame)</td></tr>
+      <tr><td>16</td><td>16,384</td><td>PoliceCarAISystem</td></tr>
+      <tr><td>64</td><td>4,096</td><td>AccidentSiteSystem</td></tr>
+      <tr><td>256</td><td>1,024</td><td>PoliceStationAISystem</td></tr>
+      <tr><td>512</td><td>512</td><td>TreeGrowthSystem</td></tr>
+    </tbody>
+  </table>
+
+  <h3>RequireForUpdate</h3>
+
+  <p>
+    <code>RequireForUpdate(query)</code> tells the system to skip <code>OnUpdate</code>
+    entirely when the query matches zero entities. This is free -- ECS tracks archetype
+    counts internally. Use it to avoid running logic when there is nothing to process.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Step 4: Build and Test</h2>
+
+  <p>
+    Build the mod with <code>dotnet build</code>. The post-build step should deploy the DLL
+    to the game's <code>Mods/</code> folder. Launch the game, load a city, and check the
+    log output.
+  </p>
+
+  <h3>Expected Log Output</h3>
+
+  <pre><code>[ResidentialCounter] Residential buildings: 847
+[ResidentialCounter] Residential buildings: 847
+[ResidentialCounter] Residential buildings: 852</code></pre>
+
+  <p>
+    The count updates every 256 frames. As new residential buildings are placed or
+    demolished, the number changes accordingly.
+  </p>
+
+  <h3>Where to Find Logs</h3>
+
+  <p>
+    CS2 writes logs to <code>%LOCALAPPDATA%/Colossal Order/Cities Skylines II/Logs/</code>
+    on Windows. The main log file is <code>Player.log</code>. Because we called
+    <code>SetShowsErrorsInUI(true)</code> on the logger, any errors will also appear as
+    in-game notifications.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Complete Project Files</h2>
+
+  <h3>Mod.cs</h3>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Modding;
+using Colossal.Logging;
+
+namespace ResidentialCounter
+{
+    public class Mod : IMod
+    {
+        internal static ILog Log = LogManager.GetLogger(nameof(Mod))
+            .SetShowsErrorsInUI(true);
+
+        public void OnLoad(UpdateSystem updateSystem)
+        {
+            Log.Info("ResidentialCounter mod loaded");
+            updateSystem.UpdateAt&lt;ResidentialCounterSystem&gt;(
+                SystemUpdatePhase.GameSimulation);
+        }
+
+        public void OnDispose()
+        {
+            Log.Info("ResidentialCounter mod disposed");
+        }
+    }
+}</code></pre>
+
+  <h3>ResidentialCounterSystem.cs</h3>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Buildings;
+using Game.Common;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
+namespace ResidentialCounter
+{
+    public partial class ResidentialCounterSystem : GameSystemBase
+    {
+        private EntityQuery m_ResidentialQuery;
+
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+            m_ResidentialQuery = GetEntityQuery(
+                ComponentType.ReadOnly&lt;ResidentialProperty&gt;(),
+                ComponentType.ReadOnly&lt;Building&gt;(),
+                ComponentType.Exclude&lt;Deleted&gt;(),
+                ComponentType.Exclude&lt;Temp&gt;()
+            );
+            RequireForUpdate(m_ResidentialQuery);
+        }
+
+        public override int GetUpdateInterval(SystemUpdatePhase phase)
+        {
+            return 256;
+        }
+
+        protected override void OnUpdate()
+        {
+            int count = m_ResidentialQuery.CalculateEntityCount();
+            Mod.Log.Info($"Residential buildings: {count}");
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="tutorial-reading-data.html">Reading Game Data</a> -- learn to read component values from the entities your query returns</li>
+    <li><a href="tutorial-modifying-data.html">Modifying Game Data</a> -- learn to write back changes to the simulation</li>
+    <li><a href="mod-loading-dependencies.html">Mod Loading</a> -- understand system registration phases and update ordering</li>
+  </ul>
+
+  <footer>
+    <p>
+      Based on decompiled source from Game.dll (Cities: Skylines II) and the
+      <a href="mod-loading-dependencies.html">Mod Loading</a> research topic.
+    </p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adding a Settings Panel - CS2 Modding Tutorials</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle">Getting Started</h3>
+    <div class="sidebar-links">
+      <a href="index.html">Home</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html">Your First ECS System</a>
+      <a href="tutorial-reading-data.html">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html" class="active">Adding a Settings Panel</a>
+      <a href="tutorial-toolbar-button.html">Adding a Toolbar Button</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <hr class="sidebar-divider">
+
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <h1>Adding a Settings Panel <span class="badge-intermediate">Intermediate</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Build</h2>
+    <p>
+      A mod settings page that appears in the game's Options screen, with a toggle, a
+      slider, an enum dropdown, and a reset button. The settings are automatically
+      persisted to disk and the page uses the game's built-in reflection-driven UI system.
+    </p>
+    <p>
+      <strong>Prerequisites:</strong> A working mod with an <code>IMod</code> entry point.
+      Familiarity with <code>GameSystemBase</code> from
+      <a href="tutorial-first-system.html">Your First ECS System</a>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How It Works</h2>
+
+  <p>
+    CS2's Options UI is <strong>reflection-driven</strong>. You create a class that extends
+    <code>ModSetting</code>, add public properties with attribute decorators, and call
+    <code>RegisterInOptionsUI()</code>. The game's <code>AutomaticSettings</code> engine
+    scans your class via reflection and builds the settings page automatically.
+  </p>
+
+  <p>
+    The mapping from C# property types to UI widgets:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Property Type</th><th>Attribute</th><th>Widget</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>bool</code> (read+write)</td><td>none</td><td>Toggle switch</td></tr>
+      <tr><td><code>bool</code> (write-only)</td><td>none</td><td>Button</td></tr>
+      <tr><td><code>int</code></td><td><code>[SettingsUISlider]</code></td><td>Integer slider</td></tr>
+      <tr><td><code>float</code></td><td><code>[SettingsUISlider]</code></td><td>Float slider</td></tr>
+      <tr><td><code>enum</code></td><td>none</td><td>Dropdown</td></tr>
+      <tr><td><code>string</code></td><td><code>[SettingsUIDropdown]</code></td><td>Custom dropdown</td></tr>
+      <tr><td><code>bool</code></td><td><code>[SettingsUIButton]</code> + <code>[SettingsUIConfirmation]</code></td><td>Button with confirm dialog</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Step 1: Create the Settings Class</h2>
+
+  <p>
+    Extend <code>ModSetting</code> and decorate your properties with layout and widget
+    attributes. The <code>[FileLocation]</code> attribute controls where settings are
+    saved on disk.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.IO.AssetDatabase;
+using Game.Modding;
+using Game.Settings;
+
+namespace MyMod
+{
+    /// &lt;summary&gt;
+    /// Settings class for MyMod. Properties with [SettingsUISection] attributes
+    /// are scanned by the reflection engine and rendered as widgets in the
+    /// game's Options screen.
+    /// &lt;/summary&gt;
+    [FileLocation(nameof(MyMod))]
+    [SettingsUITabOrder("General", "Advanced")]
+    [SettingsUIGroupOrder("Feature", "Display")]
+    [SettingsUIShowGroupName]
+    public class MyModSettings : ModSetting
+    {
+        public MyModSettings(IMod mod) : base(mod) { }
+
+        // --- General tab, Feature group ---
+
+        /// &lt;summary&gt;
+        /// A bool property with a getter and setter renders as a toggle.
+        /// &lt;/summary&gt;
+        [SettingsUISection("General", "Feature")]
+        public bool EnableFeature { get; set; } = true;
+
+        /// &lt;summary&gt;
+        /// Int + [SettingsUISlider] renders as a slider widget.
+        /// The slider is grayed out when the feature is disabled.
+        /// &lt;/summary&gt;
+        [SettingsUISection("General", "Feature")]
+        [SettingsUISlider(min = 50, max = 500, step = 25, unit = "integer")]
+        [SettingsUIDisableByCondition(
+            typeof(MyModSettings), nameof(IsFeatureDisabled))]
+        public int EffectRadius { get; set; } = 200;
+
+        /// &lt;summary&gt;
+        /// Float slider for a multiplier value.
+        /// &lt;/summary&gt;
+        [SettingsUISection("General", "Feature")]
+        [SettingsUISlider(min = 0.1f, max = 5.0f, step = 0.1f,
+            unit = "floatSingleFraction")]
+        [SettingsUIDisableByCondition(
+            typeof(MyModSettings), nameof(IsFeatureDisabled))]
+        public float EffectMultiplier { get; set; } = 1.0f;
+
+        // --- General tab, Display group ---
+
+        /// &lt;summary&gt;
+        /// An enum property without [SettingsUIDropdown] renders as an
+        /// automatic enum dropdown. Each enum value gets a localization key.
+        /// &lt;/summary&gt;
+        [SettingsUISection("General", "Display")]
+        public LogLevel LogVerbosity { get; set; } = LogLevel.Normal;
+
+        // --- Advanced tab ---
+
+        /// &lt;summary&gt;
+        /// Write-only bool renders as a button automatically.
+        /// [SettingsUIConfirmation] adds a confirm dialog before executing.
+        /// &lt;/summary&gt;
+        [SettingsUISection("Advanced", "Reset")]
+        [SettingsUIButton]
+        [SettingsUIConfirmation]
+        public bool ResetToDefaults
+        {
+            set { SetDefaults(); ApplyAndSave(); }
+        }
+
+        /// &lt;summary&gt;
+        /// Condition method for [SettingsUIDisableByCondition].
+        /// Returns true when the feature toggle is OFF.
+        /// &lt;/summary&gt;
+        public bool IsFeatureDisabled() =&gt; !EnableFeature;
+
+        /// &lt;summary&gt;
+        /// Called by the reset button. Sets all properties to defaults.
+        /// &lt;/summary&gt;
+        public override void SetDefaults()
+        {
+            EnableFeature = true;
+            EffectRadius = 200;
+            EffectMultiplier = 1.0f;
+            LogVerbosity = LogLevel.Normal;
+        }
+    }
+
+    public enum LogLevel { Quiet, Normal, Verbose }
+}</code></pre>
+
+  <h3>Key Attributes Explained</h3>
+
+  <table>
+    <thead>
+      <tr><th>Attribute</th><th>Target</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>[FileLocation]</code></td><td>Class</td><td>Filename for persisted settings on disk</td></tr>
+      <tr><td><code>[SettingsUITabOrder]</code></td><td>Class</td><td>Declares tabs and their left-to-right order</td></tr>
+      <tr><td><code>[SettingsUIGroupOrder]</code></td><td>Class</td><td>Declares groups and their top-to-bottom order</td></tr>
+      <tr><td><code>[SettingsUIShowGroupName]</code></td><td>Class</td><td>Displays group header labels in the UI</td></tr>
+      <tr><td><code>[SettingsUISection]</code></td><td>Property</td><td>Places property into a specific tab and group</td></tr>
+      <tr><td><code>[SettingsUISlider]</code></td><td>Property</td><td>Renders an int or float as a slider</td></tr>
+      <tr><td><code>[SettingsUIDisableByCondition]</code></td><td>Property</td><td>Grays out widget when condition returns true</td></tr>
+      <tr><td><code>[SettingsUIHideByCondition]</code></td><td>Property</td><td>Hides widget entirely when condition returns true</td></tr>
+      <tr><td><code>[SettingsUIButton]</code></td><td>Property</td><td>Renders a bool property as a clickable button</td></tr>
+      <tr><td><code>[SettingsUIConfirmation]</code></td><td>Property</td><td>Shows "are you sure?" dialog before button action</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Step 2: Register Settings in OnLoad</h2>
+
+  <p>
+    Registration happens in your <code>IMod.OnLoad</code>. There are three required steps:
+    create the instance, register it with the Options UI, and load saved values from disk.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.IO.AssetDatabase;
+using Colossal.Logging;
+using Game;
+using Game.Modding;
+using Game.SceneFlow;
+using System.Collections.Generic;
+
+namespace MyMod
+{
+    public class Mod : IMod
+    {
+        internal static ILog Log = LogManager.GetLogger(nameof(Mod))
+            .SetShowsErrorsInUI(true);
+        internal static MyModSettings Settings { get; private set; }
+
+        public void OnLoad(UpdateSystem updateSystem)
+        {
+            Log.Info("MyMod loaded");
+
+            // 1. Create the settings instance
+            Settings = new MyModSettings(this);
+
+            // 2. Register in Options UI (page appears in menu)
+            Settings.RegisterInOptionsUI();
+
+            // 3. Load saved values from disk (falls back to defaults)
+            AssetDatabase.global.LoadSettings(
+                nameof(MyMod), Settings, new MyModSettings(this));
+
+            // 4. Register localization for labels
+            LoadLocalization();
+
+            // 5. Register ECS systems
+            updateSystem.UpdateAt&lt;MyFeatureSystem&gt;(
+                SystemUpdatePhase.GameSimulation);
+        }
+
+        public void OnDispose()
+        {
+            Settings?.UnregisterInOptionsUI();
+        }
+
+        private void LoadLocalization()
+        {
+            var id = Settings.id;
+            var name = Settings.name;
+            var sources = new Dictionary&lt;string, string&gt;
+            {
+                // Page title in the Options sidebar
+                { $"Options.SECTION[{id}]", "My Mod" },
+
+                // Tab labels
+                { $"Options.TAB[{id}.General]", "General" },
+                { $"Options.TAB[{id}.Advanced]", "Advanced" },
+
+                // Group labels
+                { $"Options.GROUP[{id}.Feature]", "Feature Settings" },
+                { $"Options.GROUP[{id}.Display]", "Display" },
+                { $"Options.GROUP[{id}.Reset]", "Reset" },
+
+                // Option labels
+                { $"Options.OPTION[{id}.{name}.EnableFeature]",
+                    "Enable Feature" },
+                { $"Options.OPTION_DESCRIPTION[{id}.{name}.EnableFeature]",
+                    "Turn the feature on or off." },
+                { $"Options.OPTION[{id}.{name}.EffectRadius]",
+                    "Effect Radius" },
+                { $"Options.OPTION_DESCRIPTION[{id}.{name}.EffectRadius]",
+                    "Radius in meters for the feature effect." },
+                { $"Options.OPTION[{id}.{name}.EffectMultiplier]",
+                    "Effect Multiplier" },
+                { $"Options.OPTION_DESCRIPTION[{id}.{name}.EffectMultiplier]",
+                    "Strength multiplier for the effect." },
+                { $"Options.OPTION[{id}.{name}.LogVerbosity]",
+                    "Log Verbosity" },
+                { $"Options.OPTION[{id}.{name}.ResetToDefaults]",
+                    "Reset to Defaults" },
+                { $"Options.WARNING[{id}.{name}.ResetToDefaults]",
+                    "Reset all settings to their default values?" },
+
+                // Enum value labels
+                { $"Options.{id}.LOGLEVEL[Quiet]", "Quiet" },
+                { $"Options.{id}.LOGLEVEL[Normal]", "Normal" },
+                { $"Options.{id}.LOGLEVEL[Verbose]", "Verbose" },
+            };
+
+            GameManager.instance.localizationManager.AddSource(
+                "en-US", new MemorySource(sources));
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 3: Access Settings from ECS Systems</h2>
+
+  <p>
+    Your ECS systems read settings values via the static <code>Mod.Settings</code>
+    property. For Burst-compiled jobs, cache the values as local fields and update
+    them via the <code>onSettingsApplied</code> event.
+  </p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Settings;
+using Game.Simulation;
+using Unity.Entities;
+
+namespace MyMod
+{
+    /// &lt;summary&gt;
+    /// Example system that reads settings to control its behavior.
+    /// Subscribes to onSettingsApplied to react to runtime changes.
+    /// &lt;/summary&gt;
+    public partial class MyFeatureSystem : GameSystemBase
+    {
+        // Cached copies of settings for use in update logic.
+        // For Burst jobs, these must be value types (not class refs).
+        private bool m_Enabled;
+        private int m_Radius;
+        private float m_Multiplier;
+
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+
+            // Initialize cached values from current settings
+            SyncSettings(Mod.Settings);
+
+            // Subscribe to settings changes.
+            // onSettingsApplied fires for ALL settings -- type-check!
+            Mod.Settings.onSettingsApplied += OnSettingsApplied;
+        }
+
+        private void OnSettingsApplied(Setting setting)
+        {
+            if (setting is MyModSettings modSettings)
+            {
+                SyncSettings(modSettings);
+            }
+        }
+
+        private void SyncSettings(MyModSettings settings)
+        {
+            m_Enabled = settings.EnableFeature;
+            m_Radius = settings.EffectRadius;
+            m_Multiplier = settings.EffectMultiplier;
+        }
+
+        public override int GetUpdateInterval(SystemUpdatePhase phase)
+        {
+            return 256;
+        }
+
+        protected override void OnUpdate()
+        {
+            // Skip processing if the feature is disabled
+            if (!m_Enabled) return;
+
+            // Use m_Radius and m_Multiplier in your simulation logic
+            Mod.Log.Info(
+                $"Feature running: radius={m_Radius}, mult={m_Multiplier}");
+        }
+
+        protected override void OnDestroy()
+        {
+            // Always unsubscribe to prevent memory leaks
+            Mod.Settings.onSettingsApplied -= OnSettingsApplied;
+            base.OnDestroy();
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Localization Key Reference</h2>
+
+  <p>
+    Every UI element needs a localization key. The <code>ModSetting</code> base class
+    provides helper methods to generate the correct key format:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Helper Method</th><th>Key Pattern</th><th>Purpose</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>GetSettingsLocaleID()</code></td>
+        <td><code>Options.SECTION[{id}]</code></td>
+        <td>Page title in Options sidebar</td>
+      </tr>
+      <tr>
+        <td><code>GetOptionTabLocaleID("Tab")</code></td>
+        <td><code>Options.TAB[{id}.Tab]</code></td>
+        <td>Tab label</td>
+      </tr>
+      <tr>
+        <td><code>GetOptionGroupLocaleID("Group")</code></td>
+        <td><code>Options.GROUP[{id}.Group]</code></td>
+        <td>Group header label</td>
+      </tr>
+      <tr>
+        <td><code>GetOptionLabelLocaleID("Prop")</code></td>
+        <td><code>Options.OPTION[{id}.{name}.Prop]</code></td>
+        <td>Property label</td>
+      </tr>
+      <tr>
+        <td><code>GetOptionDescLocaleID("Prop")</code></td>
+        <td><code>Options.OPTION_DESCRIPTION[{id}.{name}.Prop]</code></td>
+        <td>Property tooltip</td>
+      </tr>
+      <tr>
+        <td><code>GetEnumValueLocaleID(val)</code></td>
+        <td><code>Options.{id}.ENUMTYPE[Value]</code></td>
+        <td>Enum dropdown item label</td>
+      </tr>
+      <tr>
+        <td><code>GetOptionWarningLocaleID("Prop")</code></td>
+        <td><code>Options.WARNING[{id}.{name}.Prop]</code></td>
+        <td>Confirmation dialog message</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Common Pitfalls</h2>
+
+  <ul>
+    <li>
+      <strong>Missing localization keys:</strong> If you forget to register a key, the
+      Options UI shows the raw key string (e.g., <code>Options.OPTION[...]</code>)
+      instead of a human-readable label.
+    </li>
+    <li>
+      <strong>Forgetting UnregisterInOptionsUI:</strong> Call
+      <code>Settings.UnregisterInOptionsUI()</code> in <code>OnDispose</code> to
+      cleanly remove your settings page when the mod is unloaded.
+    </li>
+    <li>
+      <strong>onSettingsApplied fires for all settings:</strong> The callback receives
+      a <code>Setting</code> base class instance. Always type-check with
+      <code>is MyModSettings</code> before processing.
+    </li>
+    <li>
+      <strong>Enum localization key format:</strong> The enum type name in the key must
+      be uppercase. For <code>LogLevel.Normal</code>, the key is
+      <code>Options.{id}.LOGLEVEL[Normal]</code>.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="tutorial-toolbar-button.html">Adding a Toolbar Button</a> -- add interactive UI to the game toolbar</li>
+    <li><a href="mod-options-ui.html">Mod Options UI</a> reference -- complete attribute reference with all widget types</li>
+    <li><a href="mod-hotkey-input.html">Mod Hotkey Input</a> reference -- add rebindable keybindings to the settings page</li>
+  </ul>
+
+  <footer>
+    <p>
+      Based on decompiled source from Game.dll (Cities: Skylines II) and the
+      <a href="mod-options-ui.html">Mod Options UI</a> research topic.
+    </p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

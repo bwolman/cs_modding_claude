@@ -1,0 +1,533 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reading Game Data - CS2 Modding Tutorials</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle">Getting Started</h3>
+    <div class="sidebar-links">
+      <a href="index.html">Home</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html">Your First ECS System</a>
+      <a href="tutorial-reading-data.html" class="active">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html">Adding a Settings Panel</a>
+      <a href="tutorial-toolbar-button.html">Adding a Toolbar Button</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <hr class="sidebar-divider">
+
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <h1>Reading Game Data <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      How to read component data from entities using <code>EntityQuery</code> patterns,
+      <code>GetComponentData</code>, <code>TryGetComponent</code>, and buffer access.
+      You will build a system that reads citizen happiness values and computes city-wide
+      averages.
+    </p>
+    <p>
+      <strong>Prerequisites:</strong> Familiarity with <code>GameSystemBase</code> from
+      the <a href="tutorial-first-system.html">Your First ECS System</a> tutorial.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>EntityQuery Patterns</h2>
+
+  <p>
+    Entity queries are the primary way to select which entities your system processes.
+    CS2 supports three filter modes when building a query:
+  </p>
+
+  <h3>WithAll (Default)</h3>
+
+  <p>
+    Every <code>ComponentType.ReadOnly&lt;T&gt;()</code> or <code>ComponentType.ReadWrite&lt;T&gt;()</code>
+    in <code>GetEntityQuery</code> acts as a "must have" filter. The entity must have
+    <strong>all</strong> of the specified components to match.
+  </p>
+
+  <pre><code class="language-csharp">// Match entities that have BOTH Citizen AND HealthProblem
+EntityQuery sickCitizens = GetEntityQuery(
+    ComponentType.ReadOnly&lt;Game.Citizens.Citizen&gt;(),
+    ComponentType.ReadOnly&lt;Game.Citizens.HealthProblem&gt;(),
+    ComponentType.Exclude&lt;Deleted&gt;(),
+    ComponentType.Exclude&lt;Temp&gt;()
+);</code></pre>
+
+  <h3>WithAny</h3>
+
+  <p>
+    Use <code>EntityQueryDesc</code> to specify "any of" semantics. The entity must have
+    <strong>at least one</strong> of the components in the <code>Any</code> array.
+  </p>
+
+  <pre><code class="language-csharp">// Match entities that are EITHER residential OR commercial properties
+EntityQuery propertyQuery = GetEntityQuery(new EntityQueryDesc
+{
+    Any = new[]
+    {
+        ComponentType.ReadOnly&lt;ResidentialProperty&gt;(),
+        ComponentType.ReadOnly&lt;CommercialProperty&gt;()
+    },
+    All = new[]
+    {
+        ComponentType.ReadOnly&lt;Building&gt;()
+    },
+    None = new[]
+    {
+        ComponentType.ReadOnly&lt;Deleted&gt;(),
+        ComponentType.ReadOnly&lt;Temp&gt;()
+    }
+});</code></pre>
+
+  <h3>WithNone (Exclude)</h3>
+
+  <p>
+    The <code>None</code> array (or <code>ComponentType.Exclude</code>) filters out
+    entities that have any of the excluded components. Always exclude <code>Deleted</code>
+    and <code>Temp</code> unless you specifically want those entities.
+  </p>
+
+  <pre><code class="language-csharp">// Match citizens who are NOT criminals and NOT tourists
+EntityQuery lawAbidingCitizens = GetEntityQuery(new EntityQueryDesc
+{
+    All = new[]
+    {
+        ComponentType.ReadOnly&lt;Game.Citizens.Citizen&gt;()
+    },
+    None = new[]
+    {
+        ComponentType.ReadOnly&lt;Game.Citizens.Criminal&gt;(),
+        ComponentType.ReadOnly&lt;Game.Citizens.Tourist&gt;(),
+        ComponentType.ReadOnly&lt;Deleted&gt;(),
+        ComponentType.ReadOnly&lt;Temp&gt;()
+    }
+});</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Reading Component Data</h2>
+
+  <h3>GetComponentData</h3>
+
+  <p>
+    <code>EntityManager.GetComponentData&lt;T&gt;(entity)</code> reads a component value from
+    a specific entity. It throws if the entity does not have that component, so use it
+    only when you are certain the component exists (e.g., because your query guarantees it).
+  </p>
+
+  <pre><code class="language-csharp">// Safe when the query guarantees Citizen exists on every matched entity
+var entities = m_CitizenQuery.ToEntityArray(Allocator.Temp);
+for (int i = 0; i &lt; entities.Length; i++)
+{
+    Game.Citizens.Citizen citizen =
+        EntityManager.GetComponentData&lt;Game.Citizens.Citizen&gt;(entities[i]);
+
+    // Access fields on the component struct
+    int happiness = citizen.m_Health;  // example field
+}
+entities.Dispose();</code></pre>
+
+  <h3>TryGetComponent</h3>
+
+  <p>
+    <code>EntityManager.TryGetComponent&lt;T&gt;(entity, out T component)</code> is the safe
+    version. It returns <code>false</code> if the entity does not have the component,
+    avoiding exceptions. Use this when a component is optional.
+  </p>
+
+  <pre><code class="language-csharp">// Some citizens may or may not have a HealthProblem component
+for (int i = 0; i &lt; entities.Length; i++)
+{
+    if (EntityManager.TryGetComponent&lt;Game.Citizens.HealthProblem&gt;(
+            entities[i], out var healthProblem))
+    {
+        // This citizen has a health problem
+        Mod.Log.Info($"Citizen {entities[i].Index}: sick");
+    }
+    else
+    {
+        // This citizen is healthy (no HealthProblem component)
+    }
+}</code></pre>
+
+  <h3>HasComponent</h3>
+
+  <p>
+    When you only need to check existence without reading the data:
+  </p>
+
+  <pre><code class="language-csharp">bool isCriminal = EntityManager.HasComponent&lt;Game.Citizens.Criminal&gt;(entity);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Buffer Access</h2>
+
+  <p>
+    Some entities have <strong>dynamic buffers</strong> -- variable-length lists of
+    elements attached to an entity. For example, a building might have a buffer of
+    <code>Renter</code> elements listing all households or companies renting space.
+  </p>
+
+  <h3>GetBuffer</h3>
+
+  <pre><code class="language-csharp">// Get the Renter buffer from a building entity.
+// Throws if the entity does not have a Renter buffer.
+DynamicBuffer&lt;Renter&gt; renters =
+    EntityManager.GetBuffer&lt;Renter&gt;(buildingEntity);
+
+for (int i = 0; i &lt; renters.Length; i++)
+{
+    Entity renterEntity = renters[i].m_Renter;
+    // Process each renter...
+}</code></pre>
+
+  <h3>TryGetBuffer</h3>
+
+  <pre><code class="language-csharp">// Safe version -- returns false if no buffer exists
+if (EntityManager.TryGetBuffer&lt;Renter&gt;(buildingEntity, true, out var renters))
+{
+    Mod.Log.Info($"Building has {renters.Length} renters");
+}
+else
+{
+    Mod.Log.Info("Building has no renter buffer");
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Practical Example: Citizen Happiness Report</h2>
+
+  <p>
+    This complete system reads the wellbeing and health values from all citizens every
+    512 frames, computes averages, and logs a summary report.
+  </p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Citizens;
+using Game.Common;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+using Colossal.Logging;
+
+namespace HappinessReport
+{
+    public class Mod : IMod
+    {
+        internal static ILog Log = LogManager.GetLogger(nameof(Mod))
+            .SetShowsErrorsInUI(true);
+
+        public void OnLoad(UpdateSystem updateSystem)
+        {
+            Log.Info("HappinessReport mod loaded");
+            updateSystem.UpdateAt&lt;CitizenHappinessSystem&gt;(
+                SystemUpdatePhase.GameSimulation);
+        }
+
+        public void OnDispose() { }
+    }
+
+    /// &lt;summary&gt;
+    /// Reads citizen wellbeing and health data every 512 frames,
+    /// computes city-wide averages, and logs a summary.
+    /// &lt;/summary&gt;
+    public partial class CitizenHappinessSystem : GameSystemBase
+    {
+        private EntityQuery m_CitizenQuery;
+
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+
+            // Query for all living citizens (not tourists, not dead)
+            m_CitizenQuery = GetEntityQuery(
+                ComponentType.ReadOnly&lt;Citizen&gt;(),
+                ComponentType.ReadOnly&lt;HouseholdMember&gt;(),
+                ComponentType.Exclude&lt;Deleted&gt;(),
+                ComponentType.Exclude&lt;Temp&gt;()
+            );
+
+            RequireForUpdate(m_CitizenQuery);
+        }
+
+        public override int GetUpdateInterval(SystemUpdatePhase phase)
+        {
+            return 512;
+        }
+
+        protected override void OnUpdate()
+        {
+            // Get all matching entities as a temporary native array
+            NativeArray&lt;Entity&gt; citizens =
+                m_CitizenQuery.ToEntityArray(Allocator.Temp);
+
+            if (citizens.Length == 0)
+            {
+                citizens.Dispose();
+                return;
+            }
+
+            int totalWellbeing = 0;
+            int totalHealth = 0;
+            int count = citizens.Length;
+            int sickCount = 0;
+
+            for (int i = 0; i &lt; count; i++)
+            {
+                Entity entity = citizens[i];
+
+                // GetComponentData is safe here because the query
+                // guarantees every entity has a Citizen component.
+                Citizen citizen = EntityManager.GetComponentData&lt;Citizen&gt;(entity);
+
+                // Citizen has wellbeing (0-100) and health fields
+                totalWellbeing += citizen.m_WellBeing;
+
+                // HealthProblem is optional -- use TryGetComponent
+                if (EntityManager.TryGetComponent&lt;HealthProblem&gt;(
+                        entity, out var problem))
+                {
+                    sickCount++;
+                }
+            }
+
+            float avgWellbeing = (float)totalWellbeing / count;
+
+            Mod.Log.Info(
+                $"Citizens: {count} | " +
+                $"Avg wellbeing: {avgWellbeing:F1} | " +
+                $"Sick: {sickCount}");
+
+            // IMPORTANT: Always dispose NativeArrays allocated with Temp
+            citizens.Dispose();
+        }
+    }
+}</code></pre>
+
+  <h3>Expected Log Output</h3>
+
+  <pre><code>[HappinessReport] Citizens: 12,450 | Avg wellbeing: 68.3 | Sick: 127
+[HappinessReport] Citizens: 12,452 | Avg wellbeing: 68.1 | Sick: 131</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Common Pitfalls</h2>
+
+  <ul>
+    <li>
+      <strong>Forgetting to dispose NativeArrays:</strong> <code>ToEntityArray(Allocator.Temp)</code>
+      allocates native memory. Always call <code>.Dispose()</code> when done, or you will
+      leak memory.
+    </li>
+    <li>
+      <strong>Using GetComponentData on entities without the component:</strong> This throws
+      an exception. Use <code>TryGetComponent</code> when the component might not exist,
+      or ensure your query guarantees its presence.
+    </li>
+    <li>
+      <strong>Not excluding Deleted/Temp:</strong> Without these exclusions, you will process
+      entities that are being destroyed or are temporary construction previews, leading to
+      stale or invalid data.
+    </li>
+    <li>
+      <strong>Reading too frequently:</strong> Reading thousands of entities every frame is
+      expensive. Use <code>GetUpdateInterval</code> to limit how often your system ticks.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Quick Reference: Data Access Methods</h2>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>When to Use</th><th>Throws on Missing?</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>GetComponentData&lt;T&gt;(entity)</code></td>
+        <td>Component is guaranteed by query</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td><code>TryGetComponent&lt;T&gt;(entity, out T)</code></td>
+        <td>Component may or may not exist</td>
+        <td>No (returns false)</td>
+      </tr>
+      <tr>
+        <td><code>HasComponent&lt;T&gt;(entity)</code></td>
+        <td>Existence check only</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td><code>GetBuffer&lt;T&gt;(entity)</code></td>
+        <td>Buffer is guaranteed by query</td>
+        <td>Yes</td>
+      </tr>
+      <tr>
+        <td><code>TryGetBuffer&lt;T&gt;(entity, readOnly, out buf)</code></td>
+        <td>Buffer may or may not exist</td>
+        <td>No (returns false)</td>
+      </tr>
+      <tr>
+        <td><code>CalculateEntityCount()</code></td>
+        <td>Count matching entities cheaply</td>
+        <td>No</td>
+      </tr>
+      <tr>
+        <td><code>ToEntityArray(allocator)</code></td>
+        <td>Iterate all matching entities</td>
+        <td>No</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="tutorial-modifying-data.html">Modifying Game Data</a> -- write back changes to components and create new entities</li>
+    <li><a href="tutorial-settings-panel.html">Adding a Settings Panel</a> -- let players configure your mod's behavior</li>
+    <li><a href="citizens-households.html">Citizens &amp; Households</a> reference -- deep dive into the citizen data model</li>
+  </ul>
+
+  <footer>
+    <p>
+      Based on decompiled source from Game.dll (Cities: Skylines II) and the
+      <a href="mod-loading-dependencies.html">Mod Loading</a> research topic.
+    </p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

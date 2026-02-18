@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Replacing a Vanilla System - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <h3>Tutorials</h3>
+    <a href="tutorial-harmony-patching.html">Patching with Harmony</a>
+    <a href="tutorial-system-replacement.html" class="active">Replacing a Vanilla System</a>
+    <a href="tutorial-data-persistence.html">Persisting Custom Data</a>
+    <a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a>
+    <a href="tutorial-complete-mod.html">Building a Complete Mod</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Replacing a Vanilla System <span class="badge-advanced">Advanced</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      How to <strong>disable a vanilla ECS system</strong> and replace it with your own custom
+      implementation. This technique gives you full control over simulation logic without any
+      Harmony patches.
+    </p>
+    <p>
+      <strong>Prerequisites:</strong> Familiarity with CS2's ECS architecture
+      (<code>GameSystemBase</code>, <code>EntityQuery</code>). Understanding of
+      <a href="tutorial-harmony-patching.html">Harmony basics</a> helps for comparison.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>When to Replace vs. Patch</h2>
+
+  <p>
+    System replacement and Harmony patching are complementary strategies. Choose based on how
+    much of the original behavior you need to change:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Approach</th><th>Best For</th><th>Risk</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Harmony prefix/postfix</td>
+        <td>Small tweaks: adjust one calculation, log events, toggle a feature</td>
+        <td>Low -- original code stays intact</td>
+      </tr>
+      <tr>
+        <td>Harmony transpiler</td>
+        <td>Surgical changes inside a method: replace a constant, add a condition</td>
+        <td>Medium -- IL-level; can break on game updates</td>
+      </tr>
+      <tr>
+        <td><strong>System replacement</strong></td>
+        <td>Rewriting core simulation logic, replacing Burst-compiled jobs, changing the data pipeline</td>
+        <td>High -- must replicate the public interface</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="scope">
+    <h2>When NOT to Replace</h2>
+    <p><strong>Simple calculation tweaks</strong> -- A Harmony patch is simpler than reimplementing an entire system.</p>
+    <p><strong>Systems with many dependents</strong> -- If dozens of other systems read from the vanilla system's public properties, replicating the full interface is error-prone.</p>
+    <p><strong>Frequently updated systems</strong> -- Vanilla systems that change every game patch require constant maintenance of the full replacement.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>The Enabled=false Pattern</h2>
+
+  <p>
+    Any <code>GameSystemBase</code> can be disabled at runtime by setting <code>Enabled = false</code>.
+    The game's update loop simply skips disabled systems. The vanilla system's <code>OnCreate</code>
+    still runs (it was created before your mod loaded), but <code>OnUpdate</code> is never called.
+  </p>
+
+  <h3>Step 1: Disable in OnLoad</h3>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Modding;
+
+public class Mod : IMod
+{
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // Disable the vanilla system
+        var vanillaSystem = World.DefaultGameObjectInjectionWorld
+            .GetOrCreateSystemManaged&lt;Game.Simulation.ResidentialDemandSystem&gt;();
+        vanillaSystem.Enabled = false;
+
+        // Register the replacement in the same update phase
+        updateSystem.UpdateAt&lt;CustomResidentialDemandSystem&gt;(
+            SystemUpdatePhase.GameSimulation);
+    }
+
+    public void OnDispose() { }
+}</code></pre>
+
+  <h3>Step 2: Build the Replacement</h3>
+
+  <p>
+    The replacement system must expose the same public interface that other systems depend on.
+    For <code>ResidentialDemandSystem</code>, that means properties like
+    <code>householdDemand</code> and <code>buildingDemand</code>, because
+    <code>ZoneSpawnSystem</code> and the UI read them.
+  </p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Simulation;
+using Unity.Entities;
+
+public partial class CustomResidentialDemandSystem : GameSystemBase
+{
+    // Match the vanilla system's public properties
+    public int householdDemand { get; private set; }
+    public int buildingDemand { get; private set; }
+
+    private EntityQuery m_HouseholdQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_HouseholdQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Citizens.Household&gt;(),
+            ComponentType.Exclude&lt;Game.Common.Deleted&gt;()
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        // Your custom demand calculation
+        int totalHouseholds = m_HouseholdQuery.CalculateEntityCount();
+
+        // Custom formula replacing the vanilla one
+        householdDemand = CalculateCustomDemand(totalHouseholds);
+        buildingDemand = householdDemand / 2;
+    }
+
+    private int CalculateCustomDemand(int households)
+    {
+        // Your custom logic here
+        return households &gt; 100 ? 50 : 25;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Matching the Public Interface</h2>
+
+  <p>
+    Before replacing a system, decompile it to identify what other systems read from it. Look for:
+  </p>
+
+  <ul>
+    <li><strong>Public properties and fields</strong> -- Other systems use these for data.</li>
+    <li><strong>NativeQueue producer/consumer patterns</strong> -- Other systems may write to
+      queues that your system must drain.</li>
+    <li><strong>Public methods</strong> -- Helper methods called by other systems.</li>
+  </ul>
+
+  <h3>Example: Queue Interface Replication</h3>
+
+  <p>
+    Complex vanilla systems use <code>NativeQueue</code> internally. When replacing these, your
+    system must replicate the queue interface so that other systems writing to those queues continue
+    to function:
+  </p>
+
+  <pre><code class="language-csharp">using Game;
+using Unity.Collections;
+using Unity.Entities;
+
+public partial class CustomResidentAISystem : GameSystemBase
+{
+    // Replicate the NativeQueue interface that other systems write to
+    private NativeQueue&lt;SetupQueueItem&gt; m_SetupQueue;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_SetupQueue = new NativeQueue&lt;SetupQueueItem&gt;(Allocator.Persistent);
+    }
+
+    protected override void OnDestroy()
+    {
+        m_SetupQueue.Dispose();
+        base.OnDestroy();
+    }
+
+    // Expose the queue writer so producer systems can enqueue work
+    public NativeQueue&lt;SetupQueueItem&gt;.ParallelWriter GetSetupQueueWriter()
+        =&gt; m_SetupQueue.AsParallelWriter();
+
+    protected override void OnUpdate()
+    {
+        // Drain the queue and process items with custom logic
+        while (m_SetupQueue.TryDequeue(out var item))
+        {
+            ProcessItem(item);
+        }
+    }
+
+    private void ProcessItem(SetupQueueItem item) { /* custom logic */ }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>UpdateAfter / UpdateBefore Ordering</h2>
+
+  <p>
+    Use the two-type-parameter variants to order your replacement relative to other systems.
+    Both systems must be in the same <code>SystemUpdatePhase</code> for the ordering to apply:
+  </p>
+
+  <pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
+{
+    // Disable vanilla
+    var vanillaSystem = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;Game.Simulation.ZoneSpawnSystem&gt;();
+    vanillaSystem.Enabled = false;
+
+    // Register replacement: runs right after the vanilla system's slot
+    updateSystem.UpdateAfter&lt;CustomZoneSpawnSystem,
+        Game.Simulation.ZoneSpawnSystem&gt;(
+        SystemUpdatePhase.GameSimulation);
+}</code></pre>
+
+  <p>Available ordering methods on <code>UpdateSystem</code>:</p>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Effect</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>UpdateAt&lt;T&gt;(phase)</code></td>
+        <td>Register at a phase with default ordering</td>
+      </tr>
+      <tr>
+        <td><code>UpdateBefore&lt;T, TOther&gt;(phase)</code></td>
+        <td>Run T before TOther within the same phase</td>
+      </tr>
+      <tr>
+        <td><code>UpdateAfter&lt;T, TOther&gt;(phase)</code></td>
+        <td>Run T after TOther within the same phase</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Alternative: Disable from OnCreate</h2>
+
+  <p>
+    Instead of disabling in <code>IMod.OnLoad</code>, you can disable the vanilla system from
+    within the replacement system's <code>OnCreate</code>. This keeps the disable logic co-located
+    with the replacement:
+  </p>
+
+  <pre><code class="language-csharp">public partial class CustomZoneSpawnSystem : GameSystemBase
+{
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Disable the vanilla system from within the replacement
+        var vanillaSystem = World.DefaultGameObjectInjectionWorld
+            .GetOrCreateSystemManaged&lt;Game.Simulation.ZoneSpawnSystem&gt;();
+        vanillaSystem.Enabled = false;
+
+        Mod.Log.Info("Replaced ZoneSpawnSystem with custom implementation");
+    }
+
+    protected override void OnUpdate()
+    {
+        // Replacement logic
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Inter-Mod Conflict Detection</h2>
+
+  <p>
+    When multiple mods might replace the same system, check if it is already disabled:
+  </p>
+
+  <pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
+{
+    var vanillaSystem = World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;Game.Simulation.SomeSystem&gt;();
+
+    if (vanillaSystem.Enabled)
+    {
+        vanillaSystem.Enabled = false;
+        updateSystem.UpdateAt&lt;CustomSomeSystem&gt;(
+            SystemUpdatePhase.GameSimulation);
+        Mod.Log.Info("Replaced SomeSystem");
+    }
+    else
+    {
+        Mod.Log.Warn("SomeSystem already disabled by another mod, skipping");
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Practical Example: Replace a Demand System</h2>
+
+  <p>
+    This complete example replaces the residential demand system with a custom implementation
+    that uses a simplified formula:
+  </p>
+
+  <pre><code class="language-csharp">// === Mod.cs ===
+using Game;
+using Game.Modding;
+
+public class Mod : IMod
+{
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // Step 1: Disable vanilla
+        var vanillaSystem = World.DefaultGameObjectInjectionWorld
+            .GetOrCreateSystemManaged&lt;Game.Simulation.ResidentialDemandSystem&gt;();
+        vanillaSystem.Enabled = false;
+
+        // Step 2: Register replacement with ordering
+        updateSystem.UpdateAfter&lt;SimpleDemandSystem,
+            Game.Simulation.ResidentialDemandSystem&gt;(
+            SystemUpdatePhase.GameSimulation);
+    }
+
+    public void OnDispose() { }
+}
+
+// === SimpleDemandSystem.cs ===
+using Game;
+using Game.Simulation;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Simplified residential demand system.
+/// Exposes the same public properties as the vanilla system.
+/// &lt;/summary&gt;
+public partial class SimpleDemandSystem : GameSystemBase
+{
+    public int householdDemand { get; private set; }
+    public int buildingDemand { get; private set; }
+
+    private EntityQuery m_HouseholdQuery;
+    private EntityQuery m_BuildingQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        m_HouseholdQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Citizens.Household&gt;(),
+            ComponentType.Exclude&lt;Game.Common.Deleted&gt;()
+        );
+
+        m_BuildingQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Buildings.ResidentialProperty&gt;(),
+            ComponentType.Exclude&lt;Game.Common.Deleted&gt;()
+        );
+    }
+
+    public override int GetUpdateInterval(SystemUpdatePhase phase) =&gt; 256;
+
+    protected override void OnUpdate()
+    {
+        int households = m_HouseholdQuery.CalculateEntityCount();
+        int buildings = m_BuildingQuery.CalculateEntityCount();
+
+        // Simple demand formula: demand rises when households exceed capacity
+        int capacity = buildings * 4; // assume 4 households per building
+        int deficit = households - capacity;
+
+        householdDemand = Math.Clamp(deficit, 0, 100);
+        buildingDemand = householdDemand &gt; 0 ? householdDemand / 2 : 0;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Caveats</h2>
+
+  <ul>
+    <li><strong>OnCreate still runs</strong> -- The disabled vanilla system's <code>OnCreate</code>
+      executes before your mod loads. Only <code>OnUpdate</code> is skipped.</li>
+    <li><strong>Serialization is NOT disabled</strong> -- If the vanilla system implements
+      <code>ISerializable</code>, disabling it does NOT disable its serialization. Your
+      replacement must implement the same interfaces if it needs to persist state.</li>
+    <li><strong>Inner systems</strong> -- Some vanilla systems contain nested
+      <code>GameSystemBase</code> subclasses that must also be disabled.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="tutorial-data-persistence.html">Persisting Custom Data</a> -- Save/load state in your replacement system</li>
+    <li><a href="mod-loading-dependencies.html">Mod Loading</a> -- Full reference on system registration and update phases</li>
+    <li><a href="tutorial-complete-mod.html">Building a Complete Mod</a> -- Combine system replacement with other techniques</li>
+  </ul>
+
+  <footer>
+    <p>Source: Research from ModLoading topic. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

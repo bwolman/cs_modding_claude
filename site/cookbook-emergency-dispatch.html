@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook: Dispatching Vehicles - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Cookbook</h3>
+    <a href="cookbook-entity-queries.html">Entity Queries</a>
+    <a href="cookbook-emergency-dispatch.html" class="active">Dispatching Vehicles</a>
+    <a href="cookbook-game-events.html">Triggering Game Events</a>
+    <a href="cookbook-game-mode.html">Game Mode Detection</a>
+    <a href="cookbook-update-frequency.html">Update Frequency</a>
+    <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+    <a href="cookbook-localization.html">Adding Localized Strings</a>
+    <a href="cookbook-static-assets.html">Deploying Static Assets</a>
+
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Dispatching Emergency Vehicles <span class="badge-intermediate">Intermediate</span></h1>
+
+  <div class="scope">
+    <h2>What you'll learn</h2>
+    <p>How to programmatically dispatch police, fire, and ambulance vehicles by creating the correct request entities. Each service has its own request type and validation requirements.</p>
+    <p><strong>Related:</strong> <a href="emergency-dispatch.html">Emergency Dispatch</a> (full system reference), <a href="police-dispatch.html">Police Dispatch</a> (lights &amp; sirens deep dive).</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Recipe 1: Dispatch a Police Car</h2>
+
+  <p>Police dispatch requires an <code>AccidentSite</code> on the target with the <code>RequirePolice</code> flag. Create the request with <code>RequestGroup(4)</code> so <code>ServiceRequestSystem</code> schedules it.</p>
+
+<pre><code class="language-csharp">using Game.Events;
+using Game.Prefabs;
+using Game.Simulation;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Dispatch police to a building. The building must have an AccidentSite
+/// component with RequirePolice, or the request will be destroyed by
+/// PoliceEmergencyDispatchSystem.ValidateSite().
+/// &lt;/summary&gt;
+public void DispatchPolice(EntityManager em, Entity targetBuilding,
+    Entity crimeEvent, uint currentFrame)
+{
+    // 1. Ensure AccidentSite exists on target
+    if (!em.HasComponent&lt;AccidentSite&gt;(targetBuilding))
+    {
+        em.AddComponentData(targetBuilding, new AccidentSite
+        {
+            m_Event = crimeEvent,
+            m_PoliceRequest = Entity.Null,
+            m_Flags = AccidentSiteFlags.CrimeScene
+                    | AccidentSiteFlags.CrimeDetected
+                    | AccidentSiteFlags.RequirePolice,
+            m_CreationFrame = currentFrame,
+            m_SecuredFrame = 0
+        });
+    }
+
+    // 2. Create PoliceEmergencyRequest
+    Entity request = em.CreateEntity();
+    em.AddComponentData(request, new ServiceRequest());
+    em.AddComponentData(request, new PoliceEmergencyRequest
+    {
+        m_Site = targetBuilding,
+        m_Target = targetBuilding,
+        m_Priority = 1f,
+        m_Purpose = PolicePurpose.Emergency
+    });
+    em.AddComponentData(request, new RequestGroup(4u));
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Recipe 2: Dispatch a Fire Engine</h2>
+
+  <p>Fire dispatch validates that the target has <code>OnFire</code> or <code>RescueTarget</code>. The simplest approach is to create an <code>Ignite</code> event, which makes <code>IgniteSystem</code> add <code>OnFire</code> and lets <code>FireSimulationSystem</code> create the rescue request naturally.</p>
+
+<pre><code class="language-csharp">using Game.Common;
+using Game.Events;
+using Game.Prefabs;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Dispatch a fire engine by creating a FireRescueRequest directly.
+/// The target must have OnFire or RescueTarget for the dispatch
+/// system to accept the request.
+/// &lt;/summary&gt;
+public void DispatchFireEngine(EntityManager em, Entity targetEntity)
+{
+    // Target needs OnFire -- if not present, add it via Ignite event
+    if (!em.HasComponent&lt;OnFire&gt;(targetEntity))
+    {
+        // Find fire event prefab
+        var prefabQuery = em.CreateEntityQuery(
+            ComponentType.ReadOnly&lt;EventData&gt;(),
+            ComponentType.ReadOnly&lt;FireData&gt;());
+        var prefabs = prefabQuery.ToEntityArray(Allocator.Temp);
+        if (prefabs.Length == 0) { prefabs.Dispose(); return; }
+
+        var eventData = em.GetComponentData&lt;EventData&gt;(prefabs[0]);
+        Entity fireEvent = em.CreateEntity(eventData.m_Archetype);
+        em.SetComponentData(fireEvent, new PrefabRef(prefabs[0]));
+        prefabs.Dispose();
+
+        // Create Ignite command
+        Entity ignite = em.CreateEntity(
+            ComponentType.ReadWrite&lt;Event&gt;(),
+            ComponentType.ReadWrite&lt;Ignite&gt;());
+        em.SetComponentData(ignite, new Ignite
+        {
+            m_Event = fireEvent,
+            m_Target = targetEntity,
+            m_Intensity = 1f,
+            m_RequestFrame = 0  // auto-calculate
+        });
+        return; // FireSimulationSystem creates request after OnFire is set
+    }
+
+    // If already on fire, create request directly
+    Entity request = em.CreateEntity();
+    em.AddComponentData(request, new ServiceRequest());
+    em.AddComponentData(request, new FireRescueRequest
+    {
+        m_Target = targetEntity,
+        m_Priority = 1f,
+        m_Type = FireRescueRequestType.Fire
+    });
+    em.AddComponentData(request, new RequestGroup(4u));
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Recipe 3: Dispatch an Ambulance</h2>
+
+  <p>Ambulance dispatch requires a <code>HealthProblem</code> with <code>RequireTransport</code> on the citizen. Do NOT add <code>HealthProblem</code> directly -- use the <code>AddHealthProblem</code> event command so that <code>AddHealthProblemSystem</code> stops the citizen's movement and fires trigger events.</p>
+
+<pre><code class="language-csharp">using Game.Citizens;
+using Game.Events;
+using Game.Simulation;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Make a citizen sick and dispatch an ambulance. Uses the
+/// AddHealthProblem event command (not direct component addition)
+/// so that AddHealthProblemSystem handles movement stopping and
+/// trigger events correctly.
+/// &lt;/summary&gt;
+public void DispatchAmbulance(EntityManager em, Entity citizenEntity)
+{
+    // Create AddHealthProblem command entity
+    Entity cmd = em.CreateEntity(
+        ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+        ComponentType.ReadWrite&lt;AddHealthProblem&gt;());
+    em.SetComponentData(cmd, new AddHealthProblem
+    {
+        m_Event = Entity.Null,
+        m_Target = citizenEntity,
+        m_Flags = HealthProblemFlags.Sick
+                | HealthProblemFlags.RequireTransport
+    });
+
+    // AddHealthProblemSystem processes this next frame:
+    //   - Adds HealthProblem with RequireTransport
+    //   - Stops citizen movement
+    //   - Fires CitizenGotSick trigger
+    // HealthProblemSystem then creates HealthcareRequest
+    // HealthcareDispatchSystem dispatches an ambulance
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Key Differences</h2>
+
+  <table>
+    <thead>
+      <tr><th>Service</th><th>Request Type</th><th>Validation Component</th><th>Group Size</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Police</td><td><code>PoliceEmergencyRequest</code></td><td><code>AccidentSite</code> + <code>RequirePolice</code></td><td>4</td></tr>
+      <tr><td>Fire</td><td><code>FireRescueRequest</code></td><td><code>OnFire</code> or <code>RescueTarget</code></td><td>4</td></tr>
+      <tr><td>Ambulance</td><td><code>HealthcareRequest</code></td><td><code>HealthProblem</code> + <code>RequireTransport</code></td><td>16</td></tr>
+      <tr><td>Hearse</td><td><code>HealthcareRequest</code></td><td><code>HealthProblem</code> + <code>Dead</code></td><td>16</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

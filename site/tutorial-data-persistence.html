@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Persisting Custom Data - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <h3>Tutorials</h3>
+    <a href="tutorial-harmony-patching.html">Patching with Harmony</a>
+    <a href="tutorial-system-replacement.html">Replacing a Vanilla System</a>
+    <a href="tutorial-data-persistence.html" class="active">Persisting Custom Data</a>
+    <a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a>
+    <a href="tutorial-complete-mod.html">Building a Complete Mod</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Persisting Custom Data <span class="badge-advanced">Advanced</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      How to save and load custom mod data in CS2 save files using the
+      <code>ISerializable</code>, <code>IDefaultSerializable</code>, and
+      <code>IEmptySerializable</code> interfaces. Your mod data will survive
+      save/load cycles automatically.
+    </p>
+    <p>
+      <strong>Prerequisites:</strong> Understanding of ECS components
+      (<code>IComponentData</code>) and <code>GameSystemBase</code>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How CS2 Serialization Works</h2>
+
+  <p>
+    CS2's serialization system automatically discovers all ECS components and systems that
+    implement serialization interfaces. You do <strong>not</strong> need to register anything --
+    just implement the interface and the framework handles the rest.
+  </p>
+
+  <p>The discovery pipeline at startup:</p>
+
+  <ol>
+    <li><code>ComponentSerializerLibrary</code> scans all registered ECS types for
+      <code>ISerializable</code> or <code>IEmptySerializable</code>.</li>
+    <li><code>SystemSerializerLibrary</code> scans all ECS systems for
+      <code>IDefaultSerializable</code> or <code>ISerializable</code>.</li>
+    <li>During save: each discovered type's <code>Serialize()</code> is called.</li>
+    <li>During load: each discovered type's <code>Deserialize()</code> is called.</li>
+    <li>On new game: each <code>IDefaultSerializable</code>'s <code>SetDefaults()</code> is called.</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>ISerializable on IComponentData</h2>
+
+  <p>
+    For per-entity data that must survive save/load, implement <code>ISerializable</code> on your
+    <code>IComponentData</code> struct. The serialization system calls <code>Serialize</code> and
+    <code>Deserialize</code> for every entity that has this component.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Custom per-building data that persists across save/load.
+/// Auto-discovered by the serialization framework via ISerializable.
+/// &lt;/summary&gt;
+public struct BuildingModData : IComponentData, ISerializable
+{
+    public float m_EfficiencyMultiplier;
+    public int m_CustomLevel;
+    public bool m_IsEnabled;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(m_EfficiencyMultiplier);
+        writer.Write(m_CustomLevel);
+        writer.Write(m_IsEnabled);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out m_EfficiencyMultiplier);
+        reader.Read(out m_CustomLevel);
+        reader.Read(out m_IsEnabled);
+    }
+}</code></pre>
+
+  <div class="scope">
+    <h2>Serialization Order Matters</h2>
+    <p>
+      Serialization is <strong>positional</strong>, not named. The order of
+      <code>Write</code> calls must exactly match the order of <code>Read</code> calls.
+      Reordering fields, removing fields, or changing types without versioning will corrupt
+      save data.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>The Version Byte Pattern</h2>
+
+  <p>
+    The most important pattern for safe mod updates. Always write a version number as the
+    <strong>first byte</strong>, then branch deserialization logic by version. This lets you add
+    fields in future mod releases without breaking existing saves.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+public struct VersionedData : IComponentData, ISerializable
+{
+    // v1 fields
+    public int m_BaseValue;
+
+    // v2 fields (added in mod update 1.1.0)
+    public float m_NewMultiplier;
+    public bool m_NewFlag;
+
+    private const byte kCurrentVersion = 2;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);      // Always write version first
+        writer.Write(m_BaseValue);          // v1 fields
+        writer.Write(m_NewMultiplier);      // v2 fields
+        writer.Write(m_NewFlag);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out m_BaseValue);       // v1 -- always present
+
+        if (version &gt;= 2)
+        {
+            reader.Read(out m_NewMultiplier);
+            reader.Read(out m_NewFlag);
+        }
+        else
+        {
+            // Defaults for saves from before v2
+            m_NewMultiplier = 1.0f;
+            m_NewFlag = false;
+        }
+    }
+}</code></pre>
+
+  <h3>Rules for Safe Version Migration</h3>
+
+  <table>
+    <thead>
+      <tr><th>Change</th><th>Safe?</th><th>How</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Adding new fields</td>
+        <td>Yes</td>
+        <td>Bump version, add <code>if (version &gt;= N)</code> branch, provide defaults for older saves</td>
+      </tr>
+      <tr>
+        <td>Removing fields</td>
+        <td>Careful</td>
+        <td>Bump version, still <code>Read(out _)</code> old bytes for older versions to keep alignment</td>
+      </tr>
+      <tr>
+        <td>Reordering fields</td>
+        <td>No</td>
+        <td>Always append new fields at the end</td>
+      </tr>
+      <tr>
+        <td>Changing field types</td>
+        <td>Careful</td>
+        <td>Bump version, read old type then convert in legacy branch</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>IDefaultSerializable for System State</h2>
+
+  <p>
+    For mod-global state that is not per-entity (counters, configuration, history), implement
+    <code>IDefaultSerializable</code> on your <code>GameSystemBase</code>. This adds a
+    <code>SetDefaults()</code> method called when starting a new game.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Game;
+
+/// &lt;summary&gt;
+/// Tracks mod-global state that persists in save files.
+/// SetDefaults provides initial values for new games.
+/// &lt;/summary&gt;
+public partial class CrimeCounterSystem : GameSystemBase, IDefaultSerializable
+{
+    public int TotalCrimesTriggered { get; private set; }
+    public float CrimeMultiplier { get; private set; }
+
+    private const byte kCurrentVersion = 1;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        writer.Write(TotalCrimesTriggered);
+        writer.Write(CrimeMultiplier);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out int total);
+        TotalCrimesTriggered = total;
+        reader.Read(out float multiplier);
+        CrimeMultiplier = multiplier;
+    }
+
+    public void SetDefaults(Context context)
+    {
+        // Called on new game -- provide clean defaults
+        TotalCrimesTriggered = 0;
+        CrimeMultiplier = 1.0f;
+    }
+
+    protected override void OnUpdate()
+    {
+        // System logic that uses TotalCrimesTriggered...
+    }
+}</code></pre>
+
+  <p>
+    The lifecycle for <code>IDefaultSerializable</code>:
+  </p>
+
+  <ul>
+    <li><strong>New game:</strong> <code>SetDefaults(context)</code> is called with
+      <code>context.purpose == Purpose.NewGame</code>.</li>
+    <li><strong>Load game:</strong> <code>Deserialize(reader)</code> is called, restoring
+      state from the save file.</li>
+    <li><strong>Save game:</strong> <code>Serialize(writer)</code> is called, writing
+      current state to the save file.</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>IEmptySerializable for Tag Components</h2>
+
+  <p>
+    For zero-data marker components whose <strong>presence</strong> on an entity matters
+    (e.g., "this building is managed by my mod"), use <code>IEmptySerializable</code>.
+    No data is written -- only the component's existence is preserved.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Marks a building as managed by this mod.
+/// IEmptySerializable persists the component's presence without writing data.
+/// &lt;/summary&gt;
+public struct ManagedByMod : IComponentData, IEmptySerializable { }</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Practical Example: Save/Load a Custom Counter</h2>
+
+  <p>
+    This complete example demonstrates a mod that tracks how many crimes have been triggered and
+    persists that count across save/load cycles.
+  </p>
+
+  <pre><code class="language-csharp">// === CrimeCounter.cs -- Per-entity component ===
+using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Tracks crime count per building. Survives save/load.
+/// &lt;/summary&gt;
+public struct CrimeCounter : IComponentData, ISerializable
+{
+    public int m_CrimeCount;
+    public uint m_LastCrimeFrame;
+
+    private const byte kCurrentVersion = 1;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        writer.Write(m_CrimeCount);
+        writer.Write(m_LastCrimeFrame);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out m_CrimeCount);
+        reader.Read(out m_LastCrimeFrame);
+    }
+}</code></pre>
+
+  <pre><code class="language-csharp">// === GlobalCrimeStats.cs -- System-level state ===
+using Colossal.Serialization.Entities;
+using Game;
+
+/// &lt;summary&gt;
+/// Global crime statistics that persist in save files.
+/// &lt;/summary&gt;
+public partial class GlobalCrimeStats : GameSystemBase, IDefaultSerializable
+{
+    public int TotalCrimes { get; set; }
+    public int TotalArrests { get; set; }
+
+    private const byte kCurrentVersion = 1;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        writer.Write(TotalCrimes);
+        writer.Write(TotalArrests);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out int crimes);
+        TotalCrimes = crimes;
+        reader.Read(out int arrests);
+        TotalArrests = arrests;
+    }
+
+    public void SetDefaults(Context context)
+    {
+        TotalCrimes = 0;
+        TotalArrests = 0;
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <pre><code class="language-csharp">// === Mod.cs -- Registration ===
+using Game;
+using Game.Modding;
+
+public class Mod : IMod
+{
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // GlobalCrimeStats is auto-discovered for serialization.
+        // Just register it in a phase so OnUpdate can run.
+        updateSystem.UpdateAt&lt;GlobalCrimeStats&gt;(
+            SystemUpdatePhase.GameSimulation);
+    }
+
+    public void OnDispose() { }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Renaming Types Without Breaking Saves</h2>
+
+  <p>
+    If you rename a component or move it to a new namespace in a mod update, existing save files
+    will reference the old name. Use <code>[FormerlySerializedAs]</code> to map the old name:
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Renamed from "MyMod.OldNamespace.OldComponentName, MyModAssembly".
+/// Saves with the old name will still load correctly.
+/// &lt;/summary&gt;
+[FormerlySerializedAs("MyMod.OldNamespace.OldComponentName, MyModAssembly")]
+public struct NewComponentName : IComponentData, ISerializable
+{
+    public int m_Value;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(m_Value);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out m_Value);
+    }
+}</code></pre>
+
+  <p>
+    Multiple <code>[FormerlySerializedAs]</code> attributes are supported for types that have been
+    renamed more than once.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Post-Load Validation</h2>
+
+  <p>
+    Subscribe to <code>LoadGameSystem.onOnSaveGameLoaded</code> to validate or fix up custom data
+    after a game loads:
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Serialization.Entities;
+using Game;
+using Game.Serialization;
+
+public partial class PostLoadValidationSystem : GameSystemBase
+{
+    private LoadGameSystem m_LoadGameSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_LoadGameSystem = World.GetOrCreateSystemManaged&lt;LoadGameSystem&gt;();
+        m_LoadGameSystem.onOnSaveGameLoaded += OnGameLoaded;
+    }
+
+    protected override void OnDestroy()
+    {
+        m_LoadGameSystem.onOnSaveGameLoaded -= OnGameLoaded;
+        base.OnDestroy();
+    }
+
+    private void OnGameLoaded(Context context)
+    {
+        Mod.Log.Info($"Game loaded (purpose={context.purpose})");
+        // Validate custom component data, remove orphaned components,
+        // set defaults for new fields, etc.
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Choosing the Right Interface</h2>
+
+  <table>
+    <thead>
+      <tr><th>Scenario</th><th>Interface</th><th>Persisted?</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Per-entity data (building settings, citizen stats)</td>
+        <td><code>IComponentData, ISerializable</code></td>
+        <td>Yes -- fields written to save</td>
+      </tr>
+      <tr>
+        <td>Zero-data marker ("mod manages this entity")</td>
+        <td><code>IComponentData, IEmptySerializable</code></td>
+        <td>Yes -- presence only</td>
+      </tr>
+      <tr>
+        <td>Global mod state (counters, configuration)</td>
+        <td><code>GameSystemBase, IDefaultSerializable</code></td>
+        <td>Yes -- system state written to save</td>
+      </tr>
+      <tr>
+        <td>Temporary runtime marker (recalculation flag)</td>
+        <td><code>IComponentData</code> (no serialization)</td>
+        <td>No -- lost on save/load</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <strong>Rule of thumb:</strong> If the player would lose meaningful state by saving and
+    reloading, the component needs <code>ISerializable</code> or <code>IEmptySerializable</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="save-load-persistence.html">Save/Load Persistence Reference</a> -- Full API documentation and advanced patterns</li>
+    <li><a href="tutorial-complete-mod.html">Building a Complete Mod</a> -- Combine persistence with other techniques</li>
+    <li><a href="tutorial-system-replacement.html">Replacing a Vanilla System</a> -- Replacement systems with serialization</li>
+  </ul>
+
+  <footer>
+    <p>Source: Research from SaveLoadPersistence topic. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

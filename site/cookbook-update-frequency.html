@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook: Update Frequency - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Cookbook</h3>
+    <a href="cookbook-entity-queries.html">Entity Queries</a>
+    <a href="cookbook-emergency-dispatch.html">Dispatching Vehicles</a>
+    <a href="cookbook-game-events.html">Triggering Game Events</a>
+    <a href="cookbook-game-mode.html">Game Mode Detection</a>
+    <a href="cookbook-update-frequency.html" class="active">Update Frequency</a>
+    <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+    <a href="cookbook-localization.html">Adding Localized Strings</a>
+    <a href="cookbook-static-assets.html">Deploying Static Assets</a>
+
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Update Frequency <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What you'll learn</h2>
+    <p>How to control how often your system's <code>OnUpdate</code> runs, and how to distribute entity processing across frames using the <code>UpdateFrame</code> shared component filter. One CS2 game day = 262,144 frames.</p>
+    <p><strong>Related:</strong> <a href="mod-loading-dependencies.html">Mod Loading</a> (system registration).</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>GetUpdateInterval Override</h2>
+
+  <p>Override <code>GetUpdateInterval</code> to reduce how often your system ticks. The default is 1 (every frame).</p>
+
+<pre><code class="language-csharp">using Game;
+
+public partial class MyPeriodicSystem : GameSystemBase
+{
+    // Run every 512 frames (~32 times per game day)
+    public override int GetUpdateInterval(SystemUpdatePhase phase)
+    {
+        return 512;
+    }
+
+    protected override void OnUpdate()
+    {
+        // This runs every 512 frames, not every frame
+    }
+}</code></pre>
+
+  <h3>Common vanilla intervals</h3>
+
+  <table>
+    <thead>
+      <tr><th>Interval</th><th>Frequency</th><th>Used by</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>1</td><td>Every frame</td><td>Navigation, rendering</td></tr>
+      <tr><td>16</td><td>~16,384/day</td><td>CriminalSystem, dispatch systems</td></tr>
+      <tr><td>64</td><td>~4,096/day</td><td>AccidentSiteSystem, FireSimulationSystem</td></tr>
+      <tr><td>256</td><td>~1,024/day</td><td>PoliceStationAISystem</td></tr>
+      <tr><td>512</td><td>~512/day</td><td>TreeGrowthSystem</td></tr>
+      <tr><td>4096</td><td>~64/day</td><td>FireHazardSystem</td></tr>
+      <tr><td>16384</td><td>~16/day</td><td>CrimeCheckSystem</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Tip:</strong> Match your interval to the vanilla system you read from. A system reading tree data should use 512 (same as <code>TreeGrowthSystem</code>) to avoid processing stale data.</p>
+
+  <!-- ============================================================ -->
+  <h2>SimulationUtils.GetUpdateFrame</h2>
+
+  <p>When a system runs at a reduced interval, it typically processes only a subset of entities per tick. <code>GetUpdateFrame</code> returns the current group index:</p>
+
+<pre><code class="language-csharp">using Game.Simulation;
+
+// Signature:
+// uint GetUpdateFrame(uint frame, int updatesPerDay, int groupCount)
+
+// 32 updates/day, 16 groups = each group processed every 512 frames
+uint group = SimulationUtils.GetUpdateFrame(
+    m_SimulationSystem.frameIndex, 32, 16);
+// group is 0..15, rotating each tick</code></pre>
+
+  <p>The formula divides the day (262,144 frames) into <code>updatesPerDay * groupCount</code> buckets and returns the current bucket masked to <code>groupCount - 1</code>.</p>
+
+  <!-- ============================================================ -->
+  <h2>EntityQuery UpdateFrame Filter</h2>
+
+  <p>Combine <code>GetUpdateFrame</code> with <code>SetSharedComponentFilter</code> to process only the current group's entities:</p>
+
+<pre><code class="language-csharp">using Game;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
+public partial class BatchedProcessingSystem : GameSystemBase
+{
+    private SimulationSystem m_SimulationSystem;
+    private EntityQuery m_Query;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_SimulationSystem = World.GetOrCreateSystemManaged&lt;SimulationSystem&gt;();
+        m_Query = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Game.Buildings.Building&gt;(),
+            ComponentType.ReadOnly&lt;UpdateFrame&gt;(),
+            ComponentType.Exclude&lt;Game.Common.Deleted&gt;());
+    }
+
+    public override int GetUpdateInterval(SystemUpdatePhase phase) =&gt; 512;
+
+    protected override void OnUpdate()
+    {
+        // Determine which 1/16 of entities to process this tick
+        uint frame = SimulationUtils.GetUpdateFrame(
+            m_SimulationSystem.frameIndex, 32, 16);
+
+        m_Query.ResetFilter();
+        m_Query.SetSharedComponentFilter(new UpdateFrame(frame));
+
+        var entities = m_Query.ToEntityArray(Allocator.Temp);
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            // Process 1/16 of all buildings per tick
+        }
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Interval vs Groups</h2>
+
+  <table>
+    <thead>
+      <tr><th>Interval</th><th>Updates/Day</th><th>Groups</th><th>Entities per tick</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>512</td><td>32</td><td>16</td><td>1/16 of total</td></tr>
+      <tr><td>256</td><td>64</td><td>16</td><td>1/16 of total</td></tr>
+      <tr><td>128</td><td>128</td><td>16</td><td>1/16 of total</td></tr>
+      <tr><td>16</td><td>1024</td><td>16</td><td>1/16 of total</td></tr>
+    </tbody>
+  </table>
+
+  <p>The <strong>interval</strong> controls how often <code>OnUpdate</code> runs. The <strong>group count</strong> controls what fraction of entities are processed per tick. Together: with interval=512 and groups=16, each entity is processed 32 times per day.</p>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

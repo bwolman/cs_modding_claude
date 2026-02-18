@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CS2's Prefab System - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <hr class="sidebar-divider">
+
+    <h3>Concepts</h3>
+    <a href="concepts-ecs.html">Unity ECS for CS2</a>
+    <a href="concepts-harmony.html">Harmony Patching</a>
+    <a href="concepts-cohtml.html">The cohtml UI Model</a>
+    <a href="concepts-prefabs.html" class="active">Prefab System</a>
+    <a href="concepts-update-phases.html">Update Phases</a>
+    <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+
+    <h3>Troubleshooting</h3>
+    <a href="troubleshooting-common-errors.html">Common Errors</a>
+    <a href="troubleshooting-debugging.html">Debugging Guide</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>CS2's Prefab System <span class="badge-intermediate">Intermediate</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      This page explains the two-entity prefab model that CS2 uses for all game
+      content -- buildings, roads, vehicles, and props. You will learn how managed
+      <code>PrefabBase</code> objects map to ECS entities, how the initialization
+      pipeline works, and how mods add or modify prefabs.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>The Two-Entity Model</h2>
+
+  <p>
+    Every piece of content in CS2 (a building type, a road type, a vehicle type)
+    exists as <strong>two distinct entities</strong>:
+  </p>
+
+  <ol>
+    <li>
+      <strong>Prefab Entity</strong> -- a template that stores configuration data
+      (costs, capacities, behaviors). There is exactly <strong>one</strong> prefab
+      entity per content type.
+    </li>
+    <li>
+      <strong>Instance Entity</strong> -- a placed object in the game world.
+      There can be <strong>many</strong> instances of the same prefab. Each
+      instance has a <code>PrefabRef</code> component pointing back to its
+      prefab entity.
+    </li>
+  </ol>
+
+  <div class="diagram">
+<pre>
+[Prefab Entity]                    [Instance Entity A]
+  PrefabData { m_Index = 42 }       PrefabRef { m_Prefab = prefabEntity }
+  BuildingData { cost = 5000 }      Building { m_Flags = ... }
+  ObjectData { m_Archetype = ... }  Transform { position = (100, 0, 200) }
+
+                                   [Instance Entity B]
+                                     PrefabRef { m_Prefab = prefabEntity }
+                                     Building { m_Flags = ... }
+                                     Transform { position = (300, 0, 400) }
+</pre>
+  </div>
+
+  <p>
+    When you place a building in the game, CS2 creates a new instance entity
+    using the archetype stored in <code>ObjectData.m_Archetype</code> on the
+    prefab entity. The instance gets a <code>PrefabRef</code> pointing to the
+    prefab so systems can look up configuration data.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Managed PrefabBase vs ECS Entity</h2>
+
+  <p>
+    CS2 maintains a parallel managed object for every prefab -- a
+    <code>PrefabBase</code> subclass (which extends Unity's <code>ScriptableObject</code>).
+    This managed object is the authoring representation loaded from the asset database.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Aspect</th><th>PrefabBase (Managed)</th><th>Prefab Entity (ECS)</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Type</td>
+        <td>C# class (ScriptableObject)</td>
+        <td>ECS Entity with IComponentData structs</td>
+      </tr>
+      <tr>
+        <td>Data containers</td>
+        <td><code>ComponentBase</code> subclasses</td>
+        <td><code>IComponentData</code> structs</td>
+      </tr>
+      <tr>
+        <td>Accessed via</td>
+        <td><code>PrefabSystem.GetPrefab&lt;T&gt;(prefabData)</code></td>
+        <td><code>PrefabSystem.GetEntity(prefab)</code></td>
+      </tr>
+      <tr>
+        <td>Lifespan</td>
+        <td>Entire game session</td>
+        <td>Entire game session</td>
+      </tr>
+      <tr>
+        <td>Mutable?</td>
+        <td>Yes (modify then call UpdatePrefab)</td>
+        <td>Yes (via EntityManager directly)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    The <code>PrefabData.m_Index</code> component on the ECS entity links it back
+    to the managed <code>PrefabBase</code> in <code>PrefabSystem</code>'s internal
+    list. This bidirectional mapping lets you go from an ECS entity to a managed
+    prefab and vice versa.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>PrefabSystem.AddPrefab and Conversion</h2>
+
+  <p>
+    When a prefab is registered via <code>PrefabSystem.AddPrefab(prefab)</code>:
+  </p>
+
+  <ol>
+    <li>Each <code>ComponentBase</code> on the managed prefab declares its ECS components via <code>GetPrefabComponents()</code></li>
+    <li>The system creates an ECS entity with those components plus <code>Created</code> and <code>Updated</code> tags</li>
+    <li><code>PrefabData.m_Index</code> is set to the prefab's position in the master list</li>
+    <li><code>PrefabInitializeSystem</code> processes the <code>Created</code> entities, calling <code>Initialize()</code> and <code>LateInitialize()</code> on each <code>ComponentBase</code></li>
+    <li>During late initialization, <code>ObjectData.m_Archetype</code> is built -- this is the archetype used when placing instances in the world</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>PrefabRef on Runtime Entities</h2>
+
+  <p>
+    Every placed object in the game world has a <code>PrefabRef</code> component:
+  </p>
+
+  <pre><code class="language-csharp">// Read the prefab from any instance entity
+if (EntityManager.TryGetComponent&lt;PrefabRef&gt;(entity, out PrefabRef prefabRef))
+{
+    Entity prefabEntity = prefabRef.m_Prefab;
+
+    // Get configuration data from the prefab entity
+    var buildingData = EntityManager.GetComponentData&lt;BuildingData&gt;(prefabEntity);
+
+    // Get the managed PrefabBase object
+    var prefabData = EntityManager.GetComponentData&lt;PrefabData&gt;(prefabEntity);
+    PrefabBase prefab = m_PrefabSystem.GetPrefab&lt;PrefabBase&gt;(prefabData);
+    string name = prefab.name; // e.g., "Commercial_CornerStore01"
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>ComponentBase vs IComponentData</h2>
+
+  <p>
+    These are two different things that are easy to confuse:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Side</th><th>Purpose</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ComponentBase</code></td>
+        <td>Managed (authoring)</td>
+        <td>Data definition attached to PrefabBase</td>
+        <td><code>PlaceableObject</code>, <code>UIObject</code></td>
+      </tr>
+      <tr>
+        <td><code>IComponentData</code></td>
+        <td>ECS (runtime)</td>
+        <td>Runtime data on entities</td>
+        <td><code>PlaceableObjectData</code>, <code>BuildingData</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    During initialization, each <code>ComponentBase</code>'s <code>Initialize()</code>
+    method copies data from the managed side into the corresponding
+    <code>IComponentData</code> on the ECS entity. The managed side is the
+    "source of truth" for original values; the ECS side is the mutable runtime copy.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Common Prefab Types</h2>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Description</th><th>Inherits From</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>BuildingPrefab</code></td><td>Buildings with lots (residential, commercial, service)</td><td>StaticObjectPrefab</td></tr>
+      <tr><td><code>StaticObjectPrefab</code></td><td>Non-moving objects (props, signs, trees)</td><td>ObjectPrefab</td></tr>
+      <tr><td><code>VehiclePrefab</code></td><td>All vehicle types</td><td>MovingObjectPrefab</td></tr>
+      <tr><td><code>NetPrefab</code></td><td>Networks (roads, pipes, power lines)</td><td>PrefabBase</td></tr>
+      <tr><td><code>AreaPrefab</code></td><td>Zones and districts</td><td>PrefabBase</td></tr>
+      <tr><td><code>CreaturePrefab</code></td><td>Animals and wildlife</td><td>MovingObjectPrefab</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Working with Prefabs in Mods</h2>
+
+  <h3>Looking Up an Existing Prefab</h3>
+
+  <pre><code class="language-csharp">PrefabID id = new PrefabID(nameof(BuildingPrefab), "Commercial_CornerStore01");
+if (m_PrefabSystem.TryGetPrefab(id, out PrefabBase prefab))
+{
+    Entity prefabEntity = m_PrefabSystem.GetEntity(prefab);
+    // Read or modify ECS data on the prefab entity
+}</code></pre>
+
+  <h3>Duplicating a Prefab</h3>
+
+  <pre><code class="language-csharp">PrefabBase clone = m_PrefabSystem.DuplicatePrefab(template, "MyMod_CustomStore");
+// The clone is a full deep copy with its own entity</code></pre>
+
+  <h3>Modifying Prefab Data at Runtime</h3>
+
+  <pre><code class="language-csharp">Entity entity = m_PrefabSystem.GetEntity(prefab);
+var data = EntityManager.GetComponentData&lt;PlaceableObjectData&gt;(entity);
+data.m_ConstructionCost = 0; // Make it free
+EntityManager.SetComponentData(entity, data);</code></pre>
+
+  <p>
+    For the complete API and advanced patterns (runtime creation, UIGroupElement
+    manipulation, FakePrefab pattern), see the
+    <a href="prefab-system.html">Prefab System</a> deep dive.
+  </p>
+
+  <div class="quick-start">
+    <h2>Key Takeaways</h2>
+    <ul>
+      <li>Every content type has a prefab entity (template) and instance entities (placed objects)</li>
+      <li>Managed <code>PrefabBase</code> objects are converted to ECS entities during initialization</li>
+      <li>Instance entities reference their prefab via <code>PrefabRef.m_Prefab</code></li>
+      <li><code>ComponentBase</code> is the authoring side; <code>IComponentData</code> is the runtime side</li>
+      <li>Use <code>PrefabSystem</code> to look up, duplicate, and modify prefabs</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II). Based on PrefabSystem research.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Your First Mod - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Getting Started</h3>
+    <div class="sidebar-links expanded">
+      <a href="getting-started-setup.html">Setup Your Environment</a>
+      <a href="getting-started-first-mod.html" class="active">Your First Mod</a>
+      <a href="getting-started-build-deploy.html">Build &amp; Deploy</a>
+      <a href="getting-started-architecture.html">Architecture Overview</a>
+    </div>
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html">Your First System</a>
+      <a href="tutorial-reading-data.html">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html">Settings Panel</a>
+      <a href="tutorial-toolbar-button.html">Toolbar Button</a>
+      <a href="tutorial-harmony-patching.html">Harmony Patching</a>
+      <a href="tutorial-system-replacement.html">System Replacement</a>
+      <a href="tutorial-data-persistence.html">Data Persistence</a>
+      <a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a>
+      <a href="tutorial-complete-mod.html">Complete Mod</a>
+    </div>
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+      <a href="cookbook-entity-queries.html">Entity Queries</a>
+      <a href="cookbook-emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="cookbook-game-events.html">Game Events</a>
+      <a href="cookbook-game-mode.html">Game Mode Detection</a>
+      <a href="cookbook-update-frequency.html">Update Frequency</a>
+      <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+      <a href="cookbook-localization.html">Localization</a>
+      <a href="cookbook-static-assets.html">Static Assets</a>
+    </div>
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+      <a href="concepts-ecs.html">Unity ECS Primer</a>
+      <a href="concepts-harmony.html">Harmony Overview</a>
+      <a href="concepts-cohtml.html">cohtml UI Model</a>
+      <a href="concepts-prefabs.html">Prefab System</a>
+      <a href="concepts-update-phases.html">Update Phases</a>
+      <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+    </div>
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+      <a href="troubleshooting-common-errors.html">Common Errors</a>
+      <a href="troubleshooting-debugging.html">Debugging Guide</a>
+    </div>
+    <hr class="sidebar-divider">
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="telecom-internet.html">Telecom &amp; Internet</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+      <a href="mail-post-service.html">Mail &amp; Post Service</a>
+    </div>
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+      <a href="notifications-advisor.html">Notifications &amp; Advisor</a>
+      <a href="city-statistics.html">City Statistics</a>
+    </div>
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <h1>Your First Mod <span class="badge-beginner">Beginner</span></h1>
+
+  <p>
+    This guide walks you through creating a minimal CS2 mod from scratch. By the end,
+    you will have a working mod that loads into the game and writes a message to the log.
+  </p>
+
+  <div class="scope">
+    <h2>Prerequisite</h2>
+    <p>
+      Make sure you have completed <a href="getting-started-setup.html">Setup Your Environment</a>
+      before continuing. You need the .NET SDK, an IDE, and the game path configured.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Create the .csproj</h2>
+
+  <p>
+    CS2 mods target <code>net472</code>, which is the .NET Framework-compatible target
+    that matches Unity 2022.3.7f1's Mono runtime. Most community mods use this target
+    because it provides the full .NET Framework API surface. The alternative
+    <code>netstandard2.1</code> also compiles and loads correctly but provides a smaller
+    API surface.
+  </p>
+
+  <p>Create <code>src/MyFirstMod/MyFirstMod.csproj</code>:</p>
+
+  <pre><code>&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+
+  &lt;Import Project="../../Mod.props" /&gt;
+
+  &lt;PropertyGroup&gt;
+    &lt;TargetFramework&gt;net472&lt;/TargetFramework&gt;
+    &lt;AssemblyName&gt;MyFirstMod&lt;/AssemblyName&gt;
+    &lt;RootNamespace&gt;MyFirstMod&lt;/RootNamespace&gt;
+    &lt;LangVersion&gt;latest&lt;/LangVersion&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;Reference Include="Game"&gt;
+      &lt;HintPath&gt;$(ManagedPath)/Game.dll&lt;/HintPath&gt;
+      &lt;Private&gt;false&lt;/Private&gt;
+    &lt;/Reference&gt;
+    &lt;Reference Include="Colossal.Core"&gt;
+      &lt;HintPath&gt;$(ManagedPath)/Colossal.Core.dll&lt;/HintPath&gt;
+      &lt;Private&gt;false&lt;/Private&gt;
+    &lt;/Reference&gt;
+    &lt;Reference Include="Colossal.Logging"&gt;
+      &lt;HintPath&gt;$(ManagedPath)/Colossal.Logging.dll&lt;/HintPath&gt;
+      &lt;Private&gt;false&lt;/Private&gt;
+    &lt;/Reference&gt;
+    &lt;Reference Include="Unity.Entities"&gt;
+      &lt;HintPath&gt;$(ManagedPath)/Unity.Entities.dll&lt;/HintPath&gt;
+      &lt;Private&gt;false&lt;/Private&gt;
+    &lt;/Reference&gt;
+  &lt;/ItemGroup&gt;
+
+  &lt;Import Project="../../Mod.targets" /&gt;
+
+&lt;/Project&gt;</code></pre>
+
+  <p>Key points:</p>
+
+  <ul>
+    <li><code>Private="false"</code> on all game references -- never copy game DLLs into your output</li>
+    <li>The <code>Mod.props</code> import provides <code>$(ManagedPath)</code> which resolves to your game's <code>Cities2_Data/Managed/</code></li>
+    <li>The <code>Mod.targets</code> import handles auto-deployment after build</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Implement IMod</h2>
+
+  <p>
+    Every CS2 mod has an entry point class that implements <code>IMod</code>. The game
+    calls <code>OnLoad</code> when your mod is loaded and <code>OnDispose</code> when it
+    is unloaded. This is where you register your systems, set up Harmony patches, and
+    initialize resources.
+  </p>
+
+  <p>Create <code>src/MyFirstMod/Mod.cs</code>:</p>
+
+  <pre><code>using Colossal.Logging;
+using Game;
+using Game.Modding;
+
+namespace MyFirstMod
+{
+    /// &lt;summary&gt;
+    /// Entry point for the MyFirstMod mod.
+    /// &lt;/summary&gt;
+    public class Mod : IMod
+    {
+        /// &lt;summary&gt;
+        /// Shared logger instance for the entire mod.
+        /// SetShowsErrorsInUI(true) causes errors to display
+        /// in the game's notification area.
+        /// &lt;/summary&gt;
+        internal static ILog Log { get; }
+            = LogManager.GetLogger(nameof(MyFirstMod))
+                        .SetShowsErrorsInUI(true);
+
+        /// &lt;summary&gt;
+        /// Called when the mod is loaded by the game.
+        /// Use this to register ECS systems and initialize resources.
+        /// &lt;/summary&gt;
+        public void OnLoad(UpdateSystem updateSystem)
+        {
+            Log.Info(nameof(OnLoad));
+
+            // Register your ECS systems here:
+            // updateSystem.UpdateAt&lt;MySystem&gt;(SystemUpdatePhase.GameSimulation);
+        }
+
+        /// &lt;summary&gt;
+        /// Called when the mod is unloaded.
+        /// Use this to clean up resources, unpatch Harmony, etc.
+        /// &lt;/summary&gt;
+        public void OnDispose()
+        {
+            Log.Info(nameof(OnDispose));
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Add Logging</h2>
+
+  <p>
+    CS2 uses Colossal's <code>LogManager</code> for logging. The standard pattern is a
+    static <code>ILog</code> property on your <code>Mod</code> class that other classes
+    can reference:
+  </p>
+
+  <pre><code>internal static ILog Log { get; }
+    = LogManager.GetLogger(nameof(MyFirstMod))
+                .SetShowsErrorsInUI(true);</code></pre>
+
+  <p>The logger supports multiple levels:</p>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>When to Use</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>Log.Debug(...)</code></td><td>Verbose development output (off by default)</td></tr>
+      <tr><td><code>Log.Info(...)</code></td><td>Normal operational messages</td></tr>
+      <tr><td><code>Log.Warn(...)</code></td><td>Unexpected but recoverable situations</td></tr>
+      <tr><td><code>Log.Error(...)</code></td><td>Errors -- shows in UI if <code>SetShowsErrorsInUI(true)</code></td></tr>
+      <tr><td><code>Log.Critical(...)</code></td><td>Fatal errors that prevent mod from functioning</td></tr>
+    </tbody>
+  </table>
+
+  <p>Use logging from any class in your mod:</p>
+
+  <pre><code>// From anywhere in your mod namespace
+Mod.Log.Info("Processing complete");
+Mod.Log.Error(ex, "Failed to process vehicles");</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>The Minimal Working Mod</h2>
+
+  <p>
+    At this point, your mod consists of just two files: the <code>.csproj</code> and
+    <code>Mod.cs</code>. This is the absolute minimum needed for a functioning CS2 mod.
+    When the game loads, it will:
+  </p>
+
+  <ol>
+    <li>Discover your DLL in the Mods folder</li>
+    <li>Find the class implementing <code>IMod</code></li>
+    <li>Call <code>OnLoad</code>, passing the <code>UpdateSystem</code></li>
+    <li>Your mod logs "OnLoad" to the game log</li>
+  </ol>
+
+  <p>
+    From here, you extend the mod by adding ECS systems (registered in <code>OnLoad</code>
+    via <code>updateSystem.UpdateAt&lt;T&gt;()</code>), Harmony patches, UI bindings,
+    and settings classes.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Naming Conventions</h2>
+
+  <p>
+    CS2 mods follow
+    <a href="https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/coding-style/coding-conventions">Microsoft C# conventions</a>:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Element</th><th>Style</th><th>Example</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Classes, structs, enums</td><td>PascalCase</td><td><code>TrafficManager</code></td></tr>
+      <tr><td>Methods, properties</td><td>PascalCase</td><td><code>GetVehicleCount()</code></td></tr>
+      <tr><td>Local variables, parameters</td><td>camelCase</td><td><code>vehicleCount</code></td></tr>
+      <tr><td>Private fields</td><td>_camelCase</td><td><code>_vehicleCount</code></td></tr>
+      <tr><td>Constants</td><td>PascalCase</td><td><code>MaxVehicles</code></td></tr>
+      <tr><td>Interfaces</td><td>IPascalCase</td><td><code>ITrafficHandler</code></td></tr>
+    </tbody>
+  </table>
+
+  <p>Additional file organization rules:</p>
+
+  <ul>
+    <li><strong>One ECS system per file</strong> -- <code>TrafficMonitorSystem</code> goes in <code>TrafficMonitorSystem.cs</code></li>
+    <li><strong>One Harmony patch class per file</strong> -- <code>ZoningPatch</code> goes in <code>ZoningPatch.cs</code></li>
+    <li><strong>Soft limit of ~300 lines per file</strong> -- if a class is growing, split it</li>
+    <li>Group <code>using</code> directives: System, Unity, Game, then mod namespaces</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <p>
+    Build and test your mod by following the
+    <a href="getting-started-build-deploy.html">Build &amp; Deploy</a> guide. Then
+    learn about the game's architecture in
+    <a href="getting-started-architecture.html">Architecture Overview</a> before
+    writing your first ECS system.
+  </p>
+
+  <footer>
+    <p>Source: Project setup and coding standards from the CS2 modding repository.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

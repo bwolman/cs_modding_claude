@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Building a Complete Mod - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <h3>Tutorials</h3>
+    <a href="tutorial-harmony-patching.html">Patching with Harmony</a>
+    <a href="tutorial-system-replacement.html">Replacing a Vanilla System</a>
+    <a href="tutorial-data-persistence.html">Persisting Custom Data</a>
+    <a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a>
+    <a href="tutorial-complete-mod.html" class="active">Building a Complete Mod</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Building a Complete Mod <span class="badge-advanced">Advanced</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Build</h2>
+    <p>
+      A <strong>Crime Wave Simulator</strong> mod that combines every technique from the
+      previous tutorials into one working mod:
+    </p>
+    <ul>
+      <li>An ECS system that triggers crimes on demand</li>
+      <li>A settings panel for crime frequency</li>
+      <li>A hotkey binding to activate/deactivate the crime wave</li>
+      <li>A Harmony patch to modify crime severity</li>
+      <li>Save/load persistence for a crime counter</li>
+    </ul>
+    <p>
+      <strong>Prerequisites:</strong> Complete the previous tutorials:
+      <a href="tutorial-harmony-patching.html">Harmony Patching</a>,
+      <a href="tutorial-data-persistence.html">Persisting Custom Data</a>,
+      <a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Mod Architecture</h2>
+
+  <p>
+    The Crime Wave Simulator uses five files, each handling one responsibility:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>File</th><th>Purpose</th><th>Technique</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Mod.cs</code></td>
+        <td>Entry point, Harmony init, system registration</td>
+        <td>IMod, Harmony</td>
+      </tr>
+      <tr>
+        <td><code>CrimeWaveSettings.cs</code></td>
+        <td>Settings panel + hotkey binding</td>
+        <td>ModSetting, ProxyBinding</td>
+      </tr>
+      <tr>
+        <td><code>CrimeWaveSystem.cs</code></td>
+        <td>ECS system that triggers crimes</td>
+        <td>GameSystemBase, EntityQuery</td>
+      </tr>
+      <tr>
+        <td><code>CrimeWaveStats.cs</code></td>
+        <td>Persistent global counter</td>
+        <td>IDefaultSerializable</td>
+      </tr>
+      <tr>
+        <td><code>CrimeSeverityPatch.cs</code></td>
+        <td>Harmony patch to modify steal amounts</td>
+        <td>HarmonyPrefix</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Step 1: Settings with Hotkey</h2>
+
+  <p>
+    The settings class declares the hotkey (Ctrl+Shift+C) and a configurable crime frequency
+    slider. Players can rebind the key and adjust the frequency in the Options menu.
+  </p>
+
+  <pre><code class="language-csharp">// === CrimeWaveSettings.cs ===
+using Colossal.IO.AssetDatabase;
+using Game.Input;
+using Game.Modding;
+using Game.Settings;
+
+[FileLocation(nameof(CrimeWaveMod))]
+[SettingsUIKeyboardAction("ToggleCrimeWave", ActionType.Button)]
+public class CrimeWaveSettings : ModSetting
+{
+    public CrimeWaveSettings(IMod mod) : base(mod) { }
+
+    /// &lt;summary&gt;
+    /// Hotkey to activate/deactivate the crime wave. Default: Ctrl+Shift+C.
+    /// &lt;/summary&gt;
+    [SettingsUIKeyboardBinding(BindingKeyboard.C, "ToggleCrimeWave",
+        ctrl: true, shift: true)]
+    public ProxyBinding ToggleCrimeWaveBinding { get; set; }
+
+    /// &lt;summary&gt;
+    /// How many crimes to trigger per cycle (1-10).
+    /// Appears as a slider in the Options panel.
+    /// &lt;/summary&gt;
+    [SettingsUISection("Crime Wave")]
+    [SettingsUISlider(min = 1, max = 10, step = 1)]
+    public int CrimesPerCycle { get; set; } = 3;
+
+    /// &lt;summary&gt;
+    /// Multiplier applied to stolen amounts (0.5x to 5x).
+    /// &lt;/summary&gt;
+    [SettingsUISection("Crime Wave")]
+    [SettingsUISlider(min = 0.5f, max = 5.0f, step = 0.5f)]
+    public float SeverityMultiplier { get; set; } = 1.0f;
+
+    public override void SetDefaults()
+    {
+        CrimesPerCycle = 3;
+        SeverityMultiplier = 1.0f;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 2: Mod Entry Point</h2>
+
+  <p>
+    The entry point initializes Harmony, registers settings and keybindings, and registers all
+    custom systems. Harmony is cleaned up in <code>OnDispose</code>.
+  </p>
+
+  <pre><code class="language-csharp">// === Mod.cs ===
+using Colossal.IO.AssetDatabase;
+using Colossal.Logging;
+using Game;
+using Game.Modding;
+using HarmonyLib;
+
+public class CrimeWaveMod : IMod
+{
+    internal static ILog Log = LogManager.GetLogger(nameof(CrimeWaveMod))
+        .SetShowsErrorsInUI(true);
+    internal static CrimeWaveSettings Settings { get; private set; }
+
+    private Harmony _harmony;
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        Log.Info("CrimeWaveMod loading");
+
+        // 1. Initialize Harmony patches
+        _harmony = new Harmony("com.example.crimewavesimulator");
+        _harmony.PatchAll(typeof(CrimeWaveMod).Assembly);
+
+        // 2. Initialize settings and hotkey
+        Settings = new CrimeWaveSettings(this);
+        Settings.RegisterInOptionsUI();
+        AssetDatabase.global.LoadSettings(
+            nameof(CrimeWaveMod), Settings, new CrimeWaveSettings(this));
+        Settings.RegisterKeyBindings();
+
+        // 3. Register ECS systems
+        updateSystem.UpdateAt&lt;CrimeWaveSystem&gt;(
+            SystemUpdatePhase.GameSimulation);
+        updateSystem.UpdateAt&lt;CrimeWaveStats&gt;(
+            SystemUpdatePhase.GameSimulation);
+
+        Log.Info("CrimeWaveMod loaded successfully");
+    }
+
+    public void OnDispose()
+    {
+        _harmony?.UnpatchAll("com.example.crimewavesimulator");
+        Settings?.UnregisterInOptionsUI();
+        Log.Info("CrimeWaveMod disposed");
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 3: ECS System -- Crime Trigger</h2>
+
+  <p>
+    The core system listens for the hotkey toggle, then periodically triggers crimes on random
+    buildings when active. It uses the game's event command pattern (creating
+    <code>AddCriminal</code> and <code>AddAccidentSite</code> entities) to trigger crimes
+    through the standard pipeline.
+  </p>
+
+  <pre><code class="language-csharp">// === CrimeWaveSystem.cs ===
+using Game;
+using Game.Citizens;
+using Game.Common;
+using Game.Events;
+using Game.Input;
+using Game.Prefabs;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Triggers crimes on demand when the crime wave is active.
+/// Toggle with the configured hotkey (default: Ctrl+Shift+C).
+/// &lt;/summary&gt;
+public partial class CrimeWaveSystem : GameSystemBase
+{
+    private ProxyAction _toggleAction;
+    private bool _isActive;
+    private int _tickCounter;
+
+    private EntityQuery m_CitizenQuery;
+    private EntityQuery m_CrimeDataQuery;
+    private SimulationSystem m_SimulationSystem;
+    private CrimeWaveStats m_Stats;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        _toggleAction = CrimeWaveMod.Settings.GetAction("ToggleCrimeWave");
+
+        m_SimulationSystem = World.GetOrCreateSystemManaged&lt;SimulationSystem&gt;();
+        m_Stats = World.GetOrCreateSystemManaged&lt;CrimeWaveStats&gt;();
+
+        // Query for eligible citizens (unemployed, adult, not already criminal)
+        m_CitizenQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Citizen&gt;(),
+            ComponentType.Exclude&lt;Criminal&gt;(),
+            ComponentType.Exclude&lt;Game.Common.Deleted&gt;(),
+            ComponentType.Exclude&lt;Game.Tools.Temp&gt;()
+        );
+
+        // Query for the crime event prefab
+        m_CrimeDataQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;CrimeData&gt;(),
+            ComponentType.ReadOnly&lt;EventData&gt;(),
+            ComponentType.Exclude&lt;Locked&gt;()
+        );
+    }
+
+    public override int GetUpdateInterval(SystemUpdatePhase phase) =&gt; 16;
+
+    protected override void OnUpdate()
+    {
+        // Check hotkey toggle
+        if (_toggleAction != null &amp;&amp; _toggleAction.WasPressedThisFrame())
+        {
+            _isActive = !_isActive;
+            CrimeWaveMod.Log.Info($"Crime wave {(_isActive ? "ACTIVATED" : "deactivated")}");
+        }
+
+        if (!_isActive) return;
+
+        // Trigger crimes every 256 ticks (~4 seconds at 60fps)
+        _tickCounter++;
+        if (_tickCounter &lt; 16) return;
+        _tickCounter = 0;
+
+        TriggerCrimes();
+    }
+
+    private void TriggerCrimes()
+    {
+        using var prefabs = m_CrimeDataQuery.ToEntityArray(Allocator.Temp);
+        if (prefabs.Length == 0) return;
+
+        Entity eventPrefab = prefabs[0];
+        EventData eventData = EntityManager.GetComponentData&lt;EventData&gt;(eventPrefab);
+
+        using var citizens = m_CitizenQuery.ToEntityArray(Allocator.Temp);
+        if (citizens.Length == 0) return;
+
+        int crimesToTrigger = CrimeWaveMod.Settings.CrimesPerCycle;
+        int triggered = 0;
+
+        for (int i = 0; i &lt; crimesToTrigger &amp;&amp; i &lt; citizens.Length; i++)
+        {
+            Entity citizen = citizens[i];
+
+            // Create crime event entity
+            Entity crimeEvent = EntityManager.CreateEntity(eventData.m_Archetype);
+            EntityManager.SetComponentData(crimeEvent, new PrefabRef(eventPrefab));
+            EntityManager.GetBuffer&lt;TargetElement&gt;(crimeEvent)
+                .Add(new TargetElement(citizen));
+
+            // Create AddCriminal command
+            Entity cmd = EntityManager.CreateEntity(
+                ComponentType.ReadWrite&lt;Game.Common.Event&gt;(),
+                ComponentType.ReadWrite&lt;AddCriminal&gt;()
+            );
+            EntityManager.SetComponentData(cmd, new AddCriminal
+            {
+                m_Event = crimeEvent,
+                m_Target = citizen,
+                m_Flags = CriminalFlags.Robber | CriminalFlags.Planning
+            });
+
+            triggered++;
+        }
+
+        if (triggered &gt; 0)
+        {
+            m_Stats.TotalCrimesTriggered += triggered;
+            CrimeWaveMod.Log.Info($"Triggered {triggered} crimes " +
+                $"(total: {m_Stats.TotalCrimesTriggered})");
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 4: Persistent Crime Counter</h2>
+
+  <p>
+    The stats system implements <code>IDefaultSerializable</code> to persist the total crime
+    count across save/load. It uses the version byte pattern for safe future upgrades.
+  </p>
+
+  <pre><code class="language-csharp">// === CrimeWaveStats.cs ===
+using Colossal.Serialization.Entities;
+using Game;
+
+/// &lt;summary&gt;
+/// Persistent mod-global statistics. Survives save/load.
+/// SetDefaults provides clean values for new games.
+/// &lt;/summary&gt;
+public partial class CrimeWaveStats : GameSystemBase, IDefaultSerializable
+{
+    public int TotalCrimesTriggered { get; set; }
+    public int TotalModifiedSeverity { get; set; }
+
+    private const byte kCurrentVersion = 1;
+
+    public void Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter
+    {
+        writer.Write(kCurrentVersion);
+        writer.Write(TotalCrimesTriggered);
+        writer.Write(TotalModifiedSeverity);
+    }
+
+    public void Deserialize&lt;TReader&gt;(TReader reader) where TReader : IReader
+    {
+        reader.Read(out byte version);
+        reader.Read(out int crimes);
+        TotalCrimesTriggered = crimes;
+        reader.Read(out int severity);
+        TotalModifiedSeverity = severity;
+    }
+
+    public void SetDefaults(Context context)
+    {
+        TotalCrimesTriggered = 0;
+        TotalModifiedSeverity = 0;
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 5: Harmony Patch -- Modify Crime Severity</h2>
+
+  <p>
+    A Harmony prefix patch intercepts <code>CrimeCheckSystem.OnUpdate</code> to apply the
+    mod's severity multiplier to crime data. This modifies the prefab data so that all crimes
+    created by the game use the adjusted values.
+  </p>
+
+  <pre><code class="language-csharp">// === CrimeSeverityPatch.cs ===
+using HarmonyLib;
+using Game.Prefabs;
+using Game.Simulation;
+using Unity.Collections;
+using Unity.Entities;
+
+/// &lt;summary&gt;
+/// Modifies crime steal amounts by applying the settings multiplier
+/// to the CrimeData prefab before CrimeCheckSystem processes it.
+/// &lt;/summary&gt;
+[HarmonyPatch(typeof(CrimeCheckSystem), "OnUpdate")]
+public static class CrimeSeverityPatch
+{
+    // Cache original values to restore on unpatch
+    private static float _originalAbsoluteMax = -1f;
+    private static float _originalAbsoluteMin = -1f;
+
+    [HarmonyPrefix]
+    public static void Prefix()
+    {
+        try
+        {
+            float multiplier = CrimeWaveMod.Settings.SeverityMultiplier;
+            if (Math.Abs(multiplier - 1.0f) &lt; 0.01f) return;
+
+            var em = World.DefaultGameObjectInjectionWorld.EntityManager;
+            var query = em.CreateEntityQuery(
+                ComponentType.ReadWrite&lt;CrimeData&gt;(),
+                ComponentType.ReadOnly&lt;EventData&gt;(),
+                ComponentType.Exclude&lt;Locked&gt;()
+            );
+
+            using var entities = query.ToEntityArray(Allocator.Temp);
+            for (int i = 0; i &lt; entities.Length; i++)
+            {
+                CrimeData data = em.GetComponentData&lt;CrimeData&gt;(entities[i]);
+
+                // Save original values on first run
+                if (_originalAbsoluteMax &lt; 0)
+                {
+                    _originalAbsoluteMax = data.m_CrimeIncomeAbsolute.max;
+                    _originalAbsoluteMin = data.m_CrimeIncomeAbsolute.min;
+                }
+
+                // Apply multiplier to steal amounts
+                data.m_CrimeIncomeAbsolute.min = _originalAbsoluteMin * multiplier;
+                data.m_CrimeIncomeAbsolute.max = _originalAbsoluteMax * multiplier;
+                em.SetComponentData(entities[i], data);
+            }
+        }
+        catch (Exception ex)
+        {
+            CrimeWaveMod.Log.Error($"CrimeSeverityPatch error: {ex}");
+        }
+    }
+}</code></pre>
+
+  <div class="scope">
+    <h2>Defensive Error Handling</h2>
+    <p>
+      Always wrap Harmony patches in <code>try/catch</code>. An unhandled exception in a prefix
+      can prevent the original method from running, potentially breaking game systems. Log the
+      error and let the original continue.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>How the Pieces Connect</h2>
+
+  <div class="diagram">
+<pre>
+[Game Start]
+    |
+    v
+Mod.OnLoad()
+    |-- Harmony.PatchAll()      --> CrimeSeverityPatch applied
+    |-- Settings init           --> Hotkey Ctrl+Shift+C registered
+    |-- RegisterKeyBindings()   --> ProxyAction created in InputManager
+    |-- Register systems        --> CrimeWaveSystem + CrimeWaveStats
+    |
+    v
+[Player presses Ctrl+Shift+C]
+    |
+    v
+CrimeWaveSystem.OnUpdate()
+    |-- WasPressedThisFrame()   --> _isActive = true
+    |
+    v
+[Every 16 ticks while active]
+    |
+    v
+CrimeWaveSystem.TriggerCrimes()
+    |-- Create crime event entity (from CrimeData prefab)
+    |-- Create AddCriminal command (Robber | Planning)
+    |-- Increment CrimeWaveStats.TotalCrimesTriggered
+    |
+    v
+[Game's crime pipeline takes over]
+    AddCriminalSystem --> Criminal component on citizen
+    CriminalSystem --> Planning -> Preparing -> Crime/Arrest
+    AccidentSiteSystem --> Police dispatch
+    |
+    v
+[Meanwhile, on every CrimeCheckSystem.OnUpdate]
+    CrimeSeverityPatch.Prefix() --> Multiplies steal amounts
+    |
+    v
+[Player saves game]
+    CrimeWaveStats.Serialize() --> TotalCrimesTriggered persisted
+    |
+    v
+[Player loads game]
+    CrimeWaveStats.Deserialize() --> Counter restored
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Testing Checklist</h2>
+
+  <p>
+    CS2 mods have no unit test framework -- verification is done in-game with log output:
+  </p>
+
+  <ol>
+    <li>Build the mod with <code>dotnet build</code> -- auto-deploys to game's Mods folder.</li>
+    <li>Launch the game and start a city with police stations and residential zones.</li>
+    <li>Open the game log and filter for "CrimeWaveMod".</li>
+    <li>Press Ctrl+Shift+C -- verify "Crime wave ACTIVATED" appears in the log.</li>
+    <li>Wait a few seconds -- verify "Triggered N crimes" messages appear.</li>
+    <li>Check the Options menu -- verify the CrimesPerCycle slider is visible and functional.</li>
+    <li>Adjust the SeverityMultiplier slider and verify log shows the patch applying.</li>
+    <li>Save the game, exit, reload -- verify the crime counter is preserved.</li>
+    <li>Start a new game -- verify the counter resets to zero (SetDefaults).</li>
+    <li>Press Ctrl+Shift+C again -- verify "deactivated" and crimes stop.</li>
+  </ol>
+
+  <!-- ============================================================ -->
+  <h2>Extending the Mod</h2>
+
+  <p>Ideas for further development using the techniques from this tutorial series:</p>
+
+  <ul>
+    <li><strong>Target specific buildings</strong> -- Use <code>AddAccidentSite</code> to create
+      crime scenes at specific locations (see <a href="crime-trigger.html">Crime Trigger</a>).</li>
+    <li><strong>Custom UI panel</strong> -- Add a toolbar button that shows live crime stats
+      (see <a href="mod-ui-buttons.html">Mod UI Buttons</a>).</li>
+    <li><strong>Replace CrimeCheckSystem</strong> -- For full control over which citizens become
+      criminals, disable the vanilla system and write your own
+      (see <a href="tutorial-system-replacement.html">System Replacement</a>).</li>
+    <li><strong>Per-building crime counter</strong> -- Add a custom <code>IComponentData,
+      ISerializable</code> component to track crimes per building
+      (see <a href="tutorial-data-persistence.html">Data Persistence</a>).</li>
+    <li><strong>Transpiler patch</strong> -- Use a transpiler to change the wellbeing threshold
+      that determines crime probability
+      (see <a href="harmony-transpilers.html">Harmony Transpilers</a>).</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Summary of Techniques Used</h2>
+
+  <table>
+    <thead>
+      <tr><th>Technique</th><th>Where Used</th><th>Tutorial</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>IMod entry point</td>
+        <td>Mod.cs -- OnLoad / OnDispose</td>
+        <td><a href="mod-loading-dependencies.html">Mod Loading</a></td>
+      </tr>
+      <tr>
+        <td>Harmony prefix patch</td>
+        <td>CrimeSeverityPatch.cs</td>
+        <td><a href="tutorial-harmony-patching.html">Harmony Patching</a></td>
+      </tr>
+      <tr>
+        <td>ModSetting + hotkey</td>
+        <td>CrimeWaveSettings.cs</td>
+        <td><a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a></td>
+      </tr>
+      <tr>
+        <td>ECS system</td>
+        <td>CrimeWaveSystem.cs</td>
+        <td><a href="crime-trigger.html">Crime Trigger</a></td>
+      </tr>
+      <tr>
+        <td>IDefaultSerializable</td>
+        <td>CrimeWaveStats.cs</td>
+        <td><a href="tutorial-data-persistence.html">Data Persistence</a></td>
+      </tr>
+      <tr>
+        <td>Event command pattern</td>
+        <td>AddCriminal entity creation</td>
+        <td><a href="event-entity-archetype.html">Event Entity Archetype</a></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <footer>
+    <p>Source: Research from CrimeTrigger, ModLoading, SaveLoadPersistence, ModHotkeyInput, and HarmonyTranspilers topics. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

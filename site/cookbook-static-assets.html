@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook: Deploying Static Assets - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Cookbook</h3>
+    <a href="cookbook-entity-queries.html">Entity Queries</a>
+    <a href="cookbook-emergency-dispatch.html">Dispatching Vehicles</a>
+    <a href="cookbook-game-events.html">Triggering Game Events</a>
+    <a href="cookbook-game-mode.html">Game Mode Detection</a>
+    <a href="cookbook-update-frequency.html">Update Frequency</a>
+    <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+    <a href="cookbook-localization.html">Adding Localized Strings</a>
+    <a href="cookbook-static-assets.html" class="active">Deploying Static Assets</a>
+
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Deploying Static Assets <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What you'll learn</h2>
+    <p>How to deploy non-code files (SVGs, PNGs, JSON, CSS) alongside your mod DLL using MSBuild targets, and how to access them at runtime via the <code>coui://</code> protocol.</p>
+    <p><strong>Related:</strong> <a href="mod-loading-dependencies.html">Mod Loading</a> (build infrastructure, mod path discovery).</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>MSBuild AfterBuild Targets</h2>
+
+  <p>Add an <code>AfterBuild</code> target to your <code>.csproj</code> that copies resource files to the mod's deployment directory alongside the DLL.</p>
+
+<pre><code class="language-xml">&lt;!-- In your .csproj --&gt;
+&lt;PropertyGroup&gt;
+  &lt;DeployDir&gt;$(CSII_TOOLPATH)\Mods\$(AssemblyName)&lt;/DeployDir&gt;
+&lt;/PropertyGroup&gt;
+
+&lt;ItemGroup&gt;
+  &lt;!-- Include all files from the Resources folder --&gt;
+  &lt;ModAssets Include="Resources\**\*.*" /&gt;
+&lt;/ItemGroup&gt;
+
+&lt;Target Name="DeployAssets" AfterTargets="Build"&gt;
+  &lt;MakeDir Directories="$(DeployDir)" /&gt;
+
+  &lt;!-- Copy mod DLL --&gt;
+  &lt;Copy SourceFiles="$(TargetPath)"
+        DestinationFolder="$(DeployDir)"
+        SkipUnchangedFiles="true" /&gt;
+
+  &lt;!-- Copy resource files preserving folder structure --&gt;
+  &lt;Copy SourceFiles="@(ModAssets)"
+        DestinationFolder="$(DeployDir)\%(RecursiveDir)"
+        SkipUnchangedFiles="true" /&gt;
+&lt;/Target&gt;</code></pre>
+
+  <p>The resulting deployment directory:</p>
+
+<pre><code>Mods/MyMod/
+  MyMod.dll
+  icons/
+    toolbar-icon.svg
+    status-icon.svg
+  config/
+    defaults.json
+  styles/
+    panel.css</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>The coui:// Protocol</h2>
+
+  <p>Deployed assets are accessible at runtime through the <code>coui://</code> protocol. The game's <code>InitializeUIModules()</code> phase registers UI host locations for each mod during loading.</p>
+
+<pre><code class="language-csharp">// Reference SVG icons from your UI module or JavaScript
+string iconUrl = "coui://ui-mods/icons/toolbar-icon.svg";
+
+// JSON configuration files
+string configUrl = "coui://ui-mods/config/defaults.json";
+
+// CSS stylesheets
+string styleUrl = "coui://ui-mods/styles/panel.css";</code></pre>
+
+  <p>The <code>coui://ui-mods/</code> prefix maps to the mod's deployment directory. Files deployed to <code>Mods/MyMod/icons/</code> are available at <code>coui://ui-mods/icons/</code>.</p>
+
+  <!-- ============================================================ -->
+  <h2>AddHostLocation for Custom Paths</h2>
+
+  <p>If your mod needs to serve assets from a non-standard location (e.g., user data directory), you can register a custom host location. This is done by the game's <code>UIModuleAsset</code> system during <code>InitializeUIModules()</code>, but can also be done programmatically:</p>
+
+<pre><code class="language-csharp">using Colossal.IO.AssetDatabase;
+using Game.SceneFlow;
+
+public void OnLoad(UpdateSystem updateSystem)
+{
+    // Find the mod's installation path
+    var modManager = GameManager.instance.modManager;
+    if (modManager.TryGetExecutableAsset(this, out var asset))
+    {
+        string modDir = System.IO.Path.GetDirectoryName(asset.path);
+        string assetsDir = System.IO.Path.Combine(modDir, "assets");
+
+        // Assets in this directory are now accessible at
+        // coui://my-mod-host/filename.ext
+        Log.Info($"Mod assets directory: {assetsDir}");
+
+        // The game auto-registers ui-mods host for UIModuleAssets.
+        // For custom paths, use the modDir directly:
+        string iconPath = System.IO.Path.Combine(modDir, "icons", "my-icon.svg");
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Finding Your Mod's Path</h2>
+
+  <p>Two approaches to discover where your mod is installed at runtime:</p>
+
+<pre><code class="language-csharp">// Approach 1: TryGetExecutableAsset (simplest)
+var modManager = GameManager.instance.modManager;
+if (modManager.TryGetExecutableAsset(this, out var asset))
+{
+    string modDir = System.IO.Path.GetDirectoryName(asset.path);
+}
+
+// Approach 2: SearchFilter (when you need to find other mods)
+foreach (var a in AssetDatabase.global.GetAsset&lt;ExecutableAsset&gt;(
+    SearchFilter&lt;ExecutableAsset&gt;.ByCondition(
+        x =&gt; x.isLoaded &amp;&amp; x.isMod)))
+{
+    if (a.assembly == typeof(MyMod).Assembly)
+    {
+        string modDir = System.IO.Path.GetDirectoryName(a.path);
+        break;
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Project Layout</h2>
+
+<pre><code>MyMod/
+  MyMod.csproj           # Build config with AfterBuild target
+  src/
+    Mod.cs               # IMod entry point
+    UI/
+      MyPanel.cs
+  Resources/             # Copied to deployment directory
+    icons/
+      toolbar-icon.svg
+    config/
+      defaults.json
+    styles/
+      panel.css</code></pre>
+
+  <p><strong>Key details:</strong></p>
+  <ul>
+    <li><code>SkipUnchangedFiles="true"</code> prevents unnecessary copies during incremental builds</li>
+    <li>SVG files are commonly used for toolbar icons and UI elements</li>
+    <li>The <code>%(RecursiveDir)</code> metadata preserves subfolder structure in the destination</li>
+    <li>Use <code>CSII_TOOLPATH</code> environment variable to locate the game installation</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

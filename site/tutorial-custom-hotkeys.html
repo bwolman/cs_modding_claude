@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutorial: Custom Hotkeys - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <h3>Tutorials</h3>
+    <a href="tutorial-harmony-patching.html">Patching with Harmony</a>
+    <a href="tutorial-system-replacement.html">Replacing a Vanilla System</a>
+    <a href="tutorial-data-persistence.html">Persisting Custom Data</a>
+    <a href="tutorial-custom-hotkeys.html" class="active">Custom Hotkeys</a>
+    <a href="tutorial-complete-mod.html">Building a Complete Mod</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Custom Hotkeys <span class="badge-intermediate">Intermediate</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      How to add <strong>rebindable keyboard shortcuts</strong> to your CS2 mod using the game's
+      <code>ProxyAction</code> system. Players will see your keybindings in the Options menu
+      and can rebind them.
+    </p>
+    <p>
+      <strong>Prerequisites:</strong> A working CS2 mod with <code>IMod</code> entry point.
+      Basic understanding of <code>ModSetting</code>.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Architecture Overview</h2>
+
+  <p>
+    CS2 wraps Unity's Input System behind <code>Game.Input.InputManager</code>. Mods never
+    interact with Unity's <code>InputAction</code> directly. Instead, you declare keybindings
+    using attributes on a <code>ModSetting</code> subclass, and the game handles registration,
+    rebinding UI, and persistence.
+  </p>
+
+  <div class="diagram">
+<pre>
+ModSetting subclass
+    |-- [SettingsUIKeyboardAction] on class    (declare actions)
+    |-- ProxyBinding properties                (declare default keys)
+    |      with [SettingsUIKeyboardBinding]
+    |
+    v
+IMod.OnLoad()
+    |-- RegisterInOptionsUI()    --> Options page in game
+    |-- LoadSettings()           --> Load saved rebindings
+    |-- RegisterKeyBindings()    --> Register with InputManager
+    |
+    v
+ECS System.OnUpdate()
+    |-- action.WasPressedThisFrame()   --> Detect key press
+</pre>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>ProxyAction and the Input Manager</h2>
+
+  <p>
+    A <code>ProxyAction</code> represents a single input action (e.g., "Toggle Overlay"). It
+    wraps a Unity <code>InputAction</code> and provides polling methods that you call from
+    your system's <code>OnUpdate</code>:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>Returns</th><th>When</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>WasPressedThisFrame()</code></td>
+        <td><code>bool</code></td>
+        <td>True on the single frame the key goes down</td>
+      </tr>
+      <tr>
+        <td><code>WasReleasedThisFrame()</code></td>
+        <td><code>bool</code></td>
+        <td>True on the single frame the key is released</td>
+      </tr>
+      <tr>
+        <td><code>IsPressed()</code></td>
+        <td><code>bool</code></td>
+        <td>True every frame while the key is held down</td>
+      </tr>
+      <tr>
+        <td><code>WasPerformedThisFrame()</code></td>
+        <td><code>bool</code></td>
+        <td>True when the action fully completed this frame</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    Use <code>WasPressedThisFrame()</code> for toggle actions (press once to activate). Use
+    <code>IsPressed()</code> for hold-to-activate actions (active while held, stops when released).
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>SettingsUIKeyboardBinding Attribute</h2>
+
+  <p>
+    The <code>[SettingsUIKeyboardBinding]</code> attribute goes on a <code>ProxyBinding</code>
+    property and defines the default key for that action:
+  </p>
+
+  <pre><code class="language-csharp">// Default: Ctrl+Shift+O
+[SettingsUIKeyboardBinding(BindingKeyboard.O, "ToggleOverlay", ctrl: true, shift: true)]
+public ProxyBinding ToggleOverlayBinding { get; set; }</code></pre>
+
+  <p>Constructor parameters:</p>
+
+  <ul>
+    <li><code>BindingKeyboard defaultKey</code> -- The default key (e.g., <code>BindingKeyboard.O</code>)</li>
+    <li><code>string actionName</code> -- Links this binding to its action (must match the class-level attribute)</li>
+    <li><code>bool ctrl</code>, <code>bool shift</code>, <code>bool alt</code> -- Modifier keys (all default <code>false</code>)</li>
+  </ul>
+
+  <p>
+    The <code>BindingKeyboard</code> enum covers all standard keyboard keys: letters (A-Z),
+    digits (Digit0-Digit9), function keys (F1-F12), navigation keys, numpad, and symbols.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Registering Key Bindings in IMod</h2>
+
+  <p>
+    Three calls are required in <code>OnLoad</code> to register keybindings. All three must
+    happen, but the order is flexible:
+  </p>
+
+  <pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
+{
+    Settings = new MyModSettings(this);
+
+    // 1. Register the settings page in the Options UI
+    Settings.RegisterInOptionsUI();
+
+    // 2. Load any saved rebindings from disk
+    AssetDatabase.global.LoadSettings(nameof(MyMod), Settings, new MyModSettings(this));
+
+    // 3. Register the actions with InputManager
+    Settings.RegisterKeyBindings();
+
+    updateSystem.UpdateAt&lt;MyHotkeySystem&gt;(SystemUpdatePhase.MainLoop);
+}</code></pre>
+
+  <p>
+    After <code>RegisterKeyBindings()</code>, the game creates <code>ProxyAction</code> objects
+    in the <code>InputManager</code>. You then look up these actions in your system's
+    <code>OnCreate</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Polling vs. Subscribing</h2>
+
+  <p>
+    There are two ways to detect input: <strong>polling</strong> in <code>OnUpdate</code>, or
+    <strong>subscribing</strong> to the <code>onInteraction</code> event.
+  </p>
+
+  <h3>Polling (Recommended for Most Cases)</h3>
+
+  <pre><code class="language-csharp">protected override void OnUpdate()
+{
+    if (_toggleAction.WasPressedThisFrame())
+    {
+        _overlayVisible = !_overlayVisible;
+    }
+}</code></pre>
+
+  <h3>Event Subscription</h3>
+
+  <pre><code class="language-csharp">protected override void OnCreate()
+{
+    base.OnCreate();
+    _toggleAction = Mod.Settings.GetAction("ToggleOverlay");
+    _toggleAction.onInteraction += OnHotkeyInteraction;
+}
+
+private void OnHotkeyInteraction(ProxyAction action, InputActionPhase phase)
+{
+    if (phase == InputActionPhase.Performed)
+    {
+        _overlayVisible = !_overlayVisible;
+    }
+}
+
+protected override void OnDestroy()
+{
+    // Always unsubscribe to prevent memory leaks
+    if (_toggleAction != null)
+        _toggleAction.onInteraction -= OnHotkeyInteraction;
+    base.OnDestroy();
+}</code></pre>
+
+  <div class="scope">
+    <h2>Polling vs. Events</h2>
+    <p>
+      <strong>Polling</strong> is simpler and runs within the ECS update loop, making it
+      the preferred approach for most mods. <strong>Event subscription</strong> is useful
+      when you need to react to input outside of OnUpdate, or when you need to distinguish
+      between Started, Performed, and Canceled phases.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Practical Example: Toggle Overlay with Ctrl+Shift+O</h2>
+
+  <p>
+    This complete example adds a single rebindable hotkey that toggles an overlay on and off.
+  </p>
+
+  <h3>Step 1: Settings Class</h3>
+
+  <pre><code class="language-csharp">using Colossal.IO.AssetDatabase;
+using Game.Input;
+using Game.Modding;
+using Game.Settings;
+
+[FileLocation(nameof(OverlayMod))]
+[SettingsUIKeyboardAction("ToggleOverlay", ActionType.Button)]
+public class OverlayModSettings : ModSetting
+{
+    public OverlayModSettings(IMod mod) : base(mod) { }
+
+    /// &lt;summary&gt;
+    /// Default binding: Ctrl+Shift+O.
+    /// The player can rebind this in Options.
+    /// &lt;/summary&gt;
+    [SettingsUIKeyboardBinding(BindingKeyboard.O, "ToggleOverlay",
+        ctrl: true, shift: true)]
+    public ProxyBinding ToggleOverlayBinding { get; set; }
+
+    public override void SetDefaults() { }
+}</code></pre>
+
+  <h3>Step 2: Mod Entry Point</h3>
+
+  <pre><code class="language-csharp">using Colossal.IO.AssetDatabase;
+using Colossal.Logging;
+using Game;
+using Game.Modding;
+
+public class OverlayMod : IMod
+{
+    internal static ILog Log = LogManager.GetLogger(nameof(OverlayMod))
+        .SetShowsErrorsInUI(true);
+    internal static OverlayModSettings Settings { get; private set; }
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        Log.Info("OverlayMod loading");
+        Settings = new OverlayModSettings(this);
+        Settings.RegisterInOptionsUI();
+        AssetDatabase.global.LoadSettings(
+            nameof(OverlayMod), Settings, new OverlayModSettings(this));
+        Settings.RegisterKeyBindings();
+
+        updateSystem.UpdateAt&lt;OverlayToggleSystem&gt;(SystemUpdatePhase.MainLoop);
+    }
+
+    public void OnDispose()
+    {
+        Settings?.UnregisterInOptionsUI();
+    }
+}</code></pre>
+
+  <h3>Step 3: System That Reads the Hotkey</h3>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Input;
+
+/// &lt;summary&gt;
+/// Toggles an overlay when the player presses the configured hotkey.
+/// Default: Ctrl+Shift+O (rebindable in Options).
+/// &lt;/summary&gt;
+public partial class OverlayToggleSystem : GameSystemBase
+{
+    private ProxyAction _toggleAction;
+    private bool _overlayVisible;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        // GetAction uses the settings ID as the map name automatically
+        _toggleAction = OverlayMod.Settings.GetAction("ToggleOverlay");
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_toggleAction != null &amp;&amp; _toggleAction.WasPressedThisFrame())
+        {
+            _overlayVisible = !_overlayVisible;
+            OverlayMod.Log.Info($"Overlay toggled: {_overlayVisible}");
+
+            // Enable or disable your overlay rendering here
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Multiple Hotkeys</h2>
+
+  <p>
+    To register multiple actions, add multiple <code>[SettingsUIKeyboardAction]</code> attributes
+    to the class and multiple <code>ProxyBinding</code> properties:
+  </p>
+
+  <pre><code class="language-csharp">[FileLocation(nameof(MultiKeyMod))]
+[SettingsUIKeyboardAction("TogglePanel", ActionType.Button)]
+[SettingsUIKeyboardAction("CycleMode", ActionType.Button)]
+[SettingsUIKeyboardAction("ResetAll", ActionType.Button)]
+public class MultiKeySettings : ModSetting
+{
+    public MultiKeySettings(IMod mod) : base(mod) { }
+
+    [SettingsUIKeyboardBinding(BindingKeyboard.P, "TogglePanel", ctrl: true)]
+    public ProxyBinding TogglePanelBinding { get; set; }
+
+    [SettingsUIKeyboardBinding(BindingKeyboard.Tab, "CycleMode")]
+    public ProxyBinding CycleModeBinding { get; set; }
+
+    [SettingsUIKeyboardBinding(BindingKeyboard.R, "ResetAll",
+        ctrl: true, shift: true)]
+    public ProxyBinding ResetAllBinding { get; set; }
+
+    public override void SetDefaults() { }
+}</code></pre>
+
+  <pre><code class="language-csharp">// In your system's OnCreate:
+_togglePanel = MultiKeyMod.Settings.GetAction("TogglePanel");
+_cycleMode = MultiKeyMod.Settings.GetAction("CycleMode");
+_resetAll = MultiKeyMod.Settings.GetAction("ResetAll");</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Unbound Defaults</h2>
+
+  <p>
+    For optional or advanced shortcuts that should not conflict with anything by default,
+    declare an action with no default key:
+  </p>
+
+  <pre><code class="language-csharp">[SettingsUIKeyboardAction("SecretFeature", ActionType.Button, canBeEmpty: true)]
+public class MySettings : ModSetting
+{
+    // No default key -- player must manually bind in Options
+    [SettingsUIKeyboardBinding("SecretFeature")]
+    public ProxyBinding SecretFeatureBinding { get; set; }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Input Barriers</h2>
+
+  <p>
+    Use <code>CreateBarrier</code> to temporarily block an action from processing input, for
+    example when a text field has focus:
+  </p>
+
+  <pre><code class="language-csharp">private InputBarrier _barrier;
+
+// Call when a text field gains focus
+public void OnTextFieldFocused()
+{
+    _barrier = _toggleAction.CreateBarrier("TextFieldFocus");
+}
+
+// Call when the text field loses focus
+public void OnTextFieldBlurred()
+{
+    _barrier?.Dispose();
+    _barrier = null;
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Common Mistakes</h2>
+
+  <div class="scope">
+    <h2>Watch Out For</h2>
+    <p><strong>Forgetting RegisterKeyBindings()</strong> -- Without this call, the ProxyAction
+      objects are never created and <code>FindAction</code> returns null.</p>
+    <p><strong>Mismatched action names</strong> -- The <code>actionName</code> parameter in
+      <code>[SettingsUIKeyboardBinding]</code> must exactly match the name in
+      <code>[SettingsUIKeyboardAction]</code>.</p>
+    <p><strong>Not unsubscribing events</strong> -- If you use <code>onInteraction</code>,
+      always unsubscribe in <code>OnDestroy</code>. Leaked subscriptions prevent garbage
+      collection and cause errors after the system is destroyed.</p>
+    <p><strong>Calling FindAction too early</strong> -- If called before
+      <code>RegisterKeyBindings()</code>, the action does not exist yet. Retrieve the action
+      in <code>OnCreate</code> (which runs after <code>OnLoad</code>), not in the constructor.</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="mod-hotkey-input.html">Mod Hotkey Input Reference</a> -- Full API docs for InputManager, ProxyAction, ProxyBinding</li>
+    <li><a href="tutorial-complete-mod.html">Building a Complete Mod</a> -- Combine hotkeys with ECS systems and settings</li>
+    <li><a href="mod-options-ui.html">Mod Options UI</a> -- Add settings panels alongside your keybindings</li>
+  </ul>
+
+  <footer>
+    <p>Source: Research from ModHotkeyInput topic. Game version as of 2026-02-17.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook: Cross-Mod Detection - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Cookbook</h3>
+    <a href="cookbook-entity-queries.html">Entity Queries</a>
+    <a href="cookbook-emergency-dispatch.html">Dispatching Vehicles</a>
+    <a href="cookbook-game-events.html">Triggering Game Events</a>
+    <a href="cookbook-game-mode.html">Game Mode Detection</a>
+    <a href="cookbook-update-frequency.html">Update Frequency</a>
+    <a href="cookbook-cross-mod.html" class="active">Cross-Mod Detection</a>
+    <a href="cookbook-localization.html">Adding Localized Strings</a>
+    <a href="cookbook-static-assets.html">Deploying Static Assets</a>
+
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Cross-Mod Detection <span class="badge-intermediate">Intermediate</span></h1>
+
+  <div class="scope">
+    <h2>What you'll learn</h2>
+    <p>Three patterns for detecting whether another mod is installed and optionally calling its API at runtime -- without requiring a hard assembly reference.</p>
+    <p><strong>Related:</strong> <a href="mod-loading-dependencies.html">Mod Loading</a> (ModManager, inter-mod patterns).</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Recipe 1: ModManager Iteration</h2>
+
+  <p>The simplest check -- iterate loaded mods by name. Good for boolean compatibility flags.</p>
+
+<pre><code class="language-csharp">using Game.Modding;
+using Game.SceneFlow;
+
+public void OnLoad(UpdateSystem updateSystem)
+{
+    bool isRWHPresent = false;
+
+    foreach (ModManager.ModInfo modInfo in GameManager.instance.modManager)
+    {
+        if (modInfo.asset.name.Equals("RWH"))
+        {
+            isRWHPresent = true;
+            break;
+        }
+    }
+
+    if (isRWHPresent)
+    {
+        Log.Info("Realistic Workplaces and Households detected");
+        // Adjust behavior accordingly
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Recipe 2: AppDomain Assembly Scanning</h2>
+
+  <p>Scan loaded assemblies when you need to discover types or read static fields from another mod without a compile-time reference. Cache results with <code>Lazy&lt;T&gt;</code>.</p>
+
+<pre><code class="language-csharp">using System;
+using System.Linq;
+using System.Reflection;
+
+// Cache the lookup -- only scan assemblies once
+private static readonly Lazy&lt;Type&gt; s_OtherModApi = new Lazy&lt;Type&gt;(() =&gt;
+{
+    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+    {
+        if (assembly.GetName().Name != "OtherModAssembly")
+            continue;
+
+        try
+        {
+            return assembly.GetType("OtherMod.PublicApi");
+        }
+        catch (ReflectionTypeLoadException ex)
+        {
+            // Some types may fail to load if dependencies are missing
+            Log.Warn($"Partial type load: {ex.LoaderExceptions.Length} failures");
+            return ex.Types.FirstOrDefault(t =&gt;
+                t?.FullName == "OtherMod.PublicApi");
+        }
+    }
+    return null;
+});
+
+public static bool IsOtherModPresent =&gt; s_OtherModApi.Value != null;
+
+public static bool IsOtherModLoaded()
+{
+    return AppDomain.CurrentDomain.GetAssemblies()
+        .Any(a =&gt; a.GetName().Name == "OtherModAssembly");
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Recipe 3: Reflection-Based API Discovery</h2>
+
+  <p>Call public static methods on another mod's API type discovered at runtime. Always validate signatures before invoking and provide fallback values.</p>
+
+<pre><code class="language-csharp">using System;
+using System.Reflection;
+using Game.Modding;
+using Game.SceneFlow;
+
+/// &lt;summary&gt;
+/// Reads a static field from another mod's API type.
+/// Returns a fallback value if the mod is not present.
+/// &lt;/summary&gt;
+public static int GetOtherModValue()
+{
+    var apiType = s_OtherModApi.Value;
+    if (apiType == null)
+        return 100; // Neutral fallback
+
+    var field = apiType.GetField("SomeStaticValue",
+        BindingFlags.Static | BindingFlags.Public);
+    return field != null ? (int)field.GetValue(null) : 100;
+}
+
+/// &lt;summary&gt;
+/// Discover and invoke API methods from loaded mods.
+/// Scans all mod assemblies for types implementing IMod
+/// and looks for methods by name and signature.
+/// &lt;/summary&gt;
+public static void DiscoverModAPIs()
+{
+    foreach (var item in GameManager.instance.modManager)
+    {
+        if (item.asset.assembly == null) continue;
+
+        var modType = item.asset.assembly
+            .GetTypes()
+            .FirstOrDefault(t =&gt; typeof(IMod).IsAssignableFrom(t));
+        if (modType == null) continue;
+
+        // Look for a known API method by convention
+        var apiMethod = modType.GetMethod("GetSearchMethod",
+            BindingFlags.Static | BindingFlags.Public);
+        if (apiMethod == null) continue;
+
+        // Validate return type before invoking
+        if (apiMethod.ReturnType == typeof(Func&lt;string, bool&gt;))
+        {
+            var searchFunc = (Func&lt;string, bool&gt;)apiMethod.Invoke(null, null);
+            // Use the discovered API
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Choosing the Right Pattern</h2>
+
+  <table>
+    <thead>
+      <tr><th>Pattern</th><th>Complexity</th><th>Use case</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>ModManager iteration</td><td>Low</td><td>Simple boolean "is mod X installed?"</td></tr>
+      <tr><td>AppDomain scanning</td><td>Medium</td><td>Read static fields, check types exist</td></tr>
+      <tr><td>Reflection API discovery</td><td>High</td><td>Call methods on other mods at runtime</td></tr>
+    </tbody>
+  </table>
+
+  <p><strong>Key considerations:</strong></p>
+  <ul>
+    <li>Always handle <code>ReflectionTypeLoadException</code> when scanning assemblies</li>
+    <li>Use <code>Lazy&lt;T&gt;</code> to cache discovered types -- avoid repeated assembly scanning</li>
+    <li>Provide fallback values when the other mod is absent</li>
+    <li>Reflection-based APIs are fragile -- methods may change between mod versions</li>
+  </ul>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

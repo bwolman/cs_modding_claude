@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Architecture Overview - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Getting Started</h3>
+    <div class="sidebar-links expanded">
+      <a href="getting-started-setup.html">Setup Your Environment</a>
+      <a href="getting-started-first-mod.html">Your First Mod</a>
+      <a href="getting-started-build-deploy.html">Build &amp; Deploy</a>
+      <a href="getting-started-architecture.html" class="active">Architecture Overview</a>
+    </div>
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html">Your First System</a>
+      <a href="tutorial-reading-data.html">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html">Settings Panel</a>
+      <a href="tutorial-toolbar-button.html">Toolbar Button</a>
+      <a href="tutorial-harmony-patching.html">Harmony Patching</a>
+      <a href="tutorial-system-replacement.html">System Replacement</a>
+      <a href="tutorial-data-persistence.html">Data Persistence</a>
+      <a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a>
+      <a href="tutorial-complete-mod.html">Complete Mod</a>
+    </div>
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+      <a href="cookbook-entity-queries.html">Entity Queries</a>
+      <a href="cookbook-emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="cookbook-game-events.html">Game Events</a>
+      <a href="cookbook-game-mode.html">Game Mode Detection</a>
+      <a href="cookbook-update-frequency.html">Update Frequency</a>
+      <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+      <a href="cookbook-localization.html">Localization</a>
+      <a href="cookbook-static-assets.html">Static Assets</a>
+    </div>
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+      <a href="concepts-ecs.html">Unity ECS Primer</a>
+      <a href="concepts-harmony.html">Harmony Overview</a>
+      <a href="concepts-cohtml.html">cohtml UI Model</a>
+      <a href="concepts-prefabs.html">Prefab System</a>
+      <a href="concepts-update-phases.html">Update Phases</a>
+      <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+    </div>
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+      <a href="troubleshooting-common-errors.html">Common Errors</a>
+      <a href="troubleshooting-debugging.html">Debugging Guide</a>
+    </div>
+    <hr class="sidebar-divider">
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="telecom-internet.html">Telecom &amp; Internet</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+      <a href="mail-post-service.html">Mail &amp; Post Service</a>
+    </div>
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+      <a href="notifications-advisor.html">Notifications &amp; Advisor</a>
+      <a href="city-statistics.html">City Statistics</a>
+    </div>
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <h1>Architecture Overview <span class="badge-beginner">Beginner</span></h1>
+
+  <p>
+    Cities: Skylines II is built on Unity 2022.3.7f1 using the Entity Component System
+    (ECS) architecture for simulation logic. Understanding ECS is essential for writing
+    mods that interact with game data. This page provides a crash course on the key
+    architectural concepts.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>ECS Crash Course</h2>
+
+  <p>
+    ECS (Entity Component System) separates data from logic. Instead of objects
+    with methods, game state is stored as <strong>entities</strong> with attached
+    <strong>components</strong>, and <strong>systems</strong> process entities that
+    match specific component patterns.
+  </p>
+
+  <h3>Entities</h3>
+
+  <p>
+    An entity is a lightweight identifier (essentially an integer index) with no data
+    or behavior of its own. Every game object -- a citizen, building, vehicle, road
+    segment, event -- is an entity. Entities gain meaning through the components
+    attached to them.
+  </p>
+
+  <h3>Components</h3>
+
+  <p>
+    Components are plain data structs attached to entities. They contain fields but
+    no logic. Examples from CS2:
+  </p>
+
+  <ul>
+    <li><code>Car</code> -- contains <code>m_Flags</code> (Emergency, StayOnRoad, etc.)</li>
+    <li><code>PoliceCar</code> -- contains <code>m_State</code> (Returning, AtTarget, etc.)</li>
+    <li><code>Target</code> -- contains <code>m_Target</code> (entity this one is targeting)</li>
+    <li><code>Transform</code> -- position and rotation in the world</li>
+    <li><code>Building</code> -- building state flags</li>
+  </ul>
+
+  <p>
+    An entity's set of components is called its <strong>archetype</strong>. All entities
+    with the same component set share the same archetype, and their data is stored
+    contiguously in memory for cache-efficient processing.
+  </p>
+
+  <h3>Systems</h3>
+
+  <p>
+    Systems contain the logic. Each system queries for entities with specific component
+    combinations and processes them. In CS2, systems extend <code>GameSystemBase</code>:
+  </p>
+
+  <pre><code>public partial class MySystem : GameSystemBase
+{
+    private EntityQuery _myQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _myQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;Car&gt;(),
+            ComponentType.ReadOnly&lt;PoliceCar&gt;()
+        );
+        RequireForUpdate(_myQuery);
+    }
+
+    protected override void OnUpdate()
+    {
+        // Process all entities matching _myQuery
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>GameSystemBase and the Update Loop</h2>
+
+  <p>
+    CS2 systems inherit from <code>GameSystemBase</code> (which extends Unity's
+    <code>SystemBase</code>). The key lifecycle methods are:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Method</th><th>When Called</th><th>Use For</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>OnCreate()</code></td>
+        <td>Once, when system is created</td>
+        <td>Set up entity queries, get references to other systems</td>
+      </tr>
+      <tr>
+        <td><code>OnUpdate()</code></td>
+        <td>Every frame (or at configured frequency)</td>
+        <td>Main system logic -- read/write components</td>
+      </tr>
+      <tr>
+        <td><code>OnDestroy()</code></td>
+        <td>Once, when system is destroyed</td>
+        <td>Clean up resources</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <code>RequireForUpdate(query)</code> in <code>OnCreate</code> tells the system to
+    skip <code>OnUpdate</code> when the query matches zero entities. This is a performance
+    optimization -- your system only runs when there is work to do.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>SystemUpdatePhase</h2>
+
+  <p>
+    When you register a system in <code>Mod.OnLoad</code>, you specify which update
+    phase it runs in. This determines when during each frame your system executes:
+  </p>
+
+  <pre><code>updateSystem.UpdateAt&lt;MySystem&gt;(SystemUpdatePhase.GameSimulation);</code></pre>
+
+  <p>The key phases are:</p>
+
+  <table>
+    <thead>
+      <tr><th>Phase</th><th>Description</th><th>Use When</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>GameSimulation</code></td>
+        <td>Main simulation tick</td>
+        <td>Most gameplay systems -- reading/writing game state</td>
+      </tr>
+      <tr>
+        <td><code>UIUpdate</code></td>
+        <td>UI refresh cycle</td>
+        <td>Systems that push data to UI bindings</td>
+      </tr>
+      <tr>
+        <td><code>MainLoop</code></td>
+        <td>Runs every frame regardless of game speed</td>
+        <td>Input handling, tool systems</td>
+      </tr>
+      <tr>
+        <td><code>Rendering</code></td>
+        <td>Before rendering</td>
+        <td>Visual effect updates</td>
+      </tr>
+      <tr>
+        <td><code>LoadGame</code></td>
+        <td>During save load</td>
+        <td>Post-load initialization</td>
+      </tr>
+      <tr>
+        <td><code>Serialize</code></td>
+        <td>During save/load</td>
+        <td>Custom serialization</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    <code>GameSimulation</code> is the most common choice. It pauses when the game is
+    paused and runs faster at higher game speeds.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>EntityQuery Basics</h2>
+
+  <p>
+    Entity queries define which entities a system processes. You build them from
+    component requirements:
+  </p>
+
+  <pre><code>// Entities that have Car AND PoliceCar, but NOT Deleted
+_myQuery = GetEntityQuery(
+    ComponentType.ReadOnly&lt;Car&gt;(),
+    ComponentType.ReadOnly&lt;Game.Vehicles.PoliceCar&gt;(),
+    ComponentType.Exclude&lt;Deleted&gt;()
+);</code></pre>
+
+  <p>The component access types are:</p>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>Meaning</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>ReadOnly&lt;T&gt;()</code></td><td>Entity must have T; system only reads it</td></tr>
+      <tr><td><code>ReadWrite&lt;T&gt;()</code></td><td>Entity must have T; system reads and writes it</td></tr>
+      <tr><td><code>Exclude&lt;T&gt;()</code></td><td>Entity must NOT have T</td></tr>
+    </tbody>
+  </table>
+
+  <p>
+    After defining a query, retrieve matching entities with
+    <code>query.ToEntityArray(Allocator.Temp)</code> and process them in a loop.
+    Remember to call <code>.Dispose()</code> on the array when done.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>How Prefabs Work</h2>
+
+  <p>
+    CS2 uses a <strong>two-entity model</strong> for prefabs. Every prefab exists as
+    two separate things:
+  </p>
+
+  <ol>
+    <li>
+      <strong>Managed prefab</strong> (<code>PrefabBase</code> subclass) -- a C# object
+      loaded from asset files. Contains authoring data like names, references to other
+      prefabs, and configuration values. Lives in managed memory.
+    </li>
+    <li>
+      <strong>ECS prefab entity</strong> -- a "template" entity with ECS components that
+      mirror the managed data. When the game needs to create an instance (a building, vehicle,
+      citizen), it clones this entity using <code>EntityManager.Instantiate()</code>.
+    </li>
+  </ol>
+
+  <p>
+    The <code>PrefabSystem</code> bridges these two worlds. It maintains a bidirectional
+    lookup: given a managed prefab, get its ECS entity; given an ECS entity with a
+    <code>PrefabRef</code> component, get back to the managed prefab. Key API:
+  </p>
+
+  <pre><code>// Get the ECS entity for a managed prefab
+Entity prefabEntity = prefabSystem.GetEntity(managedPrefab);
+
+// Get the managed prefab from an ECS entity's PrefabRef
+PrefabRef prefabRef = EntityManager.GetComponentData&lt;PrefabRef&gt;(instanceEntity);
+PrefabBase prefab = prefabSystem.GetPrefab&lt;PrefabBase&gt;(prefabRef);</code></pre>
+
+  <p>
+    Prefab data components (like <code>PoliceCarData</code>, <code>BuildingData</code>)
+    live on the prefab entity and define the template properties. Instance components
+    (like <code>Car</code>, <code>Building</code>) live on instantiated entities and
+    hold runtime state.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>How UI Works</h2>
+
+  <p>
+    CS2's UI is built with <strong>cohtml</strong> (Coherent Labs), an embedded
+    Chromium-based HTML/CSS/JS renderer. The UI is essentially a web application running
+    inside the game. C# systems communicate with the UI through a binding layer:
+  </p>
+
+  <ul>
+    <li>
+      <strong>ValueBinding&lt;T&gt;</strong> -- pushes data from C# to the UI. The UI
+      subscribes to updates and re-renders when values change.
+    </li>
+    <li>
+      <strong>TriggerBinding</strong> -- receives events from the UI (button clicks,
+      slider changes). C# registers a callback that executes when the UI triggers it.
+    </li>
+    <li>
+      <strong>GetterValueBinding&lt;T&gt;</strong> -- the UI pulls data from C# on demand
+      via a getter function.
+    </li>
+  </ul>
+
+  <p>
+    UI systems extend <code>UISystemBase</code> and register bindings in
+    <code>OnCreate</code>:
+  </p>
+
+  <pre><code>public partial class MyUISystem : UISystemBase
+{
+    private ValueBinding&lt;int&gt; _countBinding;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        // "myMod" is the group name, "vehicleCount" is the binding name
+        AddBinding(_countBinding = new ValueBinding&lt;int&gt;("myMod", "vehicleCount", 0));
+        AddBinding(new TriggerBinding("myMod", "onButtonClick", OnButtonClick));
+    }
+
+    protected override void OnUpdate()
+    {
+        _countBinding.Update(GetCurrentCount());
+    }
+
+    private void OnButtonClick()
+    {
+        // Handle button click from UI
+    }
+}</code></pre>
+
+  <p>
+    The UI JavaScript accesses these bindings via the <code>engine</code> global:
+  </p>
+
+  <pre><code>// Read a value binding
+engine.trigger("myMod.vehicleCount", function(value) { ... });
+
+// Trigger a C# callback
+engine.trigger("myMod.onButtonClick");</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Three Ways to Modify Game Behavior</h2>
+
+  <p>CS2 mods have three main approaches for changing how the game works:</p>
+
+  <table>
+    <thead>
+      <tr><th>Approach</th><th>How</th><th>Best For</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Custom ECS Systems</strong></td>
+        <td>Register new <code>GameSystemBase</code> subclasses that read/write game components</td>
+        <td>Adding new behavior, monitoring game state, modifying entity data</td>
+      </tr>
+      <tr>
+        <td><strong>Harmony Patches</strong></td>
+        <td>Use <code>HarmonyLib</code> to inject code before/after/instead of existing game methods</td>
+        <td>Changing existing behavior, intercepting method calls, modifying return values</td>
+      </tr>
+      <tr>
+        <td><strong>Prefab Modification</strong></td>
+        <td>Modify prefab data components to change template values</td>
+        <td>Tuning numbers (costs, capacities, speeds), changing building/vehicle properties</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    Most mods use a combination of these. ECS systems are the cleanest approach when
+    possible, Harmony patches are needed when you must change existing code paths, and
+    prefab modification is the simplest way to tweak game balance.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Error Handling Pattern</h2>
+
+  <p>
+    Always wrap <code>OnUpdate</code> and Harmony patches in try/catch blocks.
+    An unhandled exception in a system can break the entire simulation tick:
+  </p>
+
+  <pre><code>protected override void OnUpdate()
+{
+    try
+    {
+        ProcessEntities();
+    }
+    catch (Exception ex)
+    {
+        Mod.Log.Error(ex, "Failed to process entities");
+    }
+}</code></pre>
+
+  <p>Be defensive in these locations:</p>
+
+  <ul>
+    <li>System <code>OnUpdate</code> methods</li>
+    <li>Harmony patch methods (prefix/postfix/transpiler)</li>
+    <li>Settings load/save operations</li>
+    <li>Any interaction with game data that could be null or in an unexpected state</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <p>
+    You now have a solid understanding of CS2's architecture. From here, explore the
+    <a href="index.html#reference-topics">reference topics</a> for deep dives into specific
+    game systems, or start writing your first ECS system by following the tutorials
+    in the sidebar.
+  </p>
+
+  <footer>
+    <p>Source: Coding standards and ECS patterns from the CS2 modding repository.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

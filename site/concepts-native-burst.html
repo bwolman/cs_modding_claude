@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NativeContainers &amp; Burst - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <hr class="sidebar-divider">
+
+    <h3>Concepts</h3>
+    <a href="concepts-ecs.html">Unity ECS for CS2</a>
+    <a href="concepts-harmony.html">Harmony Patching</a>
+    <a href="concepts-cohtml.html">The cohtml UI Model</a>
+    <a href="concepts-prefabs.html">Prefab System</a>
+    <a href="concepts-update-phases.html">Update Phases</a>
+    <a href="concepts-native-burst.html" class="active">NativeContainers &amp; Burst</a>
+
+    <h3>Troubleshooting</h3>
+    <a href="troubleshooting-common-errors.html">Common Errors</a>
+    <a href="troubleshooting-debugging.html">Debugging Guide</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>NativeContainers &amp; Burst <span class="badge-advanced">Advanced</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      This page explains why CS2 uses NativeContainers instead of standard C#
+      collections, what Burst compilation is, and how the safety system protects
+      against data races. Understanding these concepts is essential for writing
+      high-performance mod systems.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Why NativeContainers?</h2>
+
+  <p>
+    Standard C# collections (<code>List&lt;T&gt;</code>, <code>Dictionary&lt;K,V&gt;</code>)
+    live on the managed heap and are subject to garbage collection pauses. In a city
+    simulation processing hundreds of thousands of entities, GC pauses cause frame
+    stutters.
+  </p>
+
+  <p>
+    Unity's <strong>NativeContainers</strong> allocate memory outside the managed heap
+    using unmanaged memory. They provide:
+  </p>
+
+  <ul>
+    <li><strong>No GC pressure</strong> -- memory is manually managed, no collection pauses</li>
+    <li><strong>Cache-friendly layout</strong> -- contiguous memory for fast iteration</li>
+    <li><strong>Job system compatibility</strong> -- can be safely passed to parallel worker threads</li>
+    <li><strong>Burst compatibility</strong> -- can be compiled to optimized native code</li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Common NativeContainer Types</h2>
+
+  <table>
+    <thead>
+      <tr><th>Type</th><th>C# Equivalent</th><th>Description</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>NativeArray&lt;T&gt;</code></td>
+        <td><code>T[]</code></td>
+        <td>Fixed-size array. Most common and lightweight.</td>
+      </tr>
+      <tr>
+        <td><code>NativeList&lt;T&gt;</code></td>
+        <td><code>List&lt;T&gt;</code></td>
+        <td>Resizable list with Add/Remove operations.</td>
+      </tr>
+      <tr>
+        <td><code>NativeHashMap&lt;K,V&gt;</code></td>
+        <td><code>Dictionary&lt;K,V&gt;</code></td>
+        <td>Hash table with key-value lookups.</td>
+      </tr>
+      <tr>
+        <td><code>NativeQueue&lt;T&gt;</code></td>
+        <td><code>Queue&lt;T&gt;</code></td>
+        <td>FIFO queue, often used for producer/consumer patterns.</td>
+      </tr>
+      <tr>
+        <td><code>NativeParallelHashMap&lt;K,V&gt;</code></td>
+        <td>--</td>
+        <td>Thread-safe hash map for parallel jobs.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Allocator Types</h2>
+
+  <p>
+    When creating a NativeContainer, you must specify an <strong>allocator</strong>
+    that determines the container's lifetime:
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Allocator</th><th>Lifetime</th><th>When to Use</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>Allocator.Temp</code></td>
+        <td>Current method call</td>
+        <td>Short-lived data within a single <code>OnUpdate</code>. Must be disposed before the method returns.</td>
+      </tr>
+      <tr>
+        <td><code>Allocator.TempJob</code></td>
+        <td>Up to 4 frames</td>
+        <td>Data passed to jobs that complete within a few frames. Automatically checked for leaks.</td>
+      </tr>
+      <tr>
+        <td><code>Allocator.Persistent</code></td>
+        <td>Until manually disposed</td>
+        <td>Long-lived data created in <code>OnCreate</code> and disposed in <code>OnDestroy</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <pre><code class="language-csharp">// Temp: use and dispose within OnUpdate
+var tempArray = m_Query.ToEntityArray(Allocator.Temp);
+// ... process ...
+tempArray.Dispose();
+
+// Persistent: created once, lives for the system's lifetime
+protected override void OnCreate()
+{
+    m_Results = new NativeList&lt;Entity&gt;(64, Allocator.Persistent);
+}
+
+protected override void OnDestroy()
+{
+    m_Results.Dispose(); // MUST dispose manually
+}</code></pre>
+
+  <p>
+    <strong>Forgetting to dispose</strong> a NativeContainer causes a memory leak.
+    Unity's safety system will log warnings about undisposed containers in
+    development builds.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Burst Compilation</h2>
+
+  <p>
+    <strong>Burst</strong> is Unity's compiler that converts C# job structs into
+    highly optimized native machine code (using LLVM). CS2 uses Burst extensively
+    for performance-critical simulation logic.
+  </p>
+
+  <h3>What Burst Does</h3>
+  <ul>
+    <li>Converts C# job code to native x86/ARM instructions</li>
+    <li>Applies SIMD vectorization (processes multiple values in one CPU instruction)</li>
+    <li>Eliminates bounds checks and other managed overhead</li>
+    <li>Produces code that runs 5-50x faster than standard C# for numeric workloads</li>
+  </ul>
+
+  <h3>Burst Restrictions</h3>
+  <p>
+    Burst-compiled code has strict limitations:
+  </p>
+  <ul>
+    <li>No managed types (no <code>string</code>, no <code>class</code> references, no <code>List&lt;T&gt;</code>)</li>
+    <li>No garbage collection or allocations</li>
+    <li>No virtual method calls</li>
+    <li>Only NativeContainers and unmanaged structs</li>
+    <li><strong>Cannot be patched by Harmony</strong> (compiled to native code, not IL)</li>
+  </ul>
+
+  <pre><code class="language-csharp">[BurstCompile]
+public partial struct MyExpensiveJob : IJobChunk
+{
+    [ReadOnly] public ComponentTypeHandle&lt;Building&gt; BuildingHandle;
+    public ComponentTypeHandle&lt;Efficiency&gt; EfficiencyHandle;
+
+    public void Execute(in ArchetypeChunk chunk, int chunkIndex,
+        bool useEnabledMask, in v128 chunkEnabledMask)
+    {
+        var buildings = chunk.GetNativeArray(ref BuildingHandle);
+        var efficiencies = chunk.GetNativeArray(ref EfficiencyHandle);
+
+        for (int i = 0; i &lt; chunk.Count; i++)
+        {
+            // Burst-compiled: very fast numeric processing
+            efficiencies[i] = new Efficiency
+            {
+                m_Value = CalculateEfficiency(buildings[i])
+            };
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>The Safety System</h2>
+
+  <p>
+    Unity's job safety system prevents data races by tracking which jobs read
+    and write which NativeContainers. The rules are:
+  </p>
+
+  <ul>
+    <li><strong>Multiple readers are OK</strong> -- many jobs can read the same container simultaneously</li>
+    <li><strong>Only one writer at a time</strong> -- if any job writes to a container, no other job can access it</li>
+    <li><strong>Dependencies enforce ordering</strong> -- a job that reads data must depend on the job that writes it</li>
+  </ul>
+
+  <pre><code class="language-csharp">// Mark a container as read-only in job structs
+[ReadOnly] public NativeArray&lt;float&gt; InputData;
+
+// Mark as write-only (no reading)
+[WriteOnly] public NativeArray&lt;float&gt; OutputData;
+
+// Default (no attribute) means read-write access</code></pre>
+
+  <p>
+    If you violate these rules, Unity throws an
+    <code>InvalidOperationException</code> at runtime with a message like
+    "cannot be accessed because another job is currently writing to it."
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>How This Affects Mod Code</h2>
+
+  <h3>Simple Mods: You Can Often Avoid Native Containers</h3>
+
+  <p>
+    For most mod systems that iterate a modest number of entities on the main
+    thread, you can use <code>Allocator.Temp</code> arrays and standard C#
+    collections. The performance is sufficient when you are not running
+    parallel jobs.
+  </p>
+
+  <pre><code class="language-csharp">// Simple main-thread iteration -- no Burst needed
+protected override void OnUpdate()
+{
+    var entities = m_Query.ToEntityArray(Allocator.Temp);
+    for (int i = 0; i &lt; entities.Length; i++)
+    {
+        var car = EntityManager.GetComponentData&lt;Car&gt;(entities[i]);
+        // Process on main thread
+    }
+    entities.Dispose();
+}</code></pre>
+
+  <h3>Performance-Critical Mods: Use Jobs and Burst</h3>
+
+  <p>
+    If your mod processes thousands of entities per frame (traffic, pathfinding,
+    demand calculation), you should use Burst-compiled jobs with NativeContainers.
+    This requires:
+  </p>
+
+  <ol>
+    <li>Defining job structs implementing <code>IJob</code> or <code>IJobChunk</code></li>
+    <li>Using only NativeContainers and unmanaged types in job fields</li>
+    <li>Marking the struct with <code>[BurstCompile]</code></li>
+    <li>Managing job dependencies via <code>Dependency</code> property</li>
+  </ol>
+
+  <h3>Harmony Cannot Patch Burst Code</h3>
+
+  <p>
+    Because Burst compiles jobs to native machine code, Harmony's IL-level
+    patching does not work on them. If you need to change the behavior of a
+    Burst-compiled vanilla job, you must use the
+    <strong>system replacement pattern</strong>: disable the vanilla system
+    with <code>Enabled = false</code> and register your own replacement system
+    with custom jobs.
+  </p>
+
+  <h3>Conditional Burst for Debug vs Release</h3>
+
+  <pre><code class="language-csharp">// In .csproj: define WITH_BURST only in Release
+#if WITH_BURST
+[Unity.Burst.BurstCompile]
+#endif
+public partial struct MyJob : IJobChunk
+{
+    // Burst-compiled in Release, debuggable in Debug
+}</code></pre>
+
+  <div class="quick-start">
+    <h2>Key Takeaways</h2>
+    <ul>
+      <li>NativeContainers use unmanaged memory -- no GC pressure, but must be manually disposed</li>
+      <li>Use <code>Allocator.Temp</code> for per-frame data, <code>Allocator.Persistent</code> for long-lived data</li>
+      <li>Burst compiles C# jobs to fast native code but cannot use managed types</li>
+      <li>Harmony cannot patch Burst-compiled code -- use ECS system replacement instead</li>
+      <li>Simple mods can use main-thread iteration; use jobs and Burst only when performance demands it</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II). Based on ModLoading and HarmonyTranspilers research.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

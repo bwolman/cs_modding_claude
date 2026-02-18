@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Setup Your Environment - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Getting Started</h3>
+    <div class="sidebar-links expanded">
+      <a href="getting-started-setup.html" class="active">Setup Your Environment</a>
+      <a href="getting-started-first-mod.html">Your First Mod</a>
+      <a href="getting-started-build-deploy.html">Build &amp; Deploy</a>
+      <a href="getting-started-architecture.html">Architecture Overview</a>
+    </div>
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html">Your First System</a>
+      <a href="tutorial-reading-data.html">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html">Settings Panel</a>
+      <a href="tutorial-toolbar-button.html">Toolbar Button</a>
+      <a href="tutorial-harmony-patching.html">Harmony Patching</a>
+      <a href="tutorial-system-replacement.html">System Replacement</a>
+      <a href="tutorial-data-persistence.html">Data Persistence</a>
+      <a href="tutorial-custom-hotkeys.html">Custom Hotkeys</a>
+      <a href="tutorial-complete-mod.html">Complete Mod</a>
+    </div>
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+      <a href="cookbook-entity-queries.html">Entity Queries</a>
+      <a href="cookbook-emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="cookbook-game-events.html">Game Events</a>
+      <a href="cookbook-game-mode.html">Game Mode Detection</a>
+      <a href="cookbook-update-frequency.html">Update Frequency</a>
+      <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+      <a href="cookbook-localization.html">Localization</a>
+      <a href="cookbook-static-assets.html">Static Assets</a>
+    </div>
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+      <a href="concepts-ecs.html">Unity ECS Primer</a>
+      <a href="concepts-harmony.html">Harmony Overview</a>
+      <a href="concepts-cohtml.html">cohtml UI Model</a>
+      <a href="concepts-prefabs.html">Prefab System</a>
+      <a href="concepts-update-phases.html">Update Phases</a>
+      <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+    </div>
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+      <a href="troubleshooting-common-errors.html">Common Errors</a>
+      <a href="troubleshooting-debugging.html">Debugging Guide</a>
+    </div>
+    <hr class="sidebar-divider">
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="telecom-internet.html">Telecom &amp; Internet</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+      <a href="mail-post-service.html">Mail &amp; Post Service</a>
+    </div>
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+      <a href="notifications-advisor.html">Notifications &amp; Advisor</a>
+      <a href="city-statistics.html">City Statistics</a>
+    </div>
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <h1>Setup Your Environment <span class="badge-beginner">Beginner</span></h1>
+
+  <p>
+    Everything you need to install and configure before writing your first CS2 mod.
+    This guide covers the .NET SDK, IDE setup, game assembly references, and the
+    decompilation tool used for research.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Prerequisites</h2>
+
+  <ul>
+    <li><strong>Cities: Skylines II</strong> installed (Steam or other platform)</li>
+    <li><strong>.NET SDK 8.0</strong> (or later) -- needed for <code>dotnet build</code> and <code>ilspycmd</code></li>
+    <li><strong>A C# IDE</strong> -- Visual Studio 2022, JetBrains Rider, or VS Code with the C# extension</li>
+  </ul>
+
+  <h3>Install .NET SDK</h3>
+
+  <p>Download and install the .NET SDK from <a href="https://dotnet.microsoft.com/download">dotnet.microsoft.com</a>. Verify it works:</p>
+
+  <pre><code>dotnet --version
+# Should print 8.0.x or later</code></pre>
+
+  <p>
+    The game itself uses Unity 2022.3.7f1 with a Mono runtime, so your mod targets
+    <code>net472</code> (the community standard). The .NET 8.0 SDK can build
+    <code>net472</code> projects and is also required to run <code>ilspycmd</code>
+    for decompilation.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Set the Game Path</h2>
+
+  <p>
+    Your mod project needs to reference game assemblies from the game's
+    <code>Cities2_Data/Managed/</code> folder. The recommended approach uses a
+    shared <code>Mod.props</code> file with a configurable path property.
+  </p>
+
+  <h3>Set the CSII_TOOLPATH Environment Variable</h3>
+
+  <p>
+    Set <code>CSII_TOOLPATH</code> to point at your game installation. This keeps
+    machine-specific paths out of your project files:
+  </p>
+
+  <pre><code># Windows (PowerShell)
+[Environment]::SetEnvironmentVariable("CSII_TOOLPATH",
+    "C:\Program Files (x86)\Steam\steamapps\common\Cities Skylines II",
+    "User")
+
+# macOS / Linux (add to your shell profile)
+export CSII_TOOLPATH="$HOME/.steam/steam/steamapps/common/Cities Skylines II"</code></pre>
+
+  <h3>Create Mod.props</h3>
+
+  <p>
+    Place this file in your solution root. It defines the game path and common
+    properties shared by all projects:
+  </p>
+
+  <pre><code>&lt;Project&gt;
+  &lt;PropertyGroup&gt;
+    &lt;GamePath Condition="'$(GamePath)' == ''"&gt;$(CSII_TOOLPATH)&lt;/GamePath&gt;
+    &lt;ManagedPath&gt;$(GamePath)/Cities2_Data/Managed&lt;/ManagedPath&gt;
+    &lt;ModsPath&gt;$(GamePath)/Cities2_Data/StreamingAssets/~Mods&lt;/ModsPath&gt;
+  &lt;/PropertyGroup&gt;
+&lt;/Project&gt;</code></pre>
+
+  <p>
+    If you need to override the path locally without touching the committed file,
+    create a <code>Directory.Build.props</code> in your repo root (and add it to
+    <code>.gitignore</code>):
+  </p>
+
+  <pre><code>&lt;!-- Directory.Build.props (git-ignored) --&gt;
+&lt;Project&gt;
+  &lt;PropertyGroup&gt;
+    &lt;GamePath&gt;/your/custom/path/to/Cities Skylines II&lt;/GamePath&gt;
+  &lt;/PropertyGroup&gt;
+&lt;/Project&gt;</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Create Mod.targets</h2>
+
+  <p>
+    The <code>Mod.targets</code> file handles auto-deployment. After every successful
+    build, it copies your mod DLL to the game's Mods folder so you can test immediately:
+  </p>
+
+  <pre><code>&lt;Project&gt;
+  &lt;Target Name="DeployMod" AfterTargets="Build"&gt;
+    &lt;Copy SourceFiles="$(TargetPath)"
+          DestinationFolder="$(ModsPath)/$(AssemblyName)"
+          SkipUnchangedFiles="true" /&gt;
+  &lt;/Target&gt;
+&lt;/Project&gt;</code></pre>
+
+  <p>
+    Your <code>.csproj</code> imports both files at the top:
+  </p>
+
+  <pre><code>&lt;Import Project="../../Mod.props" /&gt;
+&lt;Import Project="../../Mod.targets" /&gt;</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Reference Game Assemblies</h2>
+
+  <p>
+    CS2 mods reference game DLLs from <code>Cities2_Data/Managed/</code>. The key
+    rule: set <code>Private="false"</code> (Copy Local = No) so you never copy or
+    distribute game DLLs with your mod.
+  </p>
+
+  <pre><code>&lt;ItemGroup&gt;
+  &lt;Reference Include="Game"&gt;
+    &lt;HintPath&gt;$(ManagedPath)/Game.dll&lt;/HintPath&gt;
+    &lt;Private&gt;false&lt;/Private&gt;
+  &lt;/Reference&gt;
+  &lt;Reference Include="Colossal.Core"&gt;
+    &lt;HintPath&gt;$(ManagedPath)/Colossal.Core.dll&lt;/HintPath&gt;
+    &lt;Private&gt;false&lt;/Private&gt;
+  &lt;/Reference&gt;
+  &lt;Reference Include="Colossal.UI.Binding"&gt;
+    &lt;HintPath&gt;$(ManagedPath)/Colossal.UI.Binding.dll&lt;/HintPath&gt;
+    &lt;Private&gt;false&lt;/Private&gt;
+  &lt;/Reference&gt;
+  &lt;Reference Include="Unity.Entities"&gt;
+    &lt;HintPath&gt;$(ManagedPath)/Unity.Entities.dll&lt;/HintPath&gt;
+    &lt;Private&gt;false&lt;/Private&gt;
+  &lt;/Reference&gt;
+  &lt;Reference Include="UnityEngine.CoreModule"&gt;
+    &lt;HintPath&gt;$(ManagedPath)/UnityEngine.CoreModule.dll&lt;/HintPath&gt;
+    &lt;Private&gt;false&lt;/Private&gt;
+  &lt;/Reference&gt;
+&lt;/ItemGroup&gt;</code></pre>
+
+  <p>
+    Add more references as needed for your specific mod. Common assemblies include
+    <code>Colossal.Localization.dll</code>, <code>Colossal.IO.AssetDatabase.dll</code>,
+    and <code>Unity.Collections.dll</code>.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Install ilspycmd for Decompilation</h2>
+
+  <p>
+    <code>ilspycmd</code> is the command-line version of ILSpy. It decompiles game
+    DLLs back to readable C# source, which is essential for understanding how game
+    systems work before writing patches or systems that interact with them.
+  </p>
+
+  <pre><code># Install as a global .NET tool (requires .NET 8.0 runtime)
+dotnet tool install -g ilspycmd
+
+# Verify installation
+ilspycmd --version</code></pre>
+
+  <h3>Basic Decompilation</h3>
+
+  <pre><code># Decompile an entire assembly to a directory
+ilspycmd -p -o ./decompiled/Game "$CSII_TOOLPATH/Cities2_Data/Managed/Game.dll"
+
+# Decompile a specific type
+ilspycmd -t Game.Simulation.PoliceCarAISystem "$CSII_TOOLPATH/Cities2_Data/Managed/Game.dll"</code></pre>
+
+  <p>
+    The <code>-p</code> flag creates one file per type (project mode). The <code>-o</code>
+    flag specifies the output directory. Use <code>-t</code> to decompile a single type
+    when you know exactly what you are looking for.
+  </p>
+
+  <div class="scope">
+    <h2>Tip</h2>
+    <p>
+      The key assemblies to decompile are <code>Game.dll</code> (all gameplay systems),
+      <code>Colossal.Core.dll</code> (engine framework), and
+      <code>Colossal.UI.Binding.dll</code> (UI bindings). Start with
+      <code>Game.dll</code> -- it contains nearly everything you need.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Project Structure</h2>
+
+  <p>A standard CS2 mod repo follows this layout:</p>
+
+  <pre><code>ModName/
++-- ModName.sln
++-- Mod.props                 # Game path, shared properties
++-- Mod.targets               # Post-build auto-deploy
++-- .gitignore
++-- .editorconfig
++-- README.md
++-- LICENSE                   # MIT
++-- CHANGELOG.md
++-- src/
+|   +-- ModName/
+|       +-- ModName.csproj    # .NET net472
+|       +-- Mod.cs            # Entry point (implements IMod)
+|       +-- Settings/         # Mod settings classes
+|       +-- Systems/          # ECS game systems (one per file)
+|       +-- UI/               # UI components
+|       +-- Patches/          # Harmony patches
+|       +-- Resources/        # Localization, embedded assets
++-- docs/
++-- tools/</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <p>
+    With your environment configured, you are ready to create your first mod.
+    Continue to <a href="getting-started-first-mod.html">Your First Mod</a> to
+    write a minimal working mod with proper logging.
+  </p>
+
+  <footer>
+    <p>Source: Project setup and coding standards from the CS2 modding repository.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

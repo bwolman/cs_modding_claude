@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Understanding Update Phases - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Economy &amp; Population</h3>
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="demand-systems.html">Demand Systems</a>
+    <a href="resource-production.html">Resource Production</a>
+    <a href="company-simulation.html">Company Simulation</a>
+    <a href="workplace-labor.html">Workplace &amp; Labor</a>
+    <a href="land-value-property.html">Land Value &amp; Property</a>
+    <a href="trade-connections.html">Trade &amp; Connections</a>
+    <a href="tourism-economy.html">Tourism Economy</a>
+    <a href="cargo-transport.html">Cargo Transport</a>
+
+    <h3>City Services</h3>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="healthcare.html">Healthcare</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="police-dispatch.html">Police Dispatch</a>
+
+    <h3>Governance</h3>
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="map-tile-purchase.html">Map Tile Purchase</a>
+
+    <h3>Environment</h3>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="pollution.html">Pollution</a>
+    <a href="terrain-resources.html">Terrain &amp; Resources</a>
+
+    <h3>Vehicles &amp; Transport</h3>
+    <a href="vehicle-spawning.html">Vehicle Spawning</a>
+    <a href="parking-system.html">Parking System</a>
+
+    <h3>Tools &amp; Input</h3>
+    <a href="tool-activation.html">Tool Activation</a>
+    <a href="tool-raycast.html">Tool Raycast</a>
+    <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+    <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+    <a href="object-tool-system.html">Object Placement Tool</a>
+
+    <h3>UI &amp; Settings</h3>
+    <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+    <a href="mod-options-ui.html">Mod Options UI</a>
+    <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+    <a href="chirper-notifications.html">Chirper Notifications</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+
+    <hr class="sidebar-divider">
+
+    <h3>Concepts</h3>
+    <a href="concepts-ecs.html">Unity ECS for CS2</a>
+    <a href="concepts-harmony.html">Harmony Patching</a>
+    <a href="concepts-cohtml.html">The cohtml UI Model</a>
+    <a href="concepts-prefabs.html">Prefab System</a>
+    <a href="concepts-update-phases.html" class="active">Update Phases</a>
+    <a href="concepts-native-burst.html">NativeContainers &amp; Burst</a>
+
+    <h3>Troubleshooting</h3>
+    <a href="troubleshooting-common-errors.html">Common Errors</a>
+    <a href="troubleshooting-debugging.html">Debugging Guide</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Understanding Update Phases <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Learn</h2>
+    <p>
+      This page explains <code>SystemUpdatePhase</code>, the mechanism CS2 uses to
+      order when systems run each frame. You will learn all available phases, how
+      to pick the right one for your system, and how to control ordering relative
+      to other systems.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>What is SystemUpdatePhase?</h2>
+
+  <p>
+    Every frame, CS2 runs all registered ECS systems in a specific order defined by
+    <strong>update phases</strong>. Each phase groups systems that serve a similar
+    purpose: simulation logic, rendering, UI updates, tool processing, and so on.
+  </p>
+
+  <p>
+    When you register a mod system, you specify which phase it belongs to:
+  </p>
+
+  <pre><code class="language-csharp">// Register your system in the simulation phase
+updateSystem.UpdateAt&lt;MySimSystem&gt;(SystemUpdatePhase.GameSimulation);
+
+// Register your UI system in the UI update phase
+updateSystem.UpdateAt&lt;MyUISystem&gt;(SystemUpdatePhase.UIUpdate);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>All Update Phases</h2>
+
+  <p>
+    Phases execute in the order listed below. Each frame runs through this
+    sequence from top to bottom.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Phase</th><th>Description</th><th>Typical Use</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>MainLoop</code></td>
+        <td>Main loop entry point</td>
+        <td>Internal -- rarely used by mods</td>
+      </tr>
+      <tr>
+        <td><code>Deserialize</code></td>
+        <td>Load game deserialization</td>
+        <td>Cleanup transient entities on game load</td>
+      </tr>
+      <tr>
+        <td><code>Modification1</code></td>
+        <td>First entity modification pass</td>
+        <td>Prefab substitution, early entity changes</td>
+      </tr>
+      <tr>
+        <td><code>Modification2</code></td>
+        <td>Second modification pass</td>
+        <td>Additional entity processing</td>
+      </tr>
+      <tr>
+        <td><code>Modification3</code></td>
+        <td>Third modification pass</td>
+        <td>Additional entity processing</td>
+      </tr>
+      <tr>
+        <td><code>Modification4</code></td>
+        <td>Fourth modification pass</td>
+        <td>Lane systems, network modifications</td>
+      </tr>
+      <tr>
+        <td><code>Modification4B</code></td>
+        <td>Extended fourth pass</td>
+        <td>Cascade cleanup after Modification4</td>
+      </tr>
+      <tr>
+        <td><code>Modification5</code></td>
+        <td>Fifth modification pass</td>
+        <td>Final structural changes</td>
+      </tr>
+      <tr>
+        <td><code>ModificationEnd</code></td>
+        <td>Final modification cleanup</td>
+        <td>Post-modification validation</td>
+      </tr>
+      <tr>
+        <td><code>PreSimulation</code></td>
+        <td>Before the main simulation tick</td>
+        <td>Pre-processing for simulation systems</td>
+      </tr>
+      <tr>
+        <td><code>GameSimulation</code></td>
+        <td>Main simulation tick</td>
+        <td>Core game logic: AI, dispatch, economy</td>
+      </tr>
+      <tr>
+        <td><code>PostSimulation</code></td>
+        <td>After the simulation tick</td>
+        <td>Post-processing, statistics collection</td>
+      </tr>
+      <tr>
+        <td><code>Rendering</code></td>
+        <td>Render frame preparation</td>
+        <td>Overlay rendering, visual effects</td>
+      </tr>
+      <tr>
+        <td><code>Raycast</code></td>
+        <td>Raycast processing</td>
+        <td>Hit testing for tools and selection</td>
+      </tr>
+      <tr>
+        <td><code>PreTool</code></td>
+        <td>Before tool update</td>
+        <td>Tool state preparation</td>
+      </tr>
+      <tr>
+        <td><code>ToolUpdate</code></td>
+        <td>Tool system update</td>
+        <td>Custom tool systems</td>
+      </tr>
+      <tr>
+        <td><code>PostTool</code></td>
+        <td>After tool update</td>
+        <td>Tool result processing</td>
+      </tr>
+      <tr>
+        <td><code>ApplyTool</code></td>
+        <td>Apply tool results</td>
+        <td>Commit tool changes to ECS</td>
+      </tr>
+      <tr>
+        <td><code>ClearTool</code></td>
+        <td>Tool state cleanup</td>
+        <td>Reset temporary tool state</td>
+      </tr>
+      <tr>
+        <td><code>UIUpdate</code></td>
+        <td>UI data updates</td>
+        <td>Mod UI systems with bindings</td>
+      </tr>
+      <tr>
+        <td><code>UITooltip</code></td>
+        <td>Tooltip updates</td>
+        <td>Custom tooltip systems</td>
+      </tr>
+      <tr>
+        <td><code>PrefabUpdate</code></td>
+        <td>Prefab system updates</td>
+        <td>Prefab re-initialization</td>
+      </tr>
+      <tr>
+        <td><code>Serialize</code></td>
+        <td>Save game serialization</td>
+        <td>Custom save data</td>
+      </tr>
+      <tr>
+        <td><code>DebugGizmos</code></td>
+        <td>Debug visualization rendering</td>
+        <td>Debug overlays during development</td>
+      </tr>
+      <tr>
+        <td><code>Cleanup</code></td>
+        <td>End-of-frame cleanup</td>
+        <td>Disposing temporary allocations</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>How to Pick the Right Phase</h2>
+
+  <table>
+    <thead>
+      <tr><th>Your System Does</th><th>Use This Phase</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Core game logic (AI, dispatch, economy)</td>
+        <td><code>GameSimulation</code></td>
+      </tr>
+      <tr>
+        <td>UI bindings (ValueBinding, TriggerBinding)</td>
+        <td><code>UIUpdate</code></td>
+      </tr>
+      <tr>
+        <td>Custom tooltips</td>
+        <td><code>UITooltip</code></td>
+      </tr>
+      <tr>
+        <td>Custom tool behavior</td>
+        <td><code>ToolUpdate</code></td>
+      </tr>
+      <tr>
+        <td>Visual overlays or rendering</td>
+        <td><code>Rendering</code></td>
+      </tr>
+      <tr>
+        <td>Modify entities created by tools</td>
+        <td><code>Modification1</code> through <code>Modification5</code></td>
+      </tr>
+      <tr>
+        <td>Cleanup transient data on game load</td>
+        <td><code>Deserialize</code></td>
+      </tr>
+      <tr>
+        <td>Prefab data modifications</td>
+        <td><code>PrefabUpdate</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>
+    When in doubt, use <code>GameSimulation</code> for logic systems and
+    <code>UIUpdate</code> for UI systems. These are the two most commonly
+    used phases for mod systems.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>The UpdateAt Attribute</h2>
+
+  <p>
+    Systems are registered with <code>UpdateSystem</code> during
+    <code>IMod.OnLoad</code>. The simplest form places a system in a phase:
+  </p>
+
+  <pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
+{
+    updateSystem.UpdateAt&lt;MySimSystem&gt;(SystemUpdatePhase.GameSimulation);
+    updateSystem.UpdateAt&lt;MyUISystem&gt;(SystemUpdatePhase.UIUpdate);
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>UpdateBefore / UpdateAfter for Ordering</h2>
+
+  <p>
+    When you need your system to run before or after a specific vanilla system
+    within the same phase, use the two-type-parameter variants:
+  </p>
+
+  <pre><code class="language-csharp">// Run BEFORE the vanilla LaneSystem within Modification4
+updateSystem.UpdateBefore&lt;CustomLaneSystem, Game.Net.LaneSystem&gt;(
+    SystemUpdatePhase.Modification4);
+
+// Run AFTER PoliceCarAISystem within GameSimulation
+updateSystem.UpdateAfter&lt;EmergencyGuardSystem, Game.Simulation.PoliceCarAISystem&gt;(
+    SystemUpdatePhase.GameSimulation);</code></pre>
+
+  <p>
+    <strong>Both systems must be in the same phase</strong> for the ordering to
+    take effect. If the target system is in a different phase, the ordering
+    constraint is silently ignored.
+  </p>
+
+  <p>
+    You can also use the single-type-parameter variants to order relative to
+    other systems in the same phase without naming a specific target:
+  </p>
+
+  <pre><code class="language-csharp">// Run before all other systems in this phase
+updateSystem.UpdateBefore&lt;EarlySystem&gt;(SystemUpdatePhase.PreSimulation);
+
+// Run after all other systems in this phase
+updateSystem.UpdateAfter&lt;LateSystem&gt;(SystemUpdatePhase.PostSimulation);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Controlling Update Frequency</h2>
+
+  <p>
+    Not every system needs to run every frame. Override
+    <code>GetUpdateInterval()</code> to reduce how often your system ticks:
+  </p>
+
+  <pre><code class="language-csharp">public override int GetUpdateInterval(SystemUpdatePhase phase)
+{
+    return 512; // Run every 512 frames instead of every frame
+}</code></pre>
+
+  <p>
+    The vanilla <code>TreeGrowthSystem</code> uses interval 512 (about 32 updates
+    per in-game day). Match the interval of the vanilla system you depend on to
+    avoid processing stale data.
+  </p>
+
+  <div class="quick-start">
+    <h2>Key Takeaways</h2>
+    <ul>
+      <li>CS2 runs systems in ordered phases: Modification, Simulation, Rendering, Tools, UI, and more</li>
+      <li>Use <code>GameSimulation</code> for logic and <code>UIUpdate</code> for UI bindings</li>
+      <li>Use <code>UpdateBefore&lt;T, TOther&gt;</code> and <code>UpdateAfter&lt;T, TOther&gt;</code> for precise ordering</li>
+      <li>Override <code>GetUpdateInterval()</code> to reduce update frequency for non-critical systems</li>
+    </ul>
+  </div>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II). Based on ModLoading research.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

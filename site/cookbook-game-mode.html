@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook: Game Mode Detection - CS2 Modding Research</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3>Cookbook</h3>
+    <a href="cookbook-entity-queries.html">Entity Queries</a>
+    <a href="cookbook-emergency-dispatch.html">Dispatching Vehicles</a>
+    <a href="cookbook-game-events.html">Triggering Game Events</a>
+    <a href="cookbook-game-mode.html" class="active">Game Mode Detection</a>
+    <a href="cookbook-update-frequency.html">Update Frequency</a>
+    <a href="cookbook-cross-mod.html">Cross-Mod Detection</a>
+    <a href="cookbook-localization.html">Adding Localized Strings</a>
+    <a href="cookbook-static-assets.html">Deploying Static Assets</a>
+
+    <h3>Events &amp; Simulation</h3>
+    <a href="event-entity-archetype.html">Event Entity Archetype</a>
+    <a href="fire-ignition.html">Fire Ignition</a>
+    <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+    <a href="crime-trigger.html">Crime Trigger</a>
+    <a href="citizen-sickness.html">Citizen Sickness</a>
+    <a href="water-system.html">Water System</a>
+    <a href="emergency-dispatch.html">Emergency Dispatch</a>
+    <a href="disaster-simulation.html">Disaster Simulation</a>
+
+    <h3>Infrastructure</h3>
+    <a href="electricity-grid.html">Electricity Grid</a>
+    <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+    <a href="road-network.html">Road &amp; Network Building</a>
+    <a href="zoning.html">Zoning</a>
+    <a href="building-construction.html">Building Construction</a>
+    <a href="pathfinding.html">Pathfinding</a>
+    <a href="traffic-flow.html">Traffic Flow</a>
+
+    <h3>Modding Framework</h3>
+    <a href="save-load-persistence.html">Save/Load Persistence</a>
+    <a href="prefab-system.html">Prefab System</a>
+    <a href="localization.html">Localization</a>
+    <a href="harmony-transpilers.html">Harmony Transpilers</a>
+    <a href="mod-loading-dependencies.html">Mod Loading</a>
+  </aside>
+
+  <main class="content">
+
+  <h1>Game Mode Detection <span class="badge-beginner">Beginner</span></h1>
+
+  <div class="scope">
+    <h2>What you'll learn</h2>
+    <p>How to detect whether the player is in Game mode, Editor mode, or at the Main Menu. Covers <code>OnGameLoadingComplete</code>, <code>OnGameLoaded</code>, and <code>GameManager.RegisterUpdater</code> for safe deferred initialization.</p>
+    <p><strong>Related:</strong> <a href="mod-loading-dependencies.html">Mod Loading</a> (full lifecycle reference).</p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>OnGameLoadingComplete</h2>
+
+  <p>Fires after the full game loading process completes (including UI setup). Use this for enabling input actions, showing UI, and mode-dependent features.</p>
+
+<pre><code class="language-csharp">using Game;
+
+public partial class MyModSystem : GameSystemBase
+{
+    protected override void OnGameLoadingComplete(Purpose purpose, GameMode mode)
+    {
+        base.OnGameLoadingComplete(purpose, mode);
+
+        if (mode == GameMode.Game)
+        {
+            // Player loaded a city -- enable simulation features
+            InitializeGameFeatures();
+        }
+        else if (mode == GameMode.Editor)
+        {
+            // Map or asset editor -- enable editor features
+            InitializeEditorFeatures();
+        }
+        // GameMode.MainMenu -- disable everything
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>OnGameLoaded</h2>
+
+  <p>Fires earlier than <code>OnGameLoadingComplete</code> -- after deserialization but before the first simulation frame. Use this for data initialization that depends on loaded entities.</p>
+
+<pre><code class="language-csharp">using Game;
+
+public partial class MyDataSystem : GameSystemBase
+{
+    private bool m_Initialized;
+
+    protected override void OnGameLoaded(Context context)
+    {
+        base.OnGameLoaded(context);
+
+        // Deserialization is complete -- safe to query entities
+        var query = GetEntityQuery(
+            ComponentType.ReadOnly&lt;MyModComponent&gt;());
+        if (!query.IsEmpty)
+        {
+            LoadCachedDataFromEntities(query);
+        }
+        m_Initialized = true;
+    }
+
+    protected override void OnUpdate()
+    {
+        if (!m_Initialized) return;
+        // Normal update logic
+    }
+}</code></pre>
+
+  <h3>When to use which</h3>
+
+  <table>
+    <thead>
+      <tr><th>Callback</th><th>Timing</th><th>Use for</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>OnGameLoaded</code></td><td>After deserialization, before first sim frame</td><td>Data initialization from loaded entities</td></tr>
+      <tr><td><code>OnGameLoadingComplete</code></td><td>After full load including UI setup</td><td>Enabling input, showing UI, mode branching</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>GameMode Checks</h2>
+
+  <p>The <code>GameMode</code> enum has three values. Check it in any callback that provides it, or query <code>GameManager</code>:</p>
+
+<pre><code class="language-csharp">using Game;
+using Game.SceneFlow;
+
+// In OnGameLoadingComplete or OnUpdate:
+bool isGameMode = mode == GameMode.Game;
+bool isEditor   = mode == GameMode.Editor;
+bool isMainMenu = mode == GameMode.MainMenu;
+
+// Enable/disable features based on mode
+m_ToggleAction.shouldBeEnabled = (mode == GameMode.Game || mode == GameMode.Editor);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>RegisterUpdater for Deferred Init</h2>
+
+  <p><code>GameManager.instance.RegisterUpdater()</code> defers work to the next update cycle on the main thread. Use it when system references are not yet available during <code>OnCreate</code> or when you need to show UI after initialization.</p>
+
+<pre><code class="language-csharp">using Game;
+using Game.SceneFlow;
+using System.Threading.Tasks;
+
+public partial class MySystem : GameSystemBase
+{
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Some systems may not be ready during OnCreate
+        GameManager.instance.RegisterUpdater(() =&gt;
+        {
+            var otherSystem = World.GetExistingSystemManaged&lt;SomeOtherSystem&gt;();
+            // Safe to access otherSystem now
+            return Task.CompletedTask;
+        });
+    }
+
+    protected override void OnUpdate() { }
+}
+
+// In IMod.OnLoad -- kick off async work:
+public void OnLoad(UpdateSystem updateSystem)
+{
+    GameManager.instance.RegisterUpdater(async () =&gt;
+    {
+        await Task.Run(() =&gt; LoadExternalResources());
+    });
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Frame-Skip Pattern</h2>
+
+  <p>When other systems need an extra frame to process loaded data before your system reads it:</p>
+
+<pre><code class="language-csharp">private int m_SkipFrames;
+
+protected override void OnGameLoaded(Context context)
+{
+    base.OnGameLoaded(context);
+    m_SkipFrames = 2; // wait 2 frames for dependent systems
+}
+
+protected override void OnUpdate()
+{
+    if (m_SkipFrames &gt; 0)
+    {
+        m_SkipFrames--;
+        return;
+    }
+    // All systems have processed loaded data
+    ProcessData();
+}</code></pre>
+
+  <footer>
+    <p>Source: Decompiled from Game.dll (Cities: Skylines II) using ilspycmd v9.1.</p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>

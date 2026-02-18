@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adding a Toolbar Button - CS2 Modding Tutorials</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle">Getting Started</h3>
+    <div class="sidebar-links">
+      <a href="index.html">Home</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tutorials</h3>
+    <div class="sidebar-links">
+      <a href="tutorial-first-system.html">Your First ECS System</a>
+      <a href="tutorial-reading-data.html">Reading Game Data</a>
+      <a href="tutorial-modifying-data.html">Modifying Game Data</a>
+      <a href="tutorial-settings-panel.html">Adding a Settings Panel</a>
+      <a href="tutorial-toolbar-button.html" class="active">Adding a Toolbar Button</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Cookbook</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Concepts</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <h3 class="sidebar-toggle">Troubleshooting</h3>
+    <div class="sidebar-links">
+    </div>
+
+    <hr class="sidebar-divider">
+
+    <h3 class="sidebar-toggle">Events &amp; Simulation</h3>
+    <div class="sidebar-links">
+      <a href="event-entity-archetype.html">Event Entity Archetype</a>
+      <a href="fire-ignition.html">Fire Ignition</a>
+      <a href="vehicle-out-of-control.html">Vehicle Accidents</a>
+      <a href="crime-trigger.html">Crime Trigger</a>
+      <a href="citizen-sickness.html">Citizen Sickness</a>
+      <a href="water-system.html">Water System</a>
+      <a href="emergency-dispatch.html">Emergency Dispatch</a>
+      <a href="disaster-simulation.html">Disaster Simulation</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Infrastructure</h3>
+    <div class="sidebar-links">
+      <a href="electricity-grid.html">Electricity Grid</a>
+      <a href="water-sewage-pipes.html">Water &amp; Sewage Pipes</a>
+      <a href="road-network.html">Road &amp; Network Building</a>
+      <a href="zoning.html">Zoning</a>
+      <a href="building-construction.html">Building Construction</a>
+      <a href="pathfinding.html">Pathfinding</a>
+      <a href="traffic-flow.html">Traffic Flow</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Economy &amp; Population</h3>
+    <div class="sidebar-links">
+      <a href="citizens-households.html">Citizens &amp; Households</a>
+      <a href="economy-budget.html">Economy &amp; Budget</a>
+      <a href="demand-systems.html">Demand Systems</a>
+      <a href="resource-production.html">Resource Production</a>
+      <a href="company-simulation.html">Company Simulation</a>
+      <a href="workplace-labor.html">Workplace &amp; Labor</a>
+      <a href="land-value-property.html">Land Value &amp; Property</a>
+      <a href="trade-connections.html">Trade &amp; Connections</a>
+      <a href="tourism-economy.html">Tourism Economy</a>
+      <a href="cargo-transport.html">Cargo Transport</a>
+    </div>
+
+    <h3 class="sidebar-toggle">City Services</h3>
+    <div class="sidebar-links">
+      <a href="garbage-collection.html">Garbage Collection</a>
+      <a href="education.html">Education</a>
+      <a href="public-transit.html">Public Transit</a>
+      <a href="healthcare.html">Healthcare</a>
+      <a href="deathcare.html">Deathcare</a>
+      <a href="parks-recreation.html">Parks &amp; Recreation</a>
+      <a href="police-dispatch.html">Police Dispatch</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Governance</h3>
+    <div class="sidebar-links">
+      <a href="districts-policies.html">Districts &amp; Policies</a>
+      <a href="map-tile-purchase.html">Map Tile Purchase</a>
+      <a href="milestones-unlocks.html">Milestones &amp; Unlocks</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Environment</h3>
+    <div class="sidebar-links">
+      <a href="weather-climate.html">Weather &amp; Climate</a>
+      <a href="pollution.html">Pollution</a>
+      <a href="terrain-resources.html">Terrain &amp; Resources</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Vehicles &amp; Transport</h3>
+    <div class="sidebar-links">
+      <a href="vehicle-spawning.html">Vehicle Spawning</a>
+      <a href="parking-system.html">Parking System</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Tools &amp; Input</h3>
+    <div class="sidebar-links">
+      <a href="tool-activation.html">Tool Activation</a>
+      <a href="tool-raycast.html">Tool Raycast</a>
+      <a href="input-action-lifecycle.html">Input Action Lifecycle</a>
+      <a href="mod-hotkey-input.html">Mod Hotkey Input</a>
+      <a href="object-tool-system.html">Object Placement Tool</a>
+    </div>
+
+    <h3 class="sidebar-toggle">UI &amp; Settings</h3>
+    <div class="sidebar-links">
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a>
+      <a href="mod-options-ui.html">Mod Options UI</a>
+      <a href="info-views-overlays.html">Info Views &amp; Overlays</a>
+      <a href="chirper-notifications.html">Chirper Notifications</a>
+    </div>
+
+    <h3 class="sidebar-toggle">Modding Framework</h3>
+    <div class="sidebar-links">
+      <a href="save-load-persistence.html">Save/Load Persistence</a>
+      <a href="prefab-system.html">Prefab System</a>
+      <a href="localization.html">Localization</a>
+      <a href="harmony-transpilers.html">Harmony Transpilers</a>
+      <a href="mod-loading-dependencies.html">Mod Loading</a>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <h1>Adding a Toolbar Button <span class="badge-intermediate">Intermediate</span></h1>
+
+  <div class="scope">
+    <h2>What You Will Build</h2>
+    <p>
+      A button in the game's top-left toolbar that toggles a panel. This tutorial covers
+      the two-sided bridge between C# and the TypeScript/React frontend:
+      <code>ValueBinding</code> pushes state from C# to JS, and <code>TriggerBinding</code>
+      sends events from JS back to C#.
+    </p>
+    <p>
+      <strong>Prerequisites:</strong> A working mod project. Familiarity with
+      <a href="tutorial-first-system.html">ECS systems</a>. Basic TypeScript and React knowledge.
+      Node.js installed for the UI build pipeline.
+    </p>
+  </div>
+
+  <!-- ============================================================ -->
+  <h2>Architecture Overview</h2>
+
+  <p>
+    CS2's UI is a two-layer system. The game simulation runs in C# (ECS), while the
+    frontend is a TypeScript/React application rendered by the Coherent (cohtml) engine.
+    Communication between the two layers uses a binding framework:
+  </p>
+
+  <div class="diagram">
+<pre>
+C# (Game Simulation)                  TypeScript (React UI)
+---------------------                  --------------------
+ValueBinding&lt;bool&gt; ----pushes----&gt;  bindValue&lt;boolean&gt;()
+  "MyMod", "IsActive"                 useValue(isActive$)
+
+TriggerBinding     &lt;---receives---  trigger("MyMod", "Toggle")
+  "MyMod", "Toggle"                    onClick handler
+</pre>
+  </div>
+
+  <ul>
+    <li><strong>ValueBinding&lt;T&gt;</strong> -- C# pushes data to JS. Only sends when the value changes (dirty-checked with <code>EqualityComparer&lt;T&gt;</code>).</li>
+    <li><strong>TriggerBinding</strong> -- JS fires events to C#. Supports 0 to 4 typed arguments.</li>
+    <li><strong>GetterValueBinding&lt;T&gt;</strong> -- auto-polled variant that calls a getter function every frame and pushes if changed.</li>
+  </ul>
+
+  <p>
+    All bindings use a two-part path: <code>"{group}.{name}"</code>. By convention, mods
+    use their mod ID (from <code>mod.json</code>) as the group to avoid collisions.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Step 1: Create the C# UI System</h2>
+
+  <p>
+    UI systems extend <code>UISystemBase</code> (which extends <code>GameSystemBase</code>).
+    Register bindings in <code>OnCreate</code> using <code>AddBinding</code>.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.UI.Binding;
+using Game.UI;
+
+namespace MyMod
+{
+    /// &lt;summary&gt;
+    /// UI system that manages a toolbar button and panel visibility.
+    /// ValueBinding pushes state to the React frontend.
+    /// TriggerBinding receives click events from the frontend.
+    /// &lt;/summary&gt;
+    public partial class MyModUISystem : UISystemBase
+    {
+        private ValueBinding&lt;bool&gt; m_IsPanelOpen;
+        private ValueBinding&lt;string&gt; m_StatusText;
+        private ValueBinding&lt;int&gt; m_EntityCount;
+
+        protected override void OnCreate()
+        {
+            base.OnCreate();
+
+            // ValueBindings: C# pushes these values to JS.
+            // Args: (group, name, initialValue)
+            m_IsPanelOpen = new ValueBinding&lt;bool&gt;(
+                "MyMod", "IsPanelOpen", false);
+            m_StatusText = new ValueBinding&lt;string&gt;(
+                "MyMod", "StatusText", "Ready");
+            m_EntityCount = new ValueBinding&lt;int&gt;(
+                "MyMod", "EntityCount", 0);
+
+            AddBinding(m_IsPanelOpen);
+            AddBinding(m_StatusText);
+            AddBinding(m_EntityCount);
+
+            // TriggerBindings: JS sends events to these callbacks.
+            // No-arg trigger for the toggle button
+            AddBinding(new TriggerBinding(
+                "MyMod", "TogglePanel", OnTogglePanel));
+
+            // Typed trigger with a string argument
+            AddBinding(new TriggerBinding&lt;string&gt;(
+                "MyMod", "SetStatus", OnSetStatus));
+        }
+
+        private void OnTogglePanel()
+        {
+            // Update() only sends to JS if the value changed
+            bool newState = !m_IsPanelOpen.value;
+            m_IsPanelOpen.Update(newState);
+            m_StatusText.Update(newState
+                ? "Panel is open" : "Panel is closed");
+
+            Mod.Log.Info($"Panel toggled: {newState}");
+        }
+
+        private void OnSetStatus(string status)
+        {
+            m_StatusText.Update(status);
+        }
+
+        protected override void OnUpdate()
+        {
+            // Update entity count each frame (only sends if changed)
+            m_EntityCount.Update(GetRelevantEntityCount());
+
+            // base.OnUpdate() polls all IUpdateBinding instances
+            base.OnUpdate();
+        }
+
+        private int GetRelevantEntityCount()
+        {
+            // Replace with your actual entity query
+            return 42;
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 2: Register the UI System</h2>
+
+  <p>
+    Register the UI system at <code>SystemUpdatePhase.UIUpdate</code> in your
+    <code>IMod.OnLoad</code>. This ensures bindings are polled after simulation
+    but before the frame renders.
+  </p>
+
+  <pre><code class="language-csharp">using Game;
+using Game.Modding;
+using Colossal.Logging;
+
+namespace MyMod
+{
+    public class Mod : IMod
+    {
+        internal static ILog Log = LogManager.GetLogger(nameof(Mod))
+            .SetShowsErrorsInUI(true);
+
+        public void OnLoad(UpdateSystem updateSystem)
+        {
+            Log.Info("MyMod loaded");
+
+            // Register the UI system at the UIUpdate phase
+            updateSystem.UpdateAt&lt;MyModUISystem&gt;(
+                SystemUpdatePhase.UIUpdate);
+        }
+
+        public void OnDispose()
+        {
+            Log.Info("MyMod disposed");
+            // UISystemBase.OnDestroy auto-removes bindings
+        }
+    }
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 3: Set Up the TypeScript Project</h2>
+
+  <p>
+    The UI side lives in a <code>UI/</code> directory alongside your C# project. The
+    quickest way to scaffold this is with the community template:
+  </p>
+
+  <pre><code>npx create-csii-ui-mod</code></pre>
+
+  <p>Or create the structure manually:</p>
+
+  <pre><code>MyMod/
+  UI/
+    mod.json
+    package.json
+    tsconfig.json
+    webpack.config.js
+    src/
+      index.tsx
+      mods/
+        bindings.ts
+        Components/
+          MyToolbarButton.tsx
+          MyPanel.tsx
+          MyToolbarButton.module.scss</code></pre>
+
+  <h3>mod.json</h3>
+
+  <p>
+    Every mod with UI must declare a <code>mod.json</code>. The <code>id</code> field
+    matches the binding group name used in C#.
+  </p>
+
+  <pre><code class="language-json">{
+    "id": "MyMod",
+    "author": "YourName",
+    "version": "1.0.0",
+    "dependencies": []
+}</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 4: Declare TypeScript Bindings</h2>
+
+  <p>
+    Centralize all binding declarations in a single file. Each <code>bindValue</code>
+    call creates a reactive observable that subscribes to the matching C#
+    <code>ValueBinding</code>. The group and name must match exactly.
+  </p>
+
+  <pre><code class="language-typescript">// src/mods/bindings.ts
+
+import { bindValue, trigger } from "cs2/api";
+import mod from "mod.json";
+
+// Value bindings (C# -&gt; JS)
+// The third argument is the default value used before C# pushes data.
+export const isPanelOpen$ = bindValue&lt;boolean&gt;(mod.id, "IsPanelOpen", false);
+export const statusText$ = bindValue&lt;string&gt;(mod.id, "StatusText", "Ready");
+export const entityCount$ = bindValue&lt;number&gt;(mod.id, "EntityCount", 0);
+
+// Trigger bindings (JS -&gt; C#)
+// Use .bind() to create a clean callable function for no-arg triggers.
+export const togglePanel = trigger.bind(null, mod.id, "TogglePanel");
+
+// Typed trigger -- wrap in arrow function to pass arguments.
+export const setStatus = (status: string) =&gt;
+    trigger(mod.id, "SetStatus", status);</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 5: Create the Toolbar Button Component</h2>
+
+  <pre><code class="language-typescript">// src/mods/Components/MyToolbarButton.tsx
+
+import { useValue } from "cs2/api";
+import { Button, Tooltip } from "cs2/ui";
+import { isPanelOpen$, togglePanel } from "../bindings";
+import styles from "./MyToolbarButton.module.scss";
+
+// React component rendered in the GameTopLeft toolbar slot.
+// useValue() subscribes to the C# ValueBinding -- the component
+// re-renders automatically when C# calls binding.Update().
+const MyToolbarButton = () =&gt; {
+    const isOpen = useValue(isPanelOpen$);
+
+    return (
+        &lt;Tooltip tooltip="My Mod"&gt;
+            &lt;Button
+                variant="floating"
+                className={isOpen ? styles.selected : styles.toggle}
+                onSelect={togglePanel}
+            &gt;
+                My Mod
+            &lt;/Button&gt;
+        &lt;/Tooltip&gt;
+    );
+};
+
+export default MyToolbarButton;</code></pre>
+
+  <h3>Button Styles (SCSS Module)</h3>
+
+  <pre><code class="language-css">/* src/mods/Components/MyToolbarButton.module.scss */
+
+.toggle {
+    background-color: var(--accentColorNormal);
+}
+
+.toggle:hover {
+    background-color: var(--accentColorNormal-hover);
+}
+
+.selected {
+    background-color: white;
+    color: var(--panelColorNormal);
+}</code></pre>
+
+  <p>
+    Use the game's CSS variables (<code>--accentColorNormal</code>, <code>--panelColorNormal</code>,
+    etc.) to match the game's visual theme.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>Step 6: Create the Panel Component</h2>
+
+  <pre><code class="language-typescript">// src/mods/Components/MyPanel.tsx
+
+import { useValue } from "cs2/api";
+import { Panel } from "cs2/ui";
+import { isPanelOpen$, statusText$, entityCount$, togglePanel } from "../bindings";
+
+// Panel component rendered in the Game slot.
+// Returns null when the panel is closed, so it takes no DOM space.
+const MyPanel = () =&gt; {
+    const isOpen = useValue(isPanelOpen$);
+    const status = useValue(statusText$);
+    const count = useValue(entityCount$);
+
+    if (!isOpen) return null;
+
+    return (
+        &lt;Panel
+            draggable
+            header={&lt;span&gt;My Mod Panel&lt;/span&gt;}
+            onClose={togglePanel}
+            initialPosition={{ x: 0.15, y: 0.15 }}
+        &gt;
+            &lt;p&gt;Status: {status}&lt;/p&gt;
+            &lt;p&gt;Entities: {count}&lt;/p&gt;
+        &lt;/Panel&gt;
+    );
+};
+
+export default MyPanel;</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Step 7: Register Components with the Module Registry</h2>
+
+  <p>
+    The <code>index.tsx</code> entry point exports a <code>ModRegistrar</code> function.
+    The game calls this function during UI initialization, passing the
+    <code>moduleRegistry</code> for injecting components into UI slots.
+  </p>
+
+  <pre><code class="language-typescript">// src/index.tsx
+
+import { ModRegistrar } from "cs2/modding";
+import MyToolbarButton from "./mods/Components/MyToolbarButton";
+import MyPanel from "./mods/Components/MyPanel";
+
+const register: ModRegistrar = (moduleRegistry) =&gt; {
+    // "GameTopLeft" places the button in the top-left toolbar
+    // alongside vanilla tool buttons (roads, zones, etc.)
+    moduleRegistry.append("GameTopLeft", MyToolbarButton);
+
+    // "Game" injects a component at the gameplay view root.
+    // The component controls its own visibility (returns null
+    // when hidden).
+    moduleRegistry.append("Game", MyPanel);
+};
+
+export default register;</code></pre>
+
+  <h3>Available Injection Slots</h3>
+
+  <table>
+    <thead>
+      <tr><th>Slot Name</th><th>Location</th><th>Usage</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>"GameTopLeft"</code></td><td>Top-left toolbar</td><td>Toolbar buttons alongside vanilla tools</td></tr>
+      <tr><td><code>"Game"</code></td><td>Gameplay view root</td><td>Panels and overlays during gameplay</td></tr>
+      <tr><td><code>"Editor"</code></td><td>Editor view root</td><td>Panels during map/asset editor</td></tr>
+      <tr><td><code>"GameBottomRight"</code></td><td>Bottom-right area</td><td>Floating indicators near chirper</td></tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Step 8: Build and Deploy</h2>
+
+  <p>Build the TypeScript UI:</p>
+
+  <pre><code>cd UI
+npm install
+npm run build</code></pre>
+
+  <p>
+    This produces <code>UI/build/index.js</code>. Your MSBuild targets should copy both
+    the C# DLL and the <code>UI/</code> directory (with <code>mod.json</code> and
+    <code>build/</code>) to the game's Mods folder.
+  </p>
+
+  <p>
+    For development, use <code>npm run dev</code> (webpack watch mode) to auto-rebuild
+    on file changes.
+  </p>
+
+  <!-- ============================================================ -->
+  <h2>How Data Flows</h2>
+
+  <h3>C# to JS (Value Push)</h3>
+
+  <pre><code>m_IsPanelOpen.Update(true)
+  -&gt; EqualityComparer checks if value changed
+  -&gt; Serializes to JSON via IJsonWriter
+  -&gt; cohtml delivers event to JS
+  -&gt; isPanelOpen$ observable fires
+  -&gt; useValue() re-renders React component</code></pre>
+
+  <h3>JS to C# (Trigger)</h3>
+
+  <pre><code>trigger("MyMod", "TogglePanel")
+  -&gt; cohtml fires event to C#
+  -&gt; TriggerBinding.Callback() invoked
+  -&gt; OnTogglePanel() runs on main thread</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Binding Type Quick Reference</h2>
+
+  <table>
+    <thead>
+      <tr><th>C# Type</th><th>Direction</th><th>TypeScript API</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ValueBinding&lt;T&gt;</code></td>
+        <td>C# to JS (push)</td>
+        <td><code>bindValue&lt;T&gt;(group, name, default)</code></td>
+      </tr>
+      <tr>
+        <td><code>GetterValueBinding&lt;T&gt;</code></td>
+        <td>C# to JS (poll)</td>
+        <td><code>bindValue&lt;T&gt;(group, name, default)</code></td>
+      </tr>
+      <tr>
+        <td><code>TriggerBinding</code></td>
+        <td>JS to C# (no args)</td>
+        <td><code>trigger(group, name)</code></td>
+      </tr>
+      <tr>
+        <td><code>TriggerBinding&lt;T&gt;</code></td>
+        <td>JS to C# (1 arg)</td>
+        <td><code>trigger(group, name, arg)</code></td>
+      </tr>
+      <tr>
+        <td><code>TriggerBinding&lt;T1,T2&gt;</code></td>
+        <td>JS to C# (2 args)</td>
+        <td><code>trigger(group, name, arg1, arg2)</code></td>
+      </tr>
+      <tr>
+        <td><code>CallBinding&lt;TResult&gt;</code></td>
+        <td>JS to C# to JS</td>
+        <td>Returns a value to JS</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>Common Pitfalls</h2>
+
+  <ul>
+    <li>
+      <strong>Binding group/name mismatch:</strong> The group and name in C#
+      (<code>new ValueBinding&lt;bool&gt;("MyMod", "IsPanelOpen", false)</code>) must
+      exactly match the TypeScript side
+      (<code>bindValue&lt;boolean&gt;("MyMod", "IsPanelOpen", false)</code>).
+      A typo results in the binding silently using the default value.
+    </li>
+    <li>
+      <strong>Forgetting base.OnUpdate():</strong> If you override <code>OnUpdate</code>
+      in your <code>UISystemBase</code>, always call <code>base.OnUpdate()</code> to
+      ensure <code>GetterValueBinding</code> instances are polled.
+    </li>
+    <li>
+      <strong>Missing mod.json:</strong> Without <code>mod.json</code>, the game cannot
+      load your UI module. The <code>id</code> field must match the binding group.
+    </li>
+    <li>
+      <strong>Wrong SystemUpdatePhase:</strong> Register UI systems at
+      <code>SystemUpdatePhase.UIUpdate</code>, not <code>GameSimulation</code>.
+      The UIUpdate phase runs after simulation, ensuring bindings reflect the
+      latest game state.
+    </li>
+  </ul>
+
+  <!-- ============================================================ -->
+  <h2>Next Steps</h2>
+
+  <ul>
+    <li><a href="mod-ui-buttons.html">Mod UI Buttons</a> reference -- complete binding API with custom serialization, call bindings, and advanced patterns</li>
+    <li><a href="tutorial-settings-panel.html">Adding a Settings Panel</a> -- add configurable options for your mod</li>
+    <li><a href="mod-options-ui.html">Mod Options UI</a> reference -- keybinding rebinding and advanced widget types</li>
+  </ul>
+
+  <footer>
+    <p>
+      Based on decompiled source from Colossal.UI.Binding.dll and Game.dll
+      (Cities: Skylines II) and the
+      <a href="mod-ui-buttons.html">Mod UI Buttons</a> research topic.
+    </p>
+    <div class="attribution-footer">
+      <p>This documentation was generated using Claude (Anthropic), supervised by the repository owner.</p>
+    </div>
+  </footer>
+
+  </main>
+
+</div>
+
+<script src="sidebar.js"></script>
+</body>
+</html>
