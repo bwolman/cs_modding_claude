@@ -330,6 +330,20 @@ tr:nth-child(even) td { background: #f8f9fa; }
 .scope strong { color: var(--accent); }
 
 /* ============================================================
+   Warning / caution boxes
+   ============================================================ */
+.warning {
+  background: #fff8c5;
+  border-left: 4px solid #9a6700;
+  padding: 1rem 1.25rem;
+  margin: 1.25rem 0;
+  border-radius: 0 6px 6px 0;
+}
+
+.warning p { margin: 0.3rem 0; }
+.warning strong { color: #7a5200; }
+
+/* ============================================================
    ASCII diagrams
    ============================================================ */
 .diagram {

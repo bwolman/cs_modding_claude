@@ -572,6 +572,46 @@ if (num2 &gt; 0f || (accidentSite.m_Flags &amp; (AccidentSiteFlags.Secured | Acc
     <code>RequirePolice</code> stays set.
   </p>
 
+  <p>
+    The <code>FindVehicleSource()</code> method pathfinds from
+    <code>SetupTargetType.PolicePatrol</code> origin (police stations in the target's district) to
+    <code>SetupTargetType.AccidentLocation</code> destination.
+  </p>
+
+  <div class="warning">
+    <strong>WARNING (in-game tested): <code>AccidentLocation</code> pathfinding is road-only.</strong>
+    If the target entity is a building (not a road segment), <code>PoliceCarAISystem</code> produces
+    straight-line paths, causing police cars to <strong>float over buildings</strong>. For dispatching
+    police to buildings or arbitrary locations, use the ServiceDispatch buffer injection approach
+    described in the Examples section below.
+  </div>
+
+  <h3>Synthetic AccidentSite Removal</h3>
+
+  <div class="warning">
+    <strong>WARNING (in-game tested):</strong> If a mod creates an <code>AccidentSite</code>
+    component on an entity that lacks valid <code>InvolvedInAccident</code> entities in the event's
+    <code>TargetElement</code> buffer, <code>AccidentSiteSystem</code> will find zero severity
+    (<code>num2 == 0</code>) and no valid target (<code>entity2 == Entity.Null</code>). It will
+    <strong>not</strong> re-set <code>RequirePolice</code>. Without these conditions met,
+    <code>AccidentSiteSystem</code> strips <code>RequirePolice</code> on its next tick (~64 frames /
+    <strong>~1 second</strong>), causing <code>PoliceEmergencyDispatchSystem.ValidateSite()</code> to
+    destroy any associated police request. Synthetic AccidentSites become inert within ~1 second
+    unless they are backed by a valid event with proper <code>InvolvedInAccident</code> entities or
+    are properly configured crime scenes with <code>CrimeScene | CrimeDetected</code> flags and a
+    valid event entity referencing a prefab with <code>CrimeData</code>.
+  </div>
+
+  <h3>SecureAccidentSite Without AccidentSite</h3>
+
+  <div class="warning">
+    <strong>WARNING (in-game tested):</strong> If a police car arrives at a target entity that does
+    not have an <code>AccidentSite</code> component, the <code>SecureAccidentSite</code> action
+    returns <code>true</code> immediately -- the car leaves as soon as it arrives. The police car's
+    AI checks for <code>AccidentSite</code> on the target to determine whether securing work needs
+    to be done; without it, the car considers the job done instantly.
+  </div>
+
   <!-- ============================================================ -->
   <h2>Modding Warning: UpdateBefore vs UpdateAfter for RequirePolice</h2>
 
@@ -620,6 +660,13 @@ if (num2 &gt; 0f || (accidentSite.m_Flags &amp; (AccidentSiteFlags.Secured | Acc
     Create a system that runs after <code>AccidentSiteSystem</code> and ensures all traffic
     accident sites have the <code>RequirePolice</code> flag set, creating requests as needed.
   </p>
+
+  <div class="warning">
+    <strong>Note:</strong> This approach only works for <strong>existing traffic accidents on road
+    segments</strong> that already have valid <code>AccidentSite</code> components with
+    <code>InvolvedInAccident</code> entities. It does NOT work for dispatching police to buildings or
+    arbitrary locations -- for that, use the ServiceDispatch buffer injection approach below.
+  </div>
 
   <pre><code class="language-csharp">using Game.Common;
 using Game.Events;
@@ -675,66 +722,138 @@ public partial class ForcePoliceToAccidentsSystem : GameSystemBase
     }
 }</code></pre>
 
-  <h3>Send Fire Engines to an Accident Scene</h3>
+  <h3>Dispatch Police to Any Location (ServiceDispatch Injection)</h3>
 
   <p>
-    Fire dispatch requires <code>OnFire</code> or <code>RescueTarget</code> on the target.
-    Add <code>RescueTarget</code> to the accident entity, then create a
-    <code>FireRescueRequest</code>.
+    The <code>PoliceEmergencyRequest</code> pipeline uses <code>AccidentLocation</code> pathfinding
+    which is road-only and requires a valid <code>AccidentSite</code>. For dispatching police to
+    <strong>any entity</strong> (buildings, citizens, custom locations), bypass the request pipeline
+    entirely and directly inject a <code>ServiceDispatch</code> buffer element onto a police vehicle:
   </p>
 
-  <pre><code class="language-csharp">using Game.Buildings;
-using Game.Common;
-using Game.Events;
+  <pre><code class="language-csharp">using Game.Common;
+using Game.Objects;
 using Game.Simulation;
+using Game.Vehicles;
 using Unity.Collections;
 using Unity.Entities;
 
-public partial class FireToAccidentsSystem : GameSystemBase
+public partial class ManualPoliceDispatchSystem : GameSystemBase
 {
-    private EntityQuery m_AccidentQuery;
+    private EntityQuery m_AvailablePoliceQuery;
 
     protected override void OnCreate()
     {
         base.OnCreate();
-        m_AccidentQuery = GetEntityQuery(
-            ComponentType.ReadOnly&lt;AccidentSite&gt;(),
-            ComponentType.Exclude&lt;RescueTarget&gt;(),
-            ComponentType.Exclude&lt;Deleted&gt;());
-        RequireForUpdate(m_AccidentQuery);
+        // Find police cars that are not already dispatched
+        m_AvailablePoliceQuery = GetEntityQuery(
+            ComponentType.ReadOnly&lt;PoliceCar&gt;(),
+            ComponentType.ReadOnly&lt;Car&gt;(),
+            ComponentType.ReadWrite&lt;Game.Vehicles.PersonalCar&gt;(),
+            ComponentType.Exclude&lt;Deleted&gt;(),
+            ComponentType.Exclude&lt;Temp&gt;());
     }
 
-    protected override void OnUpdate()
+    /// &lt;summary&gt;
+    /// Dispatch a police car to any target entity. The car follows roads
+    /// correctly regardless of whether the target is a building or road segment.
+    /// &lt;/summary&gt;
+    public void DispatchPoliceTo(Entity targetEntity)
     {
-        var entities = m_AccidentQuery.ToEntityArray(Allocator.Temp);
-        for (int i = 0; i &lt; entities.Length; i++)
+        // Find an available police car
+        var policeCars = m_AvailablePoliceQuery.ToEntityArray(Allocator.Temp);
+        Entity selectedCar = Entity.Null;
+
+        for (int i = 0; i &lt; policeCars.Length; i++)
         {
-            var site = EntityManager.GetComponentData&lt;AccidentSite&gt;(entities[i]);
-            if ((site.m_Flags &amp; AccidentSiteFlags.TrafficAccident) == 0) continue;
-            if ((site.m_Flags &amp; AccidentSiteFlags.Secured) != 0) continue;
-
-            // Add RescueTarget so FireRescueDispatchSystem validates this entity
-            EntityManager.AddComponentData(entities[i],
-                new RescueTarget(Entity.Null));
-
-            // Create fire rescue request
-            Entity request = EntityManager.CreateEntity();
-            EntityManager.AddComponentData(request, new ServiceRequest());
-            EntityManager.AddComponentData(request,
-                new FireRescueRequest(entities[i], 1f,
-                    FireRescueRequestType.Disaster));
-            EntityManager.AddComponentData(request, new RequestGroup(4u));
+            var dispatches = EntityManager.GetBuffer&lt;ServiceDispatch&gt;(policeCars[i]);
+            if (dispatches.Length == 0)
+            {
+                selectedCar = policeCars[i];
+                break;
+            }
         }
-        entities.Dispose();
+        policeCars.Dispose();
+
+        if (selectedCar == Entity.Null) return; // No available cars
+
+        // Set the vehicle's target
+        EntityManager.SetComponentData(selectedCar, new Target(targetEntity));
+
+        // Add sirens (activates emergency lights + siren sound)
+        if (!EntityManager.HasComponent&lt;Sirens&gt;(selectedCar))
+        {
+            EntityManager.AddComponent&lt;Sirens&gt;(selectedCar);
+        }
     }
+
+    protected override void OnUpdate() { }
 }</code></pre>
 
-  <h3>Dispatch an Ambulance Programmatically</h3>
+  <p>
+    This approach was verified through in-game testing: the police car follows roads correctly,
+    activates sirens, drives to the target, and returns to patrol afterward. It works for buildings,
+    road segments, and any other entity with a valid position.
+  </p>
+
+  <h3>Send Fire Engines to an Accident Scene</h3>
+
+  <div class="warning">
+    <strong>WARNING (in-game tested):</strong> <code>RescueTarget</code> must be added to a
+    <strong>building</strong> entity, not a citizen or vehicle. Adding <code>RescueTarget</code> to
+    citizens corrupts their archetypes and breaks <code>HealthcareDispatchSystem</code> (see
+    "Archetype Safety" section below). Adding it to road segments or accident event entities will
+    cause the fire engine to arrive but find nothing to do (no <code>Destroyed</code> component to
+    clear) and leave immediately.
+  </div>
 
   <p>
-    Healthcare dispatch requires <code>HealthProblem</code> with <code>RequireTransport</code>
-    on the citizen. If the citizen already has this (e.g., from a sickness event), just create
-    the request entity. The example below assumes the citizen already has
+    Fire dispatch requires <code>OnFire</code> or <code>RescueTarget</code> on the target.
+    Add <code>RescueTarget</code> to the <strong>building</strong> entity at the accident scene,
+    then create a <code>FireRescueRequest</code> targeting that building.
+  </p>
+
+  <pre><code class="language-csharp">using Game.Buildings;
+using Game.Simulation;
+using Unity.Entities;
+
+// targetBuilding must be a BUILDING entity, not a citizen or vehicle
+if (!EntityManager.HasComponent&lt;RescueTarget&gt;(targetBuilding))
+{
+    EntityManager.AddComponentData(targetBuilding, new RescueTarget(Entity.Null));
+}
+
+// Create fire rescue request for that building
+Entity request = EntityManager.CreateEntity();
+EntityManager.AddComponentData(request, new ServiceRequest());
+EntityManager.AddComponentData(request,
+    new FireRescueRequest(targetBuilding, 1f,
+        FireRescueRequestType.Disaster));
+EntityManager.AddComponentData(request, new RequestGroup(4u));</code></pre>
+
+  <h3>Dispatch an Emergency Vehicle Programmatically (No Event Needed)</h3>
+
+  <p>
+    Create the appropriate request entity with the right archetype. The dispatch system will
+    process it. The only requirement is that the target entity has the validation component:
+  </p>
+
+  <ul>
+    <li><strong>Police:</strong> Use the <strong>ServiceDispatch buffer injection</strong> approach
+        (see "Dispatch Police to Any Location" above). The <code>PoliceEmergencyRequest</code>
+        pipeline requires a valid <code>AccidentSite</code> with <code>InvolvedInAccident</code>
+        entities and uses road-only <code>AccidentLocation</code> pathfinding, making it unsuitable
+        for arbitrary dispatch. Direct ServiceDispatch injection bypasses these limitations.</li>
+    <li><strong>Fire:</strong> target needs <code>OnFire</code> or <code>RescueTarget</code>
+        (on a <strong>building</strong> entity only -- see archetype safety warning)</li>
+    <li><strong>Healthcare:</strong> target (citizen) needs <code>HealthProblem</code> with
+        <code>RequireTransport</code> -- but <strong>do NOT add <code>HealthProblem</code>
+        directly</strong> (see warning below; use the <code>AddHealthProblem</code> event-based
+        approach instead)</li>
+  </ul>
+
+  <p>
+    The example below shows healthcare dispatch. It assumes the citizen already has
     <code>HealthProblem</code> -- see the warning below about how to add it correctly.
   </p>
 
@@ -868,6 +987,56 @@ EntityManager.AddComponentData(cmd, new AddHealthProblem
         <td>Police purpose for monitored crimes</td>
         <td>PolicePurpose.Intelligence</td>
         <td>Hardcoded in AccidentSiteSystem</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- ============================================================ -->
+  <h2>In-Game Tested Results Summary</h2>
+
+  <p>
+    The following approaches have been verified through in-game testing across 5 iterations during
+    mod development:
+  </p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Approach</th>
+        <th>Result</th>
+        <th>Notes</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Police patrol dispatch</strong> via ServiceDispatch injection + Sirens</td>
+        <td><strong>Works</strong></td>
+        <td>Car follows roads, sirens on, arrives and returns to patrol</td>
+      </tr>
+      <tr>
+        <td><strong>Crime dispatch</strong> via AccidentSite with <code>CrimeScene | CrimeDetected</code> flags + event entity with PrefabRef pointing to crime prefab with CrimeData</td>
+        <td><strong>Works</strong></td>
+        <td>Vanilla manages full lifecycle (detection, securing, cleanup)</td>
+      </tr>
+      <tr>
+        <td><strong>Fire dispatch</strong> via RescueTarget on <strong>building</strong> entity + FireRescueRequest</td>
+        <td><strong>Works</strong></td>
+        <td>As documented, but target must be a building entity</td>
+      </tr>
+      <tr>
+        <td><strong>Police dispatch</strong> via PoliceEmergencyRequest to building target</td>
+        <td><strong>Fails</strong></td>
+        <td>AccidentLocation pathfinding is road-only; floating cars</td>
+      </tr>
+      <tr>
+        <td><strong>Police dispatch</strong> via synthetic AccidentSite on arbitrary entity</td>
+        <td><strong>Fails</strong></td>
+        <td>AccidentSiteSystem strips RequirePolice within ~1 second</td>
+      </tr>
+      <tr>
+        <td><strong>RescueTarget</strong> on citizen entity</td>
+        <td><strong>Fails</strong></td>
+        <td>Corrupts citizen archetype, breaks HealthcareDispatchSystem</td>
       </tr>
     </tbody>
   </table>
@@ -1121,6 +1290,18 @@ EntityManager.AddComponentData(citizenEntity, new RescueTarget(Entity.Null));</c
         If the entity is not on fire and not destroyed, <code>TryExtinguishFire</code> returns <code>false</code>
         immediately and the engine moves on to its next dispatch or returns to the station. It does not idle
         indefinitely. See &quot;Fire Engine AI at Non-Fire RescueTarget&quot; section above.</li>
+    <li><strong>Can police be dispatched to building targets via PoliceEmergencyRequest?</strong>
+        No (in-game tested). <code>AccidentLocation</code> pathfinding is road-only. Police cars
+        targeting buildings float in straight lines instead of following roads. Use ServiceDispatch
+        buffer injection instead.</li>
+    <li><strong>Can synthetic AccidentSites be created on arbitrary entities?</strong>
+        No (in-game tested). <code>AccidentSiteSystem</code> strips <code>RequirePolice</code>
+        within ~1 second if the event lacks valid <code>InvolvedInAccident</code> entities. The site
+        becomes inert almost immediately.</li>
+    <li><strong>Does <code>SecureAccidentSite</code> require an AccidentSite component on the target?</strong>
+        Yes (in-game tested). Without an <code>AccidentSite</code> on the target entity,
+        <code>SecureAccidentSite</code> returns <code>true</code> immediately -- the police car
+        leaves as soon as it arrives.</li>
   </ul>
 
   <!-- ============================================================ -->
