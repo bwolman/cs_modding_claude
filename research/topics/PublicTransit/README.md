@@ -584,6 +584,54 @@ public static class TransportLineSystemOnUpdatePostfix
 }
 ```
 
+## Mod Blueprint: Transport Vehicle Count Adjuster
+
+**Description**: Mods that modify the maximum number of vehicles assignable to a transport line per transport type (Bus, Train, Tram, Ship, Airplane, Subway). This pattern involves replacing core route policy systems and patching the vehicle count UI to support higher limits.
+
+**Reference mod**: [TransportPolicyAdjuster](https://github.com/SonnyX/CS2-TransportPolicyAdjuster)
+
+### Systems to Create
+
+1. **Custom ModifiedSystem** (`GameSystemBase`, registered at `SystemUpdatePhase.Modification4`) -- replaces `Game.Policies.ModifiedSystem` entirely. Replicates the route modifier refresh pipeline with custom max vehicle count logic per transport type.
+
+### Components to Create
+
+- None required. This pattern reuses existing game components: `TransportLineData`, `PolicySliderData`, `RouteModifierData`, `RouteOptionData`, `Route`, `RouteModifier`, `RouteVehicle`, `RouteWaypoint`, `RouteSegment`, `VehicleTiming`, `PathInformation`, `Policy`, `Modify`.
+
+### Harmony Patches Needed
+
+1. **Prefix on `Game.Policies.ModifiedSystem.OnUpdate`** -- disables the vanilla system (return false)
+2. **Prefix on `Game.Policies.RouteModifierInitializeSystem.OnUpdate`** -- disables the vanilla initializer (return false)
+3. **Postfix on `Game.UI.InGame.VehicleCountSection.OnUpdate`** -- adjusts max vehicle count bounds displayed in the UI
+4. **Postfix on `Game.UI.InGame.VehicleCountSection.OnWriteProperties`** -- serializes the custom max vehicle count to the UI
+5. **Prefix on `Game.UI.InGame.VehicleCountSection.OnSetVehicleCount`** -- intercepts vehicle count changes from the UI and applies custom limits
+6. **Reverse patch on `Game.UI.InGame.VehicleCountSection.Visible`** -- preserves original visibility logic while modifying other behavior
+
+### Key Game Components
+
+| Component | Namespace | Role |
+|-----------|-----------|------|
+| `TransportLineData` | Game.Prefabs | Default vehicle interval and transport type per line prefab |
+| `PolicySliderData` | Game.Prefabs | Slider range and step size for policy adjustments |
+| `RouteModifierData` | Game.Prefabs | Defines how a policy modifies route simulation values |
+| `RouteOptionData` | Game.Prefabs | Bitmask of route options a policy activates |
+| `Route` | Game.Routes | Base route entity with option mask |
+| `RouteModifier` | Game.Routes | Per-route modifier buffer (vehicle interval, ticket price) |
+| `VehicleCountSection` | Game.UI.InGame | UI system controlling the vehicle count slider |
+| `TransportLineSystem` | Game.Simulation | Core system that uses `CalculateVehicleCount(vehicleInterval, lineDuration)` |
+| `RouteUtils` | Game.Routes | `ApplyModifier` static method for applying route-level policy modifiers |
+
+### Settings Pattern
+
+- Per-transport-type max vehicle count sliders (Bus, Train, Tram, Ship, Airplane, Subway)
+- Uses `TransportType` enum to map settings to transport modes
+- `IDictionarySource` for localization (not `MemorySource`)
+- Burst-compiled native libraries shipped for performance parity with vanilla systems
+
+### Compatibility Concerns
+
+Incompatible with any mod that also patches `ModifiedSystem`, `RouteModifierInitializeSystem`, or `VehicleCountSection`. Only one mod can replace these systems at a time.
+
 ## Open Questions
 
 - [x] How are transport lines structured as ECS entities? Route + TransportLine components, with child Waypoint and Segment entities
