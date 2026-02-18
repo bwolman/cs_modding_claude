@@ -47,7 +47,7 @@ This entire repository was created by [Claude Code](https://claude.com/claude-co
 5. **Issue tracking** — Work was organized via GitHub Issues (300+ issues created, triaged, and closed)
 6. **Community mod analysis** — Popular open-source mods were analyzed to validate findings and discover undocumented patterns
 
-The human's role was directing what to research and reviewing output. All decompilation, analysis, writing, and HTML generation was performed by Claude.
+The human's role was directing what to research, reviewing output, and in-game testing. Some issues were opened as a result of in-game testing that revealed gaps or inaccuracies in the documentation — these were then triaged and fixed through the same automated pipeline. All decompilation, analysis, writing, and HTML generation was performed by Claude.
 
 ## Project Structure
 
