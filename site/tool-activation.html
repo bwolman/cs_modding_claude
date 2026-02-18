@@ -472,6 +472,152 @@ public static class ToolbarApplyPatch
 }</code></pre>
 
   <!-- ============================================================ -->
+  <h2>toolID Spoofing for Custom Sub-Tools</h2>
+
+  <p>
+    Custom tools can return another tool's <code>toolID</code> to appear as that tool to the game's
+    UI system. This is useful when a mod provides alternative behavior for an existing tool category.
+    The game's UI checks <code>activeTool.toolID</code> to decide which panels, overlays, and toolbar
+    states to show.
+  </p>
+
+  <pre><code class="language-csharp">// BetterBulldozer pattern: custom tool impersonates the vanilla bulldozer
+public class SubElementBulldozerTool : ToolBaseSystem
+{
+    private BulldozeToolSystem m_BulldozeToolSystem;
+
+    // Return the vanilla bulldozer's toolID so the UI shows the bulldozer
+    // panel, toolbar highlight, etc. as if the vanilla tool were active.
+    public override string toolID =&gt; m_BulldozeToolSystem.toolID;
+
+    // ...custom raycast and behavior logic...
+}</code></pre>
+
+  <p>
+    This pattern is used by BetterBulldozer to provide sub-element bulldozing and vehicle/citizen
+    removal while keeping the bulldozer UI active.
+  </p>
+
+  <h2>ToolSystem.tools -- Mutable Tool Registration List</h2>
+
+  <p>
+    <code>ToolSystem.tools</code> is a <code>List&lt;ToolBaseSystem&gt;</code> that is <strong>mutable
+    at runtime</strong>. The game populates it with vanilla tools, and mods can add their own tools
+    to it. The list's iteration order matters for <code>ActivatePrefabTool()</code>, which iterates
+    <code>tools</code> and calls <code>TrySetPrefab()</code> on each -- the first tool that returns
+    <code>true</code> wins.
+  </p>
+
+  <pre><code class="language-csharp">// ToolSystem field
+public List&lt;ToolBaseSystem&gt; tools;
+
+// ActivatePrefabTool iterates the list
+public bool ActivatePrefabTool(PrefabBase prefab)
+{
+    foreach (ToolBaseSystem tool in tools)
+    {
+        if (tool.TrySetPrefab(prefab))
+        {
+            activeTool = tool;
+            return true;
+        }
+    }
+    return false;
+}</code></pre>
+
+  <p>
+    Mods that want their tool to handle certain prefabs (before vanilla tools) should insert at the
+    beginning of the list. Mods that add fallback behavior can append to the end.
+  </p>
+
+  <h2>EventPrefabChanged and activePrefab</h2>
+
+  <p>
+    <code>ToolSystem</code> exposes <code>activePrefab</code> (read-only, returns
+    <code>activeTool.GetPrefab()</code>) and fires <code>EventPrefabChanged</code> when the prefab
+    changes. Mods can subscribe to this event to react to prefab selection:
+  </p>
+
+  <pre><code class="language-csharp">// ToolSystem events
+public event Action&lt;ToolBaseSystem&gt; EventToolChanged;
+public event Action&lt;PrefabBase&gt; EventPrefabChanged;
+
+// activePrefab property
+public PrefabBase activePrefab =&gt; activeTool?.GetPrefab();</code></pre>
+
+  <p>
+    <code>EventPrefabChanged</code> fires during <code>ToolUpdate()</code> when the current tool's
+    <code>GetPrefab()</code> returns a different value than last frame. Both
+    <code>EventToolChanged</code> and <code>EventPrefabChanged</code> subscribers may do more than
+    UI updates -- Anarchy's systems check <code>activeTool.toolID</code> and
+    <code>activePrefab</code> in these handlers to conditionally enable/disable features.
+  </p>
+
+  <h3>Reactivating a Custom Tool on Prefab Change</h3>
+
+  <p>
+    Subscribe to <code>ToolSystem.EventPrefabChanged</code> to reactivate a custom tool when the user
+    selects a different prefab via the toolbar. Use a deferred flag rather than setting
+    <code>activeTool</code> directly inside the event handler to avoid re-entrant tool switching:
+  </p>
+
+  <pre><code class="language-csharp">public partial class CustomPlacementToolSystem : ToolBaseSystem
+{
+    public override string toolID =&gt; "Custom Placement Tool";
+
+    private ToolSystem _toolSystem;
+    private bool _reactivateNextFrame;
+
+    [Preserve]
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+        _toolSystem.EventPrefabChanged += OnPrefabChanged;
+    }
+
+    private void OnPrefabChanged(PrefabBase newPrefab)
+    {
+        // Only react if our tool lost focus due to prefab change
+        if (_toolSystem.activeTool != this &amp;&amp; newPrefab != null)
+        {
+            // Don't set activeTool here -- we're inside event dispatch.
+            // Defer to next frame to avoid re-entrant EventToolChanged.
+            _reactivateNextFrame = true;
+        }
+    }
+
+    [Preserve]
+    protected override JobHandle OnUpdate(JobHandle inputDeps)
+    {
+        if (_reactivateNextFrame)
+        {
+            _reactivateNextFrame = false;
+            _toolSystem.activeTool = this;
+        }
+        // ... normal tool logic ...
+        return inputDeps;
+    }
+
+    public override PrefabBase GetPrefab() =&gt; _toolSystem.activePrefab;
+    public override bool TrySetPrefab(PrefabBase prefab) =&gt; false;
+
+    [Preserve]
+    protected override void OnDestroy()
+    {
+        _toolSystem.EventPrefabChanged -= OnPrefabChanged;
+        base.OnDestroy();
+    }
+}</code></pre>
+
+  <p>
+    <strong>Key pattern:</strong> Setting <code>activeTool</code> inside <code>EventPrefabChanged</code>
+    is technically safe (single-threaded), but causes re-entrant event dispatch --
+    <code>EventToolChanged</code> fires while <code>EventPrefabChanged</code> subscribers are still
+    running. The deferred flag avoids this by waiting until the next <code>OnUpdate</code>.
+  </p>
+
+  <!-- ============================================================ -->
   <h2>EventToolChanged Subscription</h2>
 
   <p>
@@ -533,6 +679,46 @@ public static class ToolbarApplyPatch
 var ecb = m_Barrier.CreateCommandBuffer().AsParallelWriter();
 // Schedule job using ecb...
 m_Barrier.AddJobHandleForProducer(Dependency);</code></pre>
+
+  <h2>OverlayRenderSystem for Custom Overlays</h2>
+
+  <p>
+    Register a system at <code>SystemUpdatePhase.Rendering</code> and use
+    <code>OverlayRenderSystem.GetBuffer()</code> for drawing custom overlays:
+  </p>
+
+  <pre><code class="language-csharp">public partial class CustomOverlaySystem : GameSystemBase
+{
+    private OverlayRenderSystem m_OverlayRenderSystem;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_OverlayRenderSystem = World.GetOrCreateSystemManaged&lt;OverlayRenderSystem&gt;();
+    }
+
+    protected override void OnUpdate()
+    {
+        var buffer = m_OverlayRenderSystem.GetBuffer(out var dependencies);
+        dependencies.Complete();
+
+        // Draw shapes
+        buffer.DrawCircle(color, outlineColor, 0f, styleFlags,
+            new float2(0f, 1f), position, radius);
+        buffer.DrawLine(color, outlineColor, 0f, styleFlags,
+            new Line3.Segment(start, end), width, 1f);
+        buffer.DrawDashedLine(color, outlineColor, 0f, styleFlags,
+            line, width, dashLength, gapLength);
+
+        m_OverlayRenderSystem.AddBufferWriter(Dependency);
+    }
+}</code></pre>
+
+  <p>
+    <strong>Key details:</strong> Use <code>RenderingSettingsData</code> singleton for game-consistent
+    colors. For performance, use <code>[BurstCompile]</code> IJob with <code>Allocator.TempJob</code>.
+    Register at <code>SystemUpdatePhase.Rendering</code>.
+  </p>
 
   <h2>Custom ToolBaseSystem (Picker)</h2>
 

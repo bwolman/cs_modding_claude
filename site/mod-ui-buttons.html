@@ -251,6 +251,7 @@ export default register;</code></pre>
   <tr><td><code>"GameTopLeft"</code></td><td>Top-left toolbar</td><td><code>append</code></td><td>Toolbar buttons alongside vanilla tools</td></tr>
   <tr><td><code>"Game"</code></td><td>Game view root</td><td><code>append</code></td><td>Full panels/overlays during gameplay</td></tr>
   <tr><td><code>"Editor"</code></td><td>Editor view root</td><td><code>append</code></td><td>Panels during map/asset editor</td></tr>
+  <tr><td><code>"GameBottomRight"</code></td><td>Bottom-right area (near chirper)</td><td><code>append</code></td><td>Floating buttons/indicators</td></tr>
   <tr><td>Vanilla component paths</td><td>e.g. <code>"game-ui/.../right-menu.tsx"</code></td><td><code>extend</code></td><td>Wrap/replace vanilla components</td></tr>
 </table>
 
@@ -342,6 +343,73 @@ TypeScript calls trigger(group, name, arg1, arg2, ...)
 <h3>Resolution Order</h3>
 
 <p><code>ValueWriters.Create&lt;T&gt;()</code> resolves in this order: registered writers, then <code>IJsonWritable</code>, then arrays, then <code>IList&lt;T&gt;</code>, then <code>IDictionary&lt;K,V&gt;</code>. If none match, it throws <code>ArgumentException</code>.</p>
+
+<h3>UI Serialization vs ECS Save/Load Serialization</h3>
+
+<p>
+  CS2 has <strong>two separate serialization systems</strong>. Don't confuse them:
+</p>
+
+<table>
+  <thead><tr><th>System</th><th>Namespace</th><th>Interfaces</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td>UI Binding</td><td><code>Colossal.UI.Binding</code></td><td><code>IJsonWritable</code>, <code>IJsonReadable</code></td><td>C# to JS data transfer for UI bindings</td></tr>
+    <tr><td>ECS Persistence</td><td><code>Colossal.Serialization.Entities</code></td><td><code>ISerializable</code> (with <code>IWriter</code>/<code>IReader</code>)</td><td>Save/load game state for ECS components</td></tr>
+  </tbody>
+</table>
+
+<p>
+  The UI binding interfaces use <code>IJsonWriter.Write()</code> / <code>IJsonReader.Read()</code> to
+  serialize data to/from the cohtml frontend. The ECS persistence interfaces use generic
+  <code>Serialize&lt;TWriter&gt;(TWriter writer) where TWriter : IWriter</code> for binary save/load.
+  ECS persistence is automatic for components implementing <code>ISerializable</code>.
+</p>
+
+<!-- ============================================================ -->
+<h2>Auto-Generating TypeScript Types with Reinforced.Typings</h2>
+
+<p>
+  The <a href="https://www.nuget.org/packages/Reinforced.Typings/">Reinforced.Typings</a> NuGet
+  package auto-generates TypeScript type definitions (<code>.d.ts</code> files) from C# types. This
+  keeps the TypeScript side in sync with C# data models passed via <code>ValueBinding</code>.
+</p>
+
+<p><strong>Add to .csproj:</strong></p>
+
+<pre><code class="language-xml">&lt;PackageReference Include="Reinforced.Typings" Version="1.6.5" PrivateAssets="true" /&gt;</code></pre>
+
+<p>
+  The <code>PrivateAssets="true"</code> attribute prevents the package from being included in the
+  mod's published output -- it is a build-time-only tool.
+</p>
+
+<p><strong>Configuration (fluent API):</strong></p>
+
+<pre><code class="language-csharp">using Reinforced.Typings.Fluent;
+
+public static class TypeScriptExportConfig
+{
+    public static void Configure(ConfigurationBuilder builder)
+    {
+        builder.ExportAsInterface&lt;ModPanelData&gt;()
+            .WithPublicProperties();
+        builder.ExportAsEnum&lt;ProgressState&gt;();
+    }
+}</code></pre>
+
+<p><strong>Generated output</strong> (placed in <code>UI/src/domain/</code> by convention):</p>
+
+<pre><code class="language-typescript">// Auto-generated from C# ModPanelData
+export interface ModPanelData {
+    title: string;
+    progress: number;
+    isComplete: boolean;
+}</code></pre>
+
+<p>
+  This pairs naturally with <code>GenericUIWriter&lt;T&gt;</code> -- the writer serializes the C#
+  object, and the generated TypeScript interface describes the shape the React code receives.
+</p>
 
 <!-- ============================================================ -->
 <h2>Full Example: Toolbar Button</h2>
@@ -829,6 +897,338 @@ private async Task DelayedSearch()
   <tr><td><code>--menuText1Normal</code></td><td>Standard menu text color</td></tr>
   <tr><td><code>--normalTextColorLocked</code></td><td>Greyed-out text for disabled controls</td></tr>
 </table>
+
+<!-- ============================================================ -->
+<h2>Low-Level cohtml Communication</h2>
+
+<p>
+  The ValueBinding/TriggerBinding framework is built on top of the cohtml engine's event API. Some
+  mods use this lower-level API directly -- typically when working without a TypeScript build pipeline.
+</p>
+
+<h3>C# Side: View.RegisterForEvent</h3>
+
+<pre><code class="language-csharp">using cohtml.Net;
+
+// Get the cohtml View from the UIManager
+View view = UIManager.defaultUISystem.view.View;
+
+// Register for a named event from JavaScript
+BoundEventHandle handle = view.RegisterForEvent(
+    "MyMod.OnButtonClicked",
+    new Action&lt;string&gt;((data) =&gt;
+    {
+        Mod.Log.Info($"Button clicked with data: {data}");
+    }));
+
+// Fire an event from C# to JavaScript
+view.TriggerEvent("MyMod.DataReady", someJsonString);</code></pre>
+
+<h3>JavaScript Side: engine.trigger / engine.on</h3>
+
+<pre><code class="language-javascript">// Fire an event from JS to C# (calls the RegisterForEvent handler)
+engine.trigger("MyMod.OnButtonClicked", "some-data");
+
+// Listen for events from C# (from View.TriggerEvent)
+engine.on("MyMod.DataReady", function(data) {
+    console.log("Received from C#:", data);
+});</code></pre>
+
+<h3>BoundEventHandle Lifecycle</h3>
+
+<pre><code class="language-csharp">private BoundEventHandle _eventHandle;
+
+protected override void OnCreate()
+{
+    base.OnCreate();
+    View view = UIManager.defaultUISystem.view.View;
+    _eventHandle = view.RegisterForEvent("MyMod.MyEvent", new Action(OnMyEvent));
+}
+
+protected override void OnDestroy()
+{
+    _eventHandle?.Dispose(); // Prevent memory leaks
+    base.OnDestroy();
+}</code></pre>
+
+<p><strong>When to use this pattern:</strong></p>
+<ul>
+  <li>When working without the TypeScript build pipeline (no <code>cs2/api</code> available)</li>
+  <li>When injecting raw HTML/JS via <code>View.ExecuteScript()</code></li>
+  <li>When interfacing with cohtml features not exposed by the binding framework</li>
+</ul>
+
+<p><strong>When to prefer ValueBinding/TriggerBinding:</strong></p>
+<ul>
+  <li>When using the standard TypeScript/React build pipeline</li>
+  <li>When you want automatic dirty-checking and observer management</li>
+  <li>For all new mods -- the binding framework handles serialization and lifecycle automatically</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>Raw DOM Injection via View.ExecuteScript()</h2>
+
+<p>
+  For mods that need UI without a TypeScript build pipeline, <code>View.ExecuteScript()</code> allows
+  injecting raw HTML, CSS, and JavaScript directly into the game's cohtml DOM.
+</p>
+
+<pre><code class="language-csharp">View view = UIManager.defaultUISystem.view.View;
+
+// Inject CSS
+view.ExecuteScript(@"
+    var style = document.createElement('style');
+    style.textContent = `
+        .my-mod-panel {
+            position: absolute; top: 100px; left: 100px;
+            background: rgba(0, 0, 0, 0.8); color: white;
+            padding: 12px; border-radius: 4px; z-index: 1000;
+        }
+    `;
+    document.head.appendChild(style);
+");
+
+// Inject HTML
+view.ExecuteScript(@"
+    var panel = document.createElement('div');
+    panel.id = 'my-mod-panel';
+    panel.className = 'my-mod-panel';
+    panel.innerHTML = '&lt;h3&gt;My Mod&lt;/h3&gt;&lt;button id=""my-mod-btn""&gt;Click Me&lt;/button&gt;';
+    document.body.appendChild(panel);
+");
+
+// Wire up events back to C# via engine.trigger
+view.ExecuteScript(@"
+    document.getElementById('my-mod-btn').addEventListener('click', function() {
+        engine.trigger('MyMod.ButtonClicked');
+    });
+");</code></pre>
+
+<h3>Cleanup on Dispose</h3>
+
+<pre><code class="language-csharp">protected override void OnDestroy()
+{
+    View view = UIManager.defaultUISystem.view.View;
+    view.ExecuteScript(
+        "var el = document.getElementById('my-mod-panel'); if (el) el.remove();");
+    base.OnDestroy();
+}</code></pre>
+
+<p><strong>Trade-offs:</strong></p>
+<ul>
+  <li>No TypeScript build pipeline required -- all UI is plain strings in C#</li>
+  <li>No React component lifecycle, no <code>useValue</code> hooks, no scoped SCSS</li>
+  <li>Fragile -- game CSS class names may change between updates</li>
+  <li>Best suited for simple overlays, debug panels, or mods that need minimal UI</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>TooltipSystemBase</h2>
+
+<p>
+  <code>TooltipSystemBase</code> (in <code>Game.UI.Tooltip</code>) is the base class for systems that
+  display custom tooltips over game objects. It runs at <code>SystemUpdatePhase.UITooltip</code>.
+</p>
+
+<h3>Key Types</h3>
+
+<table>
+  <thead><tr><th>Type</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>TooltipSystemBase</code></td><td>Abstract base class; extends <code>UISystemBase</code></td></tr>
+    <tr><td><code>TooltipGroup</code></td><td>Groups tooltip widgets into a positioned bubble</td></tr>
+    <tr><td><code>IntTooltip</code></td><td>Displays an integer value with label and icon</td></tr>
+    <tr><td><code>StringTooltip</code></td><td>Displays a localized string</td></tr>
+    <tr><td><code>FloatTooltip</code></td><td>Displays a float value</td></tr>
+  </tbody>
+</table>
+
+<h3>WorldToTooltipPos</h3>
+
+<p>
+  Converts a world-space position (e.g., from a raycast hit) to tooltip screen coordinates:
+</p>
+
+<pre><code class="language-csharp">float3 worldPos = raycastHit.m_Position;
+TooltipGroup group = new TooltipGroup();
+group.position = WorldToTooltipPos(worldPos);</code></pre>
+
+<h3>Example: Custom Tool Tooltip</h3>
+
+<pre><code class="language-csharp">public partial class MyToolTooltipSystem : TooltipSystemBase
+{
+    private ToolSystem _toolSystem;
+    private IntTooltip _countTooltip;
+    private StringTooltip _labelTooltip;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _toolSystem = World.GetOrCreateSystemManaged&lt;ToolSystem&gt;();
+        _countTooltip = new IntTooltip
+        {
+            path = "MyMod.Count",
+            icon = "coui://mymod/icons/counter.svg",
+            label = LocalizedString.Id("MyMod.CountLabel")
+        };
+        _labelTooltip = new StringTooltip { path = "MyMod.Label" };
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_toolSystem.activeTool !=
+            World.GetOrCreateSystemManaged&lt;MyCustomToolSystem&gt;())
+            return;
+
+        _countTooltip.value = GetCurrentCount();
+        _labelTooltip.value = LocalizedString.Id("MyMod.CurrentLabel");
+
+        TooltipGroup group = new TooltipGroup();
+        group.position = WorldToTooltipPos(_toolSystem.raycastPoint);
+        group.path = "MyMod.ToolTooltip";
+        group.children.Add(_countTooltip);
+        group.children.Add(_labelTooltip);
+        AddGroup(group);
+    }
+}
+
+// Registration: updateSystem.UpdateAt&lt;MyToolTooltipSystem&gt;(SystemUpdatePhase.UITooltip);</code></pre>
+
+<!-- ============================================================ -->
+<h2>NotificationSystem and MessageDialog</h2>
+
+<p>
+  CS2 provides built-in systems for notification banners and modal dialogs.
+</p>
+
+<h3>NotificationSystem.Push / Pop</h3>
+
+<pre><code class="language-csharp">var notificationSystem = World.GetOrCreateSystemManaged&lt;NotificationSystem&gt;();
+
+// Push a notification banner
+notificationSystem.Push(
+    "my-mod-notification",
+    title: LocalizedString.Id("MyMod.NotifTitle"),
+    text: LocalizedString.Id("MyMod.NotifText"),
+    progressState: ProgressState.Complete,
+    progress: 100);
+
+// Remove when done
+notificationSystem.Pop("my-mod-notification");</code></pre>
+
+<h3>ProgressState Enum</h3>
+
+<table>
+  <thead><tr><th>Value</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr><td><code>ProgressState.None</code></td><td>No progress indicator</td></tr>
+    <tr><td><code>ProgressState.Indeterminate</code></td><td>Spinning/loading indicator</td></tr>
+    <tr><td><code>ProgressState.Progressing</code></td><td>Shows progress bar</td></tr>
+    <tr><td><code>ProgressState.Complete</code></td><td>Checkmark/success indicator</td></tr>
+    <tr><td><code>ProgressState.Failed</code></td><td>Error/failure indicator</td></tr>
+    <tr><td><code>ProgressState.Warning</code></td><td>Warning indicator</td></tr>
+  </tbody>
+</table>
+
+<h3>MessageDialog</h3>
+
+<p>
+  <code>MessageDialog</code> displays a modal dialog that blocks interaction until dismissed:
+</p>
+
+<pre><code class="language-csharp">MessageDialog.Show(
+    LocalizedString.Id("MyMod.ConfirmTitle"),
+    LocalizedString.Id("MyMod.ConfirmMessage"),
+    LocalizedString.Id("Common.OK"),
+    LocalizedString.Id("Common.CANCEL"),
+    onClicked: (int buttonIndex) =&gt;
+    {
+        // 0 = primary button (OK), 1 = secondary (Cancel)
+        if (buttonIndex == 0)
+            ExecuteConfirmedAction();
+    }
+);</code></pre>
+
+<p>
+  Use <code>NotificationSystem</code> for non-blocking status updates and <code>MessageDialog</code>
+  for actions requiring confirmation.
+</p>
+
+<!-- ============================================================ -->
+<h2>npm-Based UI Build Pipeline</h2>
+
+<p>
+  Complex mods use a TypeScript/React build pipeline in a <code>UI/</code> directory. The build is
+  triggered as a post-build MSBuild target:
+</p>
+
+<pre><code class="language-xml">&lt;!-- In .csproj --&gt;
+&lt;Target Name="BuildUI" AfterTargets="AfterBuild"&gt;
+    &lt;Exec Command="npm run build" WorkingDirectory="$(ProjectDir)UI" /&gt;
+&lt;/Target&gt;</code></pre>
+
+<p><strong>Key TS APIs for C# to UI communication:</strong></p>
+<ul>
+  <li><code>bindValue&lt;T&gt;(group, key)</code> -- read a C# <code>GetterValueBinding</code> value</li>
+  <li><code>useValue&lt;T&gt;(binding)</code> -- React hook for reactive binding values</li>
+  <li><code>trigger(group, key, ...args)</code> -- invoke a C# <code>TriggerBinding</code></li>
+  <li><code>moduleRegistry.extend(path, export, Component)</code> -- inject into vanilla UI</li>
+</ul>
+
+<p>
+  <strong>Styling:</strong> Use SCSS modules (<code>*.module.scss</code>) for scoped styling, referencing
+  game CSS variables (<code>--panelColorNormal</code>, <code>--accentColorNormal</code>, etc.).
+</p>
+
+<!-- ============================================================ -->
+<h2>Info Panel Section Injection</h2>
+
+<p>Three techniques for injecting into the building info panel:</p>
+
+<h3>1. Subscribe to selectedInfo.middleSections$</h3>
+
+<pre><code class="language-typescript">import { selectedInfo } from "cs2/bindings";
+selectedInfo.middleSections$.subscribe(sections =&gt; {
+    // Inject custom section types
+});</code></pre>
+
+<h3>2. Extend selectedInfoSectionComponents</h3>
+
+<pre><code class="language-typescript">moduleRegistry.extend(
+    "game-ui/game/components/selected-info-panel/" +
+        "selected-info-sections/selected-info-sections.tsx",
+    'selectedInfoSectionComponents',
+    MyInfoComponent
+);</code></pre>
+
+<h3>3. C# Side: Provide Data via Bindings</h3>
+
+<pre><code class="language-csharp">AddUpdateBinding(new GetterValueBinding&lt;bool&gt;("MyMod", "IsLocked",
+    () =&gt; EntityManager.HasComponent&lt;LevelLocked&gt;(selectedEntity)));
+
+AddBinding(new TriggerBinding&lt;Entity&gt;("MyMod", "ToggleLock",
+    entity =&gt; ToggleLockComponent(entity)));</code></pre>
+
+<p>
+  <strong>Key TS APIs:</strong> <code>selectedInfo.selectedEntity$</code>,
+  <code>selectedInfo.middleSections$</code>, <code>InfoSection</code> / <code>InfoRow</code>
+  vanilla components for consistent styling.
+</p>
+
+<!-- ============================================================ -->
+<h2>Independent Sub-Menu Sections</h2>
+
+<p>
+  Sub-menu sections (e.g., Residential, Commercial, Industrial data panels) can persist independently
+  of their parent menu. They're rendered unconditionally at the component root so they stay visible
+  when the main menu closes:
+</p>
+
+<pre><code class="language-typescript">// Always render sub-menus regardless of main menu state.
+// Each manages its own visibility binding.
+&lt;ResidentialMenuButton /&gt;
+&lt;IndustrialMenuButton /&gt;
+&lt;CommercialMenuButton /&gt;</code></pre>
 
 <!-- ============================================================ -->
 <h2>Open Questions</h2>

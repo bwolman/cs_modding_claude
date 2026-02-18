@@ -130,7 +130,7 @@ public class MyModSettings : ModSetting
 
 <h3>2. Register: Wire It Up in OnLoad</h3>
 
-<p>In your <code>IMod.OnLoad()</code>, you call three methods in this exact order:</p>
+<p>In your <code>IMod.OnLoad()</code>, you call three methods. A common ordering is:</p>
 
 <pre><code class="language-csharp">public void OnLoad(UpdateSystem updateSystem)
 {
@@ -144,7 +144,7 @@ public class MyModSettings : ModSetting
     updateSystem.UpdateAt&lt;MyHotkeySystem&gt;(SystemUpdatePhase.MainLoop);
 }</code></pre>
 
-<p>Order matters. <code>RegisterKeyBindings()</code> must come last because it reads the binding values that may have been overwritten by <code>LoadSettings()</code>. It builds <code>ProxyAction.Info</code> structs, calls <code>InputManager.AddActions()</code>, and creates watchers that auto-sync your properties when the player rebinds.</p>
+<p><strong>Order is flexible</strong>: All three calls must happen, but the order does not appear to be strict. Working mods use different orderings -- e.g., yenyang's mods call <code>RegisterKeyBindings()</code> first, then <code>RegisterInOptionsUI()</code>, then <code>LoadSettings()</code>. The <code>ProxyBinding.Watcher</code> mechanism handles deferred sync when saved rebindings are loaded after actions are registered. <code>RegisterKeyBindings()</code> builds <code>ProxyAction.Info</code> structs, calls <code>InputManager.AddActions()</code>, and creates watchers that auto-sync your properties when the player rebinds.</p>
 
 <h3>3. Read: Poll or Subscribe in a System</h3>
 
@@ -157,8 +157,12 @@ public class MyModSettings : ModSetting
     protected override void OnCreate()
     {
         base.OnCreate();
-        _triggerAction = InputManager.instance.FindAction(
-            Mod.Settings.id, "TriggerAction");
+        // Option A: Use ModSetting.GetAction() (preferred -- auto-fills map name)
+        _triggerAction = Mod.Settings.GetAction("TriggerAction");
+
+        // Option B: Manual lookup via InputManager
+        // _triggerAction = InputManager.instance.FindAction(
+        //     Mod.Settings.id, "TriggerAction");
     }
 
     protected override void OnUpdate()
@@ -170,7 +174,7 @@ public class MyModSettings : ModSetting
     }
 }</code></pre>
 
-<p>The map name is <code>ModSetting.id</code>, which has the format <code>{AssemblyName}.{Namespace}.{ModType}</code>.</p>
+<p>The map name is <code>ModSetting.id</code>, which has the format <code>{AssemblyName}.{Namespace}.{ModType}</code>. The <code>GetAction()</code> convenience method auto-fills this map name, so you only need to pass the action name.</p>
 
 <!-- ============================================================ -->
 <h2>Data Flow</h2>
@@ -224,8 +228,11 @@ Player rebinds in Options UI
   <tr><td><code>instance</code></td><td>InputManager</td><td>Singleton accessor</td></tr>
   <tr><td><code>FindAction(map, action)</code></td><td>ProxyAction</td><td>Look up an action by map and name</td></tr>
   <tr><td><code>TryFindAction(map, action, out)</code></td><td>bool</td><td>Safe lookup, returns false if not found</td></tr>
+  <tr><td><code>FindActionMap(name)</code></td><td>ProxyActionMap</td><td>Look up an action map by name</td></tr>
   <tr><td><code>AddActions(ProxyAction.Info[])</code></td><td>void</td><td>Register new actions (called by RegisterKeyBindings)</td></tr>
   <tr><td><code>SetBinding(binding, out result)</code></td><td>void</td><td>Set or rebind a binding</td></tr>
+  <tr><td><code>GetBindings(pathType, options)</code></td><td>IEnumerable&lt;ProxyBinding&gt;</td><td>Get all bindings</td></tr>
+  <tr><td><code>CreateMapBarrier(map, name)</code></td><td>InputBarrier</td><td>Block all actions in a map</td></tr>
   <tr><td><code>CreateActionBarrier(map, action, name)</code></td><td>InputBarrier</td><td>Block a specific action from processing input</td></tr>
   <tr><td><code>DeferUpdating()</code></td><td>IDisposable</td><td>Defer binding resolution until disposed</td></tr>
 </table>
@@ -234,13 +241,16 @@ Player rebinds in Options UI
 
 <table>
   <tr><th>Constant</th><th>Value</th></tr>
+  <tr><td><code>kSplashScreenMap</code></td><td>"Splash screen"</td></tr>
   <tr><td><code>kNavigationMap</code></td><td>"Navigation"</td></tr>
   <tr><td><code>kMenuMap</code></td><td>"Menu"</td></tr>
   <tr><td><code>kCameraMap</code></td><td>"Camera"</td></tr>
   <tr><td><code>kToolMap</code></td><td>"Tool"</td></tr>
   <tr><td><code>kShortcutsMap</code></td><td>"Shortcuts"</td></tr>
+  <tr><td><code>kPhotoModeMap</code></td><td>"Photo mode"</td></tr>
   <tr><td><code>kEditorMap</code></td><td>"Editor"</td></tr>
   <tr><td><code>kDebugMap</code></td><td>"Debug"</td></tr>
+  <tr><td><code>kEngagementMap</code></td><td>"Engagement"</td></tr>
 </table>
 
 <h4>Modifier Path Constants</h4>
@@ -250,11 +260,28 @@ Player rebinds in Options UI
   <tr><td><code>kShiftName</code></td><td><code>&lt;Keyboard&gt;/shift</code></td></tr>
   <tr><td><code>kCtrlName</code></td><td><code>&lt;Keyboard&gt;/ctrl</code></td></tr>
   <tr><td><code>kAltName</code></td><td><code>&lt;Keyboard&gt;/alt</code></td></tr>
+  <tr><td><code>kLeftStick</code></td><td><code>&lt;Gamepad&gt;/leftStickPress</code></td></tr>
+  <tr><td><code>kRightStick</code></td><td><code>&lt;Gamepad&gt;/rightStickPress</code></td></tr>
 </table>
 
 <h3>ProxyAction</h3>
 
 <p>Wraps a Unity <code>InputAction</code>. This is what you poll each frame or subscribe to for events.</p>
+
+<h4>Key Properties</h4>
+
+<table>
+  <tr><th>Member</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>name</code></td><td>string</td><td>Action name</td></tr>
+  <tr><td><code>mapName</code></td><td>string</td><td>Parent map name</td></tr>
+  <tr><td><code>enabled</code></td><td>bool</td><td>Whether action is currently enabled</td></tr>
+  <tr><td><code>isKeyboardAction</code></td><td>bool</td><td>Has keyboard composite</td></tr>
+  <tr><td><code>isMouseAction</code></td><td>bool</td><td>Has mouse composite</td></tr>
+  <tr><td><code>isGamepadAction</code></td><td>bool</td><td>Has gamepad composite</td></tr>
+  <tr><td><code>shouldBeEnabled</code></td><td>bool</td><td>Set to true/false to enable/disable (non-built-in actions only)</td></tr>
+  <tr><td><code>composites</code></td><td>IReadOnlyDictionary&lt;DeviceType, ProxyComposite&gt;</td><td>Per-device composites</td></tr>
+  <tr><td><code>bindings</code></td><td>IEnumerable&lt;ProxyBinding&gt;</td><td>All bindings across composites</td></tr>
+</table>
 
 <h4>Polling Methods</h4>
 
@@ -264,8 +291,20 @@ Player rebinds in Options UI
   <tr><td><code>IsPressed()</code></td><td>bool</td><td>Fire every frame while held (hold-to-activate)</td></tr>
   <tr><td><code>WasReleasedThisFrame()</code></td><td>bool</td><td>Fire once on key-up (end hold)</td></tr>
   <tr><td><code>WasPerformedThisFrame()</code></td><td>bool</td><td>Fire when action fully performed</td></tr>
+  <tr><td><code>IsInProgress()</code></td><td>bool</td><td>True while action is in progress</td></tr>
   <tr><td><code>ReadValue&lt;T&gt;()</code></td><td>T</td><td>Read value for Axis/Vector2 actions</td></tr>
+  <tr><td><code>GetMagnitude()</code></td><td>float</td><td>Get current magnitude</td></tr>
 </table>
+
+<h4>Other Methods</h4>
+
+<table>
+  <tr><th>Method</th><th>Returns</th><th>Description</th></tr>
+  <tr><td><code>CreateBarrier(name, mask)</code></td><td>InputBarrier</td><td>Block this action from processing input</td></tr>
+  <tr><td><code>CreateActivator(name, mask)</code></td><td>InputActivator</td><td>Enable this action for specific devices</td></tr>
+</table>
+
+<p>Nested type: <code>ProxyAction.Info</code> is a blueprint struct with fields <code>m_Name</code>, <code>m_Map</code>, <code>m_Type</code>, <code>m_Composites</code>.</p>
 
 <h4>Event Subscription</h4>
 
@@ -290,16 +329,59 @@ action.onInteraction += (action, phase) =&gt;
   <tr><td><code>m_Component</code></td><td>ActionComponent</td><td>Press, Negative, Positive, etc.</td></tr>
 </table>
 
-<p>Key properties: <code>isSet</code> (path non-empty), <code>isBuiltIn</code> (game-original), <code>isRebindable</code> (player can change), <code>hasConflicts</code> (binding collisions).</p>
+<h4>Key Properties</h4>
 
-<p>The nested type <code>ProxyBinding.Watcher</code> auto-syncs your property values when the player rebinds in the Options UI.</p>
+<table>
+  <tr><th>Property</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>path</code></td><td>string</td><td>Get/set the key path</td></tr>
+  <tr><td><code>modifiers</code></td><td>IReadOnlyList&lt;ProxyModifier&gt;</td><td>Get/set modifier keys</td></tr>
+  <tr><td><code>isSet</code></td><td>bool</td><td>True if path is non-empty</td></tr>
+  <tr><td><code>isBuiltIn</code></td><td>bool</td><td>True if this is a game-original binding</td></tr>
+  <tr><td><code>isRebindable</code></td><td>bool</td><td>True if player can rebind</td></tr>
+  <tr><td><code>hasConflicts</code></td><td>ConflictType</td><td>Whether this binding conflicts with others</td></tr>
+  <tr><td><code>conflicts</code></td><td>IList&lt;ProxyBinding&gt;</td><td>List of conflicting bindings</td></tr>
+  <tr><td><code>action</code></td><td>ProxyAction</td><td>Resolved action this binding belongs to</td></tr>
+  <tr><td><code>title</code></td><td>string</td><td><code>mapName/actionName/name</code></td></tr>
+</table>
+
+<p>Nested types:</p>
+<ul>
+  <li><code>ProxyBinding.Watcher</code> -- watches for rebinding changes, auto-syncs property values.</li>
+  <li><code>ProxyBinding.Comparer</code> -- configurable equality comparer.</li>
+  <li><code>ProxyBinding.ConflictType</code> -- None, WithBuiltIn, WithNotBuiltIn, All.</li>
+</ul>
+
+<h3>ProxyModifier</h3>
+
+<p>Struct representing a modifier key attached to a binding.</p>
+
+<table>
+  <tr><th>Field</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>m_Component</code></td><td>ActionComponent</td><td>Component this modifier applies to</td></tr>
+  <tr><td><code>m_Name</code></td><td>string</td><td>Modifier name (e.g. "modifier")</td></tr>
+  <tr><td><code>m_Path</code></td><td>string</td><td>Unity input path (e.g. <code>&lt;Keyboard&gt;/shift</code>)</td></tr>
+</table>
+
+<h3>ModSetting (Keybinding Lifecycle)</h3>
+
+<p>Base class for mod settings. Handles keybinding registration lifecycle.</p>
+
+<table>
+  <tr><th>Member</th><th>Type</th><th>Description</th></tr>
+  <tr><td><code>id</code></td><td>string</td><td>Unique ID: <code>{AssemblyName}.{Namespace}.{ModType}</code></td></tr>
+  <tr><td><code>keyBindingRegistered</code></td><td>bool</td><td>Whether RegisterKeyBindings has been called</td></tr>
+  <tr><td><code>RegisterInOptionsUI()</code></td><td>void</td><td>Registers settings page in Options screen</td></tr>
+  <tr><td><code>RegisterKeyBindings()</code></td><td>void</td><td>Reads all ProxyBinding properties, builds ProxyAction.Info[], calls InputManager.AddActions(), creates watchers</td></tr>
+  <tr><td><code>InitializeKeyBindings()</code></td><td>void</td><td>Called in constructor. Reads binding attributes via reflection, sets initial ProxyBinding values</td></tr>
+  <tr><td><code>GetAction(actionName)</code></td><td>ProxyAction</td><td>Convenience wrapper: returns <code>InputManager.instance.FindAction(id, actionName)</code>. Preferred over manual FindAction calls since it auto-fills the map name from <code>settings.id</code></td></tr>
+</table>
 
 <!-- ============================================================ -->
 <h2>Settings Attributes</h2>
 
 <h3>SettingsUIKeyboardAction (class-level)</h3>
 
-<p>Applied to the settings class. Declares an input action. Use <code>AllowMultiple = true</code> to declare several actions on one class.</p>
+<p>Applied to the settings class. Declares an input action. Use <code>AllowMultiple = true</code> to declare several actions on one class. <strong>This attribute is optional</strong> -- if omitted, <code>RegisterKeyBindings()</code> auto-creates actions from <code>[SettingsUIKeyboardBinding]</code> properties using default <code>ActionType.Button</code> settings. Explicit class-level attributes give you control over <code>ActionType</code>, <code>usages</code>, <code>rebindOptions</code>, and other parameters. (Yenyang's Recolor mod successfully uses keybindings without any <code>[SettingsUIKeyboardAction]</code> class attributes.)</p>
 
 <table>
   <tr><th>Parameter</th><th>Type</th><th>Default</th><th>Description</th></tr>
@@ -308,6 +390,11 @@ action.onInteraction += (action, phase) =&gt;
   <tr><td><code>rebindOptions</code></td><td>RebindOptions</td><td>All</td><td>What the player can rebind (Key, Modifiers, All)</td></tr>
   <tr><td><code>modifierOptions</code></td><td>ModifierOptions</td><td>Allow</td><td>Whether modifiers are allowed</td></tr>
   <tr><td><code>canBeEmpty</code></td><td>bool</td><td>true</td><td>Whether the binding can be unset</td></tr>
+  <tr><td><code>developerOnly</code></td><td>bool</td><td>false</td><td>Hide from non-developer users</td></tr>
+  <tr><td><code>mode</code></td><td>Mode</td><td>DigitalNormalized</td><td>Input processing mode</td></tr>
+  <tr><td><code>usages</code></td><td>string[]</td><td>null</td><td>Custom usage tags</td></tr>
+  <tr><td><code>interactions</code></td><td>string[]</td><td>null</td><td>Unity Input System interactions</td></tr>
+  <tr><td><code>processors</code></td><td>string[]</td><td>null</td><td>Unity Input System processors</td></tr>
 </table>
 
 <h3>SettingsUIKeyboardBinding (property-level)</h3>
@@ -504,7 +591,7 @@ public void OnTextFieldBlurred()
 <ul>
   <li><strong>Map name</strong> is <code>ModSetting.id</code> (format: <code>{Assembly}.{Namespace}.{ModType}</code>).</li>
   <li><strong>Action name</strong> in <code>[SettingsUIKeyboardBinding]</code> must match the name in <code>[SettingsUIKeyboardAction]</code>. If omitted, it defaults to the property name.</li>
-  <li><strong>Registration order</strong> matters: <code>RegisterInOptionsUI()</code> then <code>LoadSettings()</code> then <code>RegisterKeyBindings()</code>.</li>
+  <li><strong>Registration order</strong> is flexible: all three calls (<code>RegisterInOptionsUI()</code>, <code>LoadSettings()</code>, <code>RegisterKeyBindings()</code>) must happen, but working mods use different orderings successfully.</li>
   <li><strong>Rebinding</strong> comes free with <code>RegisterInOptionsUI()</code> -- players see bindings in Options and can change them.</li>
   <li><strong>Persistence</strong> is automatic via <code>AssetDatabase</code>.</li>
   <li><strong>Barriers</strong> block input temporarily; <strong>Activators</strong> enable/disable per device type.</li>
@@ -536,6 +623,141 @@ var builtInBinding = builtInApply.bindings
 mimicBinding.path = builtInBinding.path;
 mimicBinding.modifiers = builtInBinding.modifiers;
 InputManager.instance.SetBinding(mimicBinding, out _);</code></pre>
+
+<h3>Mirroring Vanilla Keybindings with ProxyBinding.Watcher</h3>
+
+<p>Use <code>ProxyBinding.Watcher</code> to automatically keep a mod action in sync with a vanilla keybinding. When the player rebinds the vanilla action, the watcher fires a callback so you can copy the new binding to your mod's action.</p>
+
+<pre><code class="language-csharp">using Game.Input;
+using Game.Modding;
+
+public partial class MirrorBindingSystem : GameSystemBase
+{
+    private ProxyAction _modApplyAction;
+    private ProxyBinding.Watcher _vanillaWatcher;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _modApplyAction = Mod.Settings.GetAction("ModApply");
+
+        // Find the vanilla Apply action to mirror
+        var vanillaApply = InputManager.instance.FindAction(
+            InputManager.kToolMap, "Apply");
+
+        // Get the vanilla action's current mouse binding
+        var vanillaBinding = vanillaApply.bindings
+            .FirstOrDefault(b =&gt; b.m_Device == InputManager.DeviceType.Mouse);
+
+        // Copy it to our mod action immediately
+        CopyBindingToModAction(vanillaBinding);
+
+        // Create a watcher that fires whenever the vanilla binding changes
+        _vanillaWatcher = new ProxyBinding.Watcher(
+            vanillaBinding,
+            OnVanillaBindingChanged);
+    }
+
+    private void OnVanillaBindingChanged(ProxyBinding updatedBinding)
+    {
+        // Player rebinds the vanilla Apply action -- mirror it to our action
+        CopyBindingToModAction(updatedBinding);
+    }
+
+    private void CopyBindingToModAction(ProxyBinding sourceBinding)
+    {
+        // Find our mod action's corresponding binding
+        var modBinding = _modApplyAction.bindings
+            .FirstOrDefault(b =&gt; b.m_Device == sourceBinding.m_Device);
+
+        if (modBinding.isSet || sourceBinding.isSet)
+        {
+            // Use ProxyBinding.Copy() to clone path and modifiers
+            var copied = ProxyBinding.Copy(sourceBinding, modBinding);
+
+            // Apply the copied binding via InputManager
+            InputManager.instance.SetBinding(copied, out _);
+        }
+    }
+
+    protected override void OnDestroy()
+    {
+        // Dispose the watcher to stop receiving callbacks
+        _vanillaWatcher?.Dispose();
+        _vanillaWatcher = null;
+        base.OnDestroy();
+    }
+
+    protected override void OnUpdate() { }
+}</code></pre>
+
+<p>Key techniques:</p>
+<ul>
+  <li><strong><code>ProxyBinding.Watcher</code></strong>: Watches a specific binding for changes. The constructor takes the binding to watch and a callback delegate.</li>
+  <li><strong><code>ProxyBinding.Copy(source, target)</code></strong>: Creates a new <code>ProxyBinding</code> that copies <code>path</code> and <code>modifiers</code> from the source into the target's map/action/device context.</li>
+  <li><strong><code>InputManager.instance.SetBinding(binding, out result)</code></strong>: Applies a binding change. Must be called after modifying binding properties.</li>
+  <li><strong>Disposal lifecycle</strong>: Always dispose the watcher in <code>OnDestroy()</code> to prevent callbacks on a destroyed system. Watchers hold references that prevent garbage collection if not disposed.</li>
+</ul>
+
+<p>Use this pattern when your mod adds a tool that should use the same mouse button as the vanilla Apply/Cancel actions and you want it to stay in sync when the player rebinds.</p>
+
+<h3>Raw Unity InputAction for Modifier+Mouse Combos</h3>
+
+<p>The <code>ProxyAction</code> / <code>ModSettings</code> attribute system does not support modifier key + mouse button combinations (e.g., Ctrl+Right Click). For these cases, fall back to Unity's <code>InputAction</code> API directly with a <code>ButtonWithOneModifier</code> composite.</p>
+
+<pre><code class="language-csharp">using Game;
+using UnityEngine.InputSystem;
+
+/// &lt;summary&gt;
+/// Registers a raw Unity InputAction for Ctrl+Right Click.
+/// This bypasses the CO ProxyAction system because ProxyAction does not
+/// support modifier+mouse button composites.
+/// &lt;/summary&gt;
+public partial class CtrlClickSystem : GameSystemBase
+{
+    private InputAction _ctrlRightClick;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Create a raw Unity InputAction with a ButtonWithOneModifier composite.
+        // "modifier" is the modifier key, "button" is the primary input.
+        _ctrlRightClick = new InputAction("CtrlRightClick", type: InputActionType.Button);
+        _ctrlRightClick.AddCompositeBinding("ButtonWithOneModifier")
+            .With("modifier", "&lt;Keyboard&gt;/ctrl")
+            .With("button", "&lt;Mouse&gt;/rightButton");
+
+        _ctrlRightClick.Enable();
+    }
+
+    protected override void OnUpdate()
+    {
+        if (_ctrlRightClick.WasPressedThisFrame())
+        {
+            // Ctrl+Right Click detected
+            Mod.Log.Info("Ctrl+Right Click pressed");
+        }
+    }
+
+    protected override void OnDestroy()
+    {
+        // Always disable and dispose raw InputActions
+        _ctrlRightClick?.Disable();
+        _ctrlRightClick?.Dispose();
+        _ctrlRightClick = null;
+        base.OnDestroy();
+    }
+}</code></pre>
+
+<p>Key points:</p>
+<ul>
+  <li><strong><code>ButtonWithOneModifier</code></strong> is a Unity Input System composite that requires one modifier key to be held while the button is pressed. For two modifiers, use <code>ButtonWithTwoModifiers</code>.</li>
+  <li><strong>Modifier path</strong>: Use Unity input paths like <code>&lt;Keyboard&gt;/ctrl</code>, <code>&lt;Keyboard&gt;/shift</code>, <code>&lt;Keyboard&gt;/alt</code>.</li>
+  <li><strong>Button path</strong>: Use <code>&lt;Mouse&gt;/leftButton</code>, <code>&lt;Mouse&gt;/rightButton</code>, <code>&lt;Mouse&gt;/middleButton</code>, or any other input path.</li>
+  <li><strong>No rebinding UI</strong>: Raw <code>InputAction</code> objects are not registered with <code>InputManager</code> and will not appear in the game's Options screen. Players cannot rebind them. Use this only as a last resort when <code>ProxyAction</code> cannot express the desired binding.</li>
+  <li><strong>Lifecycle</strong>: Always call <code>Disable()</code> and <code>Dispose()</code> on raw <code>InputAction</code> objects in <code>OnDestroy()</code>. Unlike <code>ProxyAction</code>, these are not managed by the CO input framework.</li>
+</ul>
 
 <h2>Open Questions</h2>
 

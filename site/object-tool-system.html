@@ -238,6 +238,38 @@
     flag) commits the object.
   </p>
 
+  <h3>ControlPoint</h3>
+  <p>Represents a raycast hit point used by tools for positioning.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_Position</code></td><td>float3</td><td>Snapped world position</td></tr>
+      <tr><td><code>m_HitPosition</code></td><td>float3</td><td>Raw raycast hit position</td></tr>
+      <tr><td><code>m_Direction</code></td><td>float2</td><td>Placement direction</td></tr>
+      <tr><td><code>m_HitDirection</code></td><td>float3</td><td>Surface normal at hit point</td></tr>
+      <tr><td><code>m_Rotation</code></td><td>quaternion</td><td>Snap-influenced rotation</td></tr>
+      <tr><td><code>m_OriginalEntity</code></td><td>Entity</td><td>Entity that was hit by the raycast</td></tr>
+      <tr><td><code>m_SnapPriority</code></td><td>float2</td><td>Snap priority values</td></tr>
+      <tr><td><code>m_ElementIndex</code></td><td>int2</td><td>Element/cell index for grid snapping</td></tr>
+      <tr><td><code>m_CurvePosition</code></td><td>float</td><td>Curve position for edge snapping</td></tr>
+      <tr><td><code>m_Elevation</code></td><td>float</td><td>Elevation at hit point</td></tr>
+    </tbody>
+  </table>
+
+  <h3>PlaceableObjectData</h3>
+  <p>Prefab component controlling placement behavior.</p>
+  <table>
+    <thead><tr><th>Field</th><th>Type</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>m_PlacementOffset</code></td><td>float3</td><td>Offset from placement point</td></tr>
+      <tr><td><code>m_ConstructionCost</code></td><td>uint</td><td>Cost to place the object</td></tr>
+      <tr><td><code>m_XPReward</code></td><td>int</td><td>XP earned on placement</td></tr>
+      <tr><td><code>m_DefaultProbability</code></td><td>byte</td><td>Default spawn probability</td></tr>
+      <tr><td><code>m_RotationSymmetry</code></td><td>RotationSymmetry</td><td>Any (free rotation disabled), None (full rotation), etc.</td></tr>
+      <tr><td><code>m_Flags</code></td><td>PlacementFlags</td><td>Placement behavior flags</td></tr>
+    </tbody>
+  </table>
+
   <!-- ============================================================ -->
   <h2>Snapping System</h2>
 
@@ -275,6 +307,44 @@ Lowered = 0x2000     // Below grade
 Construction = 0x8000 // Under construction
 Duplicate = 0x20000  // Duplicate existing
 Stamping = 0x80000   // Part of stamp</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>TempFlags Reference</h2>
+
+  <pre><code>Create = 1       Delete = 2      IsLast = 4
+Essential = 8    Dragging = 0x10 Select = 0x20
+Modify = 0x40    Regenerate = 0x80
+Replace = 0x100  Upgrade = 0x200
+Hidden = 0x400   Parent = 0x800
+Combine = 0x1000 RemoveCost = 0x2000
+Optional = 0x4000 Cancel = 0x8000
+SubDetail = 0x10000 Duplicate = 0x20000</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Snap Modes Reference</h2>
+
+  <pre><code>ExistingGeometry = 1   CellLength = 2
+StraightDirection = 4  NetSide = 8
+NetArea = 0x10         OwnerSide = 0x20
+ObjectSide = 0x40      NetMiddle = 0x80
+Shoreline = 0x100      NearbyGeometry = 0x200
+GuideLines = 0x400     ZoneGrid = 0x800
+NetNode = 0x1000       ObjectSurface = 0x2000
+Upright = 0x4000       LotGrid = 0x8000
+AutoParent = 0x10000   PrefabType = 0x20000
+ContourLines = 0x40000 Distance = 0x80000</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Harmony Patch Points</h2>
+
+  <h3>ObjectToolSystem.prefab setter -- Prefix/Postfix</h3>
+  <p>Intercept or override prefab selection, modify allowed modes. Low risk, but UI may need to be kept in sync.</p>
+
+  <h3>ObjectToolBaseSystem.CreateDefinitionsJob -- Not Patchable</h3>
+  <p><strong>Burst-compiled</strong>. Cannot be patched with Harmony. <strong>Alternative</strong>: Create a custom system that modifies definition entities after creation.</p>
+
+  <h3>Post-definition entity modification (Custom ECS System)</h3>
+  <p>Modify <code>CreationDefinition</code> / <code>ObjectDefinition</code> after the tool creates them, before they become permanent. Low risk, clean ECS approach.</p>
 
   <!-- ============================================================ -->
   <h2>Examples</h2>
@@ -383,8 +453,45 @@ Stamping = 0x80000   // Part of stamp</code></pre>
     }
 }</code></pre>
 
-  <h3>Example 4: Reading Tool State</h3>
-  <pre><code>if (toolSystem.activeTool is ObjectToolSystem objectTool)
+  <h3>Example 4: Modifying Object Position Before Placement (Snap to Grid)</h3>
+  <p>Create a system that adjusts object positions in definition entities before they become permanent.</p>
+  <pre><code class="language-csharp">public partial class SnapToGridSystem : GameSystemBase
+{
+    private EntityQuery m_TempDefinitionQuery;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_TempDefinitionQuery = GetEntityQuery(
+            ComponentType.ReadWrite&lt;ObjectDefinition&gt;(),
+            ComponentType.ReadOnly&lt;CreationDefinition&gt;(),
+            ComponentType.ReadOnly&lt;Temp&gt;() // only temp (preview) entities
+        );
+    }
+
+    protected override void OnUpdate()
+    {
+        var entities = m_TempDefinitionQuery.ToEntityArray(Allocator.Temp);
+
+        for (int i = 0; i &lt; entities.Length; i++)
+        {
+            ObjectDefinition obj = EntityManager
+                .GetComponentData&lt;ObjectDefinition&gt;(entities[i]);
+
+            // Snap to a custom 8m grid
+            float gridSize = 8f;
+            obj.m_Position.x = math.round(obj.m_Position.x / gridSize) * gridSize;
+            obj.m_Position.z = math.round(obj.m_Position.z / gridSize) * gridSize;
+
+            EntityManager.SetComponentData(entities[i], obj);
+        }
+
+        entities.Dispose();
+    }
+}</code></pre>
+
+  <h3>Example 5: Reading Tool State</h3>
+  <pre><code class="language-csharp">if (toolSystem.activeTool is ObjectToolSystem objectTool)
 {
     ObjectToolSystem.Mode currentMode = objectTool.actualMode;
     ObjectPrefab selectedPrefab = objectTool.prefab;
@@ -396,6 +503,143 @@ Stamping = 0x80000   // Part of stamp</code></pre>
         // Object tool active with this prefab
     }
 }</code></pre>
+
+  <!-- ============================================================ -->
+  <h2>Subclassing ObjectToolBaseSystem</h2>
+
+  <p>Mods can subclass <code>ObjectToolBaseSystem</code> directly to create fully custom placement tools
+  that bypass <code>ObjectToolSystem</code> entirely. This is appropriate when the mod needs complete
+  control over prefab management, entity creation, and placement logic.</p>
+
+  <h3>toolID Override</h3>
+  <p>The <code>toolID</code> string uniquely identifies the tool to the game's UI system. To reuse the
+  vanilla object tool's UI (toolbar highlight, options panel), return <code>ObjectToolSystem</code>'s
+  <code>toolID</code> instead:</p>
+  <pre><code class="language-csharp">public partial class CustomPlacementTool : ObjectToolBaseSystem
+{
+    // Unique ID -- game shows no vanilla tool UI
+    public override string toolID =&gt; "My Custom Placer";
+
+    // OR: spoof the object tool's ID to reuse its UI panels
+    // public override string toolID =&gt; "Object Tool";
+}</code></pre>
+
+  <h3>GetPrefab() / TrySetPrefab() Overrides</h3>
+  <p>These abstract methods manage which prefab the tool places. <code>GetPrefab()</code> is called each
+  frame by <code>ToolSystem</code> to determine the active prefab. <code>TrySetPrefab()</code> is called
+  by <code>ToolSystem.ActivatePrefabTool()</code> when iterating tools:</p>
+  <pre><code class="language-csharp">public partial class CustomPlacementTool : ObjectToolBaseSystem
+{
+    private PrefabBase m_Prefab;
+
+    public override PrefabBase GetPrefab() =&gt; m_Prefab;
+
+    public override bool TrySetPrefab(PrefabBase prefab)
+    {
+        // Accept only prefabs this tool handles
+        if (prefab is StaticObjectPrefab staticPrefab
+            &amp;&amp; HasCustomRequirements(staticPrefab))
+        {
+            m_Prefab = prefab;
+            return true;
+        }
+        return false;
+    }
+}</code></pre>
+
+  <h3>Direct Entity Creation via ObjectData.m_Archetype</h3>
+  <p>Instead of going through the <code>CreationDefinition</code> / <code>Temp</code> / permanent
+  pipeline, custom tools can create entities directly using the prefab's archetype. This skips the
+  preview phase entirely:</p>
+  <pre><code class="language-csharp">public void CreateEntityDirectly(Entity prefabEntity, float3 position, quaternion rotation)
+{
+    var objectData = EntityManager.GetComponentData&lt;ObjectData&gt;(prefabEntity);
+    Entity entity = EntityManager.CreateEntity(objectData.m_Archetype);
+
+    EntityManager.SetComponentData(entity, new PrefabRef { m_Prefab = prefabEntity });
+    EntityManager.SetComponentData(entity, new Game.Objects.Transform
+    {
+        m_Position = position,
+        m_Rotation = rotation
+    });
+
+    // Trigger initialization systems
+    EntityManager.AddComponent&lt;Created&gt;(entity);
+    EntityManager.AddComponent&lt;Updated&gt;(entity);
+}</code></pre>
+  <p><strong>Warning</strong>: Direct creation bypasses validation, cost deduction, and undo support.
+  Use the <code>CreationDefinition</code> pipeline for user-facing placement. Reserve direct creation
+  for programmatic spawning where the mod handles validation.</p>
+
+  <!-- ============================================================ -->
+  <h2>Highlighted + Updated Pattern for Preview-to-Permanent</h2>
+
+  <p>An alternative to the standard <code>Temp</code> entity preview pipeline. Instead of creating
+  <code>Temp</code> entities (which are destroyed and re-created each frame), mods can create real
+  entities with the <code>Highlighted</code> component for preview rendering, then make them permanent
+  by removing <code>Highlighted</code>.</p>
+
+  <ol>
+    <li><strong>Preview phase</strong>: Create a real entity using <code>ObjectData.m_Archetype</code>.
+    Add <code>Highlighted</code> + <code>Updated</code> so it renders with the highlight shader but
+    is not yet committed to the game simulation.</li>
+    <li><strong>Confirm phase</strong>: Remove <code>Highlighted</code> and add <code>Updated</code>
+    -- the entity becomes a normal game entity. No re-creation needed.</li>
+    <li><strong>Cancel phase</strong>: Add <code>Deleted</code> to remove the preview entity.</li>
+  </ol>
+
+  <pre><code class="language-csharp">private Entity m_PreviewEntity;
+
+private void CreatePreview(Entity prefabEntity, float3 position, quaternion rotation)
+{
+    var objectData = EntityManager.GetComponentData&lt;ObjectData&gt;(prefabEntity);
+    m_PreviewEntity = EntityManager.CreateEntity(objectData.m_Archetype);
+
+    EntityManager.SetComponentData(m_PreviewEntity,
+        new PrefabRef { m_Prefab = prefabEntity });
+    EntityManager.SetComponentData(m_PreviewEntity,
+        new Game.Objects.Transform { m_Position = position, m_Rotation = rotation });
+
+    // Highlighted causes highlight rendering; Updated triggers render refresh
+    EntityManager.AddComponent&lt;Highlighted&gt;(m_PreviewEntity);
+    EntityManager.AddComponent&lt;Updated&gt;(m_PreviewEntity);
+}
+
+private void ConfirmPlacement()
+{
+    // Remove highlight -- entity becomes permanent
+    EntityManager.RemoveComponent&lt;Highlighted&gt;(m_PreviewEntity);
+    EntityManager.AddComponent&lt;Updated&gt;(m_PreviewEntity);
+    m_PreviewEntity = Entity.Null;
+}
+
+private void CancelPlacement()
+{
+    // Standard CS2 deletion -- triggers cleanup systems
+    EntityManager.AddComponent&lt;Deleted&gt;(m_PreviewEntity);
+    m_PreviewEntity = Entity.Null;
+}</code></pre>
+
+  <p><strong>Advantages</strong>: No per-frame entity destruction/re-creation, simpler code, entity
+  retains its identity throughout preview. <strong>Disadvantages</strong>: No built-in undo, no cost
+  calculation, no validation feedback from <code>Generate*Systems</code>.</p>
+
+  <h3>Overridden Component (Game.Common)</h3>
+  <p>Marker component for entities that failed validation during placement or were overridden by another
+  system. Used as a filter in entity queries (<code>.WithNone&lt;Overridden&gt;()</code>) to exclude
+  invalid entities from counts, spatial queries, and other processing.</p>
+
+  <pre><code class="language-csharp">// Check if an entity was rejected by validation
+if (EntityManager.HasComponent&lt;Overridden&gt;(entity))
+{
+    Mod.Log.Warn($"Entity {entity.Index} was overridden (failed validation)");
+}
+
+// Exclude overridden entities from queries:
+EntityQuery validEntities = SystemAPI.QueryBuilder()
+    .WithAll&lt;PrefabRef, Game.Objects.Object&gt;()
+    .WithNone&lt;Owner, Controller, Overridden, Deleted&gt;()
+    .Build();</code></pre>
 
   <!-- ============================================================ -->
   <h2>Warnings &amp; Pitfalls</h2>

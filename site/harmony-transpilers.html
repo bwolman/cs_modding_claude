@@ -314,6 +314,16 @@ CREATING A CONDITIONAL SKIP:
   labels to an adjacent instruction. Orphaned labels cause <code>InvalidProgramException</code>
   at runtime.</p>
 
+  <h3>Local Variables</h3>
+
+  <p>To create new local variables in a transpiler:</p>
+  <ol>
+    <li>Call <code>generator.DeclareLocal(typeof(T))</code> to get a <code>LocalBuilder</code></li>
+    <li>Use <code>Stloc</code> to store and <code>Ldloc</code> to load via the <code>LocalBuilder</code></li>
+  </ol>
+  <p><strong>Warning</strong>: Never use <code>ILGenerator.Emit()</code> -- Harmony manages emission
+  internally. Only use ILGenerator for <code>DefineLabel()</code> and <code>DeclareLocal()</code>.</p>
+
   <!-- ============================================================ -->
   <h2>CS2-Specific Considerations</h2>
 
@@ -352,6 +362,33 @@ CREATING A CONDITIONAL SKIP:
     For Burst-compiled simulation logic, use the ECS approach instead: create custom systems that
     run before/after the target system and modify entity components directly.
   </p>
+
+  <h3>Suitable Targets (Managed Code)</h3>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Method</th><th>Why Transpile?</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>ToolSystem</td><td>SetInfoview, UpdateInfoviewColors</td><td>Modify info view behavior mid-method</td></tr>
+      <tr><td>Various UI systems</td><td>OnUpdate, PerformUpdate</td><td>Change UI data computation logic</td></tr>
+      <tr><td>PrefabInitializeSystem</td><td>OnUpdate</td><td>Alter prefab initialization values</td></tr>
+      <tr><td>Any non-Burst GameSystemBase</td><td>OnCreate, OnUpdate</td><td>Modify system logic at specific points</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Unsuitable Targets (Burst-Compiled)</h3>
+
+  <table>
+    <thead>
+      <tr><th>System</th><th>Method</th><th>Why NOT?</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>WaterPipeFlowJob</td><td>Execute</td><td>Burst-compiled native code</td></tr>
+      <tr><td>Any IJob/IJobChunk</td><td>Execute</td><td>Burst-compiled</td></tr>
+      <tr><td>TrafficLaneSignalJob</td><td>Execute</td><td>Burst-compiled</td></tr>
+    </tbody>
+  </table>
 
   <!-- ============================================================ -->
   <h2>Examples</h2>
@@ -514,6 +551,210 @@ public static class ReplaceAllTranspiler
         return "Modified Label";
     }
 }</code></pre>
+
+  <h3>Surgical Job Removal from System OnUpdate</h3>
+
+  <p>Remove individual jobs from a system's <code>OnUpdate</code> while keeping the rest intact. The
+  mod then runs replacement jobs in a custom system. This keeps the vanilla system's data pipeline
+  (queues, queries) operational.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(BuildingUpkeepSystem), "OnUpdate")]
+static class RemoveJobsPatch
+{
+    static IEnumerable&lt;CodeInstruction&gt; Transpiler(
+        IEnumerable&lt;CodeInstruction&gt; instructions, MethodBase original)
+    {
+        // 1. Identify job types by their nested class names
+        Type levelUpJobType = Type.GetType(
+            "Game.Simulation.BuildingUpkeepSystem+LevelupJob,Game", true);
+        Type levelDownJobType = Type.GetType(
+            "Game.Simulation.BuildingUpkeepSystem+LeveldownJob,Game", true);
+
+        // 2. Find local variable indices from MethodBody
+        int levelUpIndex = -1, levelDownIndex = -1;
+        foreach (var info in original.GetMethodBody().LocalVariables)
+        {
+            if (info.LocalType == levelUpJobType)
+                levelUpIndex = info.LocalIndex;
+            if (info.LocalType == levelDownJobType)
+                levelDownIndex = info.LocalIndex;
+        }
+
+        // 3. Use CodeMatcher to find and NOP out the job scheduling blocks
+        var matcher = new CodeMatcher(instructions);
+        // ... match and remove job scheduling instructions
+        return matcher.Instructions();
+    }
+}</code></pre>
+
+  <p>Key techniques: use <code>Type.GetType("Namespace.Outer+Inner,Assembly")</code> to resolve nested
+  job types; use <code>MethodBase.GetMethodBody().LocalVariables</code> to find job local variable
+  indices; use <code>CodeMatcher</code> to find and NOP the scheduling block.</p>
+
+  <h3>Reverse Patch for Calling Original Methods</h3>
+
+  <p>When a prefix returns <code>false</code> to skip the original method but you still need to call
+  the original logic conditionally, use <code>[HarmonyReversePatch]</code>. A reverse patch creates a
+  callable stub that invokes the <strong>unpatched</strong> original method.</p>
+
+  <pre><code class="language-csharp">using HarmonyLib;
+using System.Runtime.CompilerServices;
+
+[HarmonyPatch(typeof(Game.Simulation.SomeSystem), "OnUpdate")]
+public static class ConditionalReplacePatch
+{
+    [HarmonyPrefix]
+    public static bool Prefix(Game.Simulation.SomeSystem __instance)
+    {
+        if (ModSettings.Instance.UseCustomLogic)
+        {
+            CustomOnUpdate(__instance);
+            return false; // Skip original
+        }
+        return true; // Let original run
+    }
+
+    /// &lt;summary&gt;
+    /// Reverse patch stub that calls the ORIGINAL (unpatched) OnUpdate.
+    /// The body is replaced at patch time.
+    /// &lt;/summary&gt;
+    [HarmonyReversePatch]
+    [HarmonyPatch(typeof(Game.Simulation.SomeSystem), "OnUpdate")]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void OriginalOnUpdate(Game.Simulation.SomeSystem instance)
+    {
+        // Stub body -- replaced by Harmony with the original method's IL.
+        throw new NotImplementedException("Reverse patch stub");
+    }
+
+    private static void CustomOnUpdate(Game.Simulation.SomeSystem instance)
+    {
+        PreProcess(instance);
+        OriginalOnUpdate(instance);  // Call original via reverse patch
+        PostProcess(instance);
+    }
+
+    private static void PreProcess(Game.Simulation.SomeSystem instance) { }
+    private static void PostProcess(Game.Simulation.SomeSystem instance) { }
+}</code></pre>
+
+  <p><strong>Key requirements</strong>: <code>[HarmonyReversePatch]</code> + <code>[HarmonyPatch]</code>
+  targeting the same method. <code>[MethodImpl(MethodImplOptions.NoInlining)]</code> prevents the JIT
+  from inlining the empty stub before Harmony replaces it. The stub must be <code>static</code> and
+  take the instance as the first parameter for instance methods.</p>
+
+  <h3>Reflection-Based Private Field Access for Prefix Replacements</h3>
+
+  <p>When a prefix fully replaces <code>OnUpdate</code> (returns <code>false</code>), the replacement
+  code often needs to read or write the system's private fields. Use reflection-based utility methods:</p>
+
+  <pre><code class="language-csharp">public static class ReflectionUtils
+{
+    public static T GetMemberValue&lt;T&gt;(this object obj, string memberName)
+    {
+        var type = obj.GetType();
+        var field = type.GetField(memberName,
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (field != null) return (T)field.GetValue(obj);
+
+        var prop = type.GetProperty(memberName,
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (prop != null) return (T)prop.GetValue(obj);
+
+        throw new MissingMemberException(type.Name, memberName);
+    }
+
+    public static void SetMemberValue&lt;T&gt;(this object obj, string memberName, T value)
+    {
+        var type = obj.GetType();
+        var field = type.GetField(memberName,
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (field != null) { field.SetValue(obj, value); return; }
+
+        var prop = type.GetProperty(memberName,
+            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (prop != null) { prop.SetValue(obj, value); return; }
+
+        throw new MissingMemberException(type.Name, memberName);
+    }
+}</code></pre>
+
+  <p><strong>Comparison of approaches</strong>:</p>
+  <table>
+    <thead>
+      <tr><th>Approach</th><th>Pros</th><th>Cons</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>GetMemberValue&lt;T&gt;</code> utility</td>
+        <td>Type-safe generic, concise call-site</td>
+        <td>Reflection cost per call, no caching</td>
+      </tr>
+      <tr>
+        <td><code>AccessTools.Field(type, name)</code></td>
+        <td>Harmony-native, well-tested</td>
+        <td>Returns FieldInfo (requires <code>.GetValue()</code> cast)</td>
+      </tr>
+      <tr>
+        <td><code>AccessTools.FieldRefAccess&lt;TClass, TField&gt;</code></td>
+        <td>Zero-cost after setup (returns ref)</td>
+        <td>Fields only, more complex setup</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p>For prefix replacements that run every frame (e.g., <code>OnUpdate</code>), prefer
+  <code>AccessTools.FieldRefAccess</code> to avoid per-call reflection overhead.</p>
+
+  <h3>EntityQuery Modification via OnCreate Postfix</h3>
+
+  <p>Modify which entities a vanilla system processes without replacing the entire system. Patch the
+  system's <code>OnCreate</code> with a postfix to replace its private <code>EntityQuery</code>.</p>
+
+  <pre><code class="language-csharp">[HarmonyPatch(typeof(Game.Simulation.TargetSystem), "OnCreate")]
+public static class ModifyEntityQueryPatch
+{
+    // Fast field accessor for the private query field
+    private static readonly AccessTools.FieldRef&lt;
+        Game.Simulation.TargetSystem, EntityQuery&gt;
+        s_QueryRef = AccessTools.FieldRefAccess&lt;
+            Game.Simulation.TargetSystem, EntityQuery&gt;("m_SomeQuery");
+
+    // Cached MethodInfo for the protected GetEntityQuery method
+    private static readonly MethodInfo s_GetEntityQueryMethod =
+        typeof(SystemBase).GetMethod("GetEntityQuery",
+            BindingFlags.Instance | BindingFlags.NonPublic,
+            null, new[] { typeof(EntityQueryDesc[]) }, null);
+
+    [HarmonyPostfix]
+    public static void Postfix(Game.Simulation.TargetSystem __instance)
+    {
+        var queryDesc = new EntityQueryDesc
+        {
+            All = new[]
+            {
+                ComponentType.ReadOnly&lt;Game.Buildings.Building&gt;(),
+                ComponentType.ReadOnly&lt;Game.Common.Updated&gt;()
+            },
+            None = new[]
+            {
+                // Add filter: skip entities with our mod component
+                ComponentType.ReadOnly&lt;MyMod.Components.ExcludeFromProcessing&gt;()
+            }
+        };
+
+        var newQuery = (EntityQuery)s_GetEntityQueryMethod.Invoke(
+            __instance, new object[] { new[] { queryDesc } });
+
+        // Replace the system's private query using the fast ref accessor
+        s_QueryRef(__instance) = newQuery;
+    }
+}</code></pre>
+
+  <p><strong>When to use</strong>: You want to filter out or expand which entities a vanilla system
+  processes without replacing its entire <code>OnUpdate</code>. This is far more resilient to game
+  patches than full method replacement, since the original <code>OnUpdate</code> logic runs
+  unmodified but on a different set of entities.</p>
 
   <!-- ============================================================ -->
   <h2>Configuration</h2>

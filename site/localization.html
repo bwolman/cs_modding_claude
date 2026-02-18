@@ -254,6 +254,74 @@ LocalizedString literal = LocalizedString.Value("Fixed text");
 LocalizedString safe = LocalizedString.IdWithFallback(
     "MyMod.MaybeExists", "Default Text");</code></pre>
 
+  <h2>Custom IDictionarySource Implementation</h2>
+
+  <p>
+    Instead of passing a pre-built dictionary to <code>MemorySource</code>, mods can implement
+    <code>IDictionarySource</code> directly. This enables dynamic key generation at read time --
+    useful when localization keys depend on the mod's settings structure or runtime state.
+  </p>
+
+  <pre><code class="language-csharp">using Colossal.Localization;
+
+public class MyModLocaleSource : IDictionarySource
+{
+    private readonly Setting _setting;
+
+    public MyModLocaleSource(Setting setting)
+    {
+        _setting = setting;
+    }
+
+    public IEnumerable&lt;KeyValuePair&lt;string, string&gt;&gt; ReadEntries(
+        IList&lt;IDictionaryEntryError&gt; errors,
+        Dictionary&lt;string, int&gt; indexCounts)
+    {
+        var entries = new List&lt;KeyValuePair&lt;string, string&gt;&gt;();
+
+        // Generate settings UI keys dynamically
+        entries.Add(new(_setting.GetSettingsLocaleID(), "My Mod Settings"));
+
+        // Per-option display names and descriptions
+        entries.Add(new(
+            _setting.GetOptionLabelLocaleID(nameof(Setting.EnableFeature)),
+            "Enable Feature"));
+        entries.Add(new(
+            _setting.GetOptionDescLocaleID(nameof(Setting.EnableFeature)),
+            "Toggle the main feature on or off"));
+
+        // Per-tab and per-group labels
+        entries.Add(new(
+            _setting.GetOptionTabLocaleID(Setting.kGeneralTab), "General"));
+        entries.Add(new(
+            _setting.GetOptionGroupLocaleID(Setting.kMainGroup), "Main Settings"));
+
+        // Enum value display names
+        foreach (var value in Enum.GetValues(typeof(MyEnum)))
+        {
+            entries.Add(new(
+                _setting.GetEnumValueLocaleID((MyEnum)value),
+                value.ToString()));
+        }
+
+        return entries;
+    }
+
+    public void Unload() { }
+}
+
+// Registration in Mod.OnLoad():
+// var locManager = GameManager.instance.localizationManager;
+// locManager.AddSource("en-US", new MyModLocaleSource(settings));</code></pre>
+
+  <p><strong>When to use <code>IDictionarySource</code> vs <code>MemorySource</code>:</strong></p>
+
+  <ul>
+    <li>Use <code>MemorySource</code> when you have a static, pre-known set of key-value pairs</li>
+    <li>Use a custom <code>IDictionarySource</code> when keys are generated dynamically from the mod's settings structure or runtime state</li>
+    <li>Both register the same way via <code>LocalizationManager.AddSource()</code></li>
+  </ul>
+
   <h2>Warnings &amp; Pitfalls</h2>
 
   <ul>
@@ -295,11 +363,185 @@ foreach (var locale in supportedLocales)
     mapping string IDs to translated text.
   </p>
 
+  <h3>Example 6: CSV-Based Multi-Locale Localization Loading</h3>
+
+  <p>
+    Load localization from a tab-separated embedded resource file with columns for each locale.
+    This scales well for mods supporting many languages -- all translations live in a single file.
+  </p>
+
+  <p><strong>CSV file format</strong> (<code>Resources/l10n.csv</code>, tab-separated, embedded resource):</p>
+
+  <pre><code>KEY	en-US	de-DE	fr-FR	zh-HANS
+MyMod.Title	My Custom Mod	Mein Mod	Mon Mod	&#x6211;&#x7684;&#x6A21;&#x7EC4;
+MyMod.Greeting	Hello, Mayor!	Hallo, Buergermeister!	Bonjour, Maire!	&#x4F60;&#x597D;&#xFF0C;&#x5E02;&#x957F;&#xFF01;
+MyMod.Setting.Enabled	Enable Feature	Feature aktivieren	Activer la fonctionnalite	&#x542F;&#x7528;&#x529F;&#x80FD;</code></pre>
+
+  <p><strong>Loader implementation:</strong></p>
+
+  <pre><code class="language-csharp">using System.IO;
+using System.Reflection;
+using Colossal.Localization;
+
+/// &lt;summary&gt;
+/// Loads localization from a tab-separated embedded resource file.
+/// Each column after the key column corresponds to a locale ID.
+/// Creates a MemorySource per supported locale found in the CSV header.
+/// &lt;/summary&gt;
+public static class CsvLocalizationLoader
+{
+    public static void Load(LocalizationManager locManager)
+    {
+        var assembly = Assembly.GetExecutingAssembly();
+        string resourceName = $"{assembly.GetName().Name}.Resources.l10n.csv";
+
+        using var stream = assembly.GetManifestResourceStream(resourceName);
+        if (stream == null)
+        {
+            Mod.Log.Warn("Localization CSV not found as embedded resource");
+            return;
+        }
+
+        using var reader = new StreamReader(stream);
+
+        // Parse header row to get locale column indices
+        string headerLine = reader.ReadLine();
+        if (headerLine == null) return;
+        string[] headers = headerLine.Split('\t');
+
+        var supportedLocales = new HashSet&lt;string&gt;(
+            locManager.GetSupportedLocales());
+
+        // Map column index -&gt; locale ID (skip column 0 which is the key)
+        var localeColumns = new Dictionary&lt;int, string&gt;();
+        for (int i = 1; i &lt; headers.Length; i++)
+        {
+            string localeId = headers[i].Trim();
+            if (supportedLocales.Contains(localeId))
+                localeColumns[i] = localeId;
+        }
+
+        // Build dictionaries per locale
+        var dictionaries = new Dictionary&lt;string, Dictionary&lt;string, string&gt;&gt;();
+        foreach (var localeId in localeColumns.Values)
+            dictionaries[localeId] = new Dictionary&lt;string, string&gt;();
+
+        // Parse data rows
+        string line;
+        while ((line = reader.ReadLine()) != null)
+        {
+            if (string.IsNullOrWhiteSpace(line)) continue;
+            string[] columns = line.Split('\t');
+            if (columns.Length &lt; 2) continue;
+
+            string key = columns[0].Trim();
+            foreach (var (colIndex, localeId) in localeColumns)
+            {
+                if (colIndex &lt; columns.Length
+                    &amp;&amp; !string.IsNullOrEmpty(columns[colIndex]))
+                    dictionaries[localeId][key] = columns[colIndex];
+            }
+        }
+
+        // Register a MemorySource per locale
+        foreach (var (localeId, dict) in dictionaries)
+        {
+            if (dict.Count &gt; 0)
+            {
+                locManager.AddSource(localeId, new MemorySource(dict));
+                Mod.Log.Info($"Loaded {dict.Count} entries for {localeId}");
+            }
+        }
+    }
+}
+
+// Call in Mod.OnLoad():
+// CsvLocalizationLoader.Load(GameManager.instance.localizationManager);</code></pre>
+
+  <p><strong>Embedding the CSV in .csproj:</strong></p>
+
+  <pre><code class="language-xml">&lt;ItemGroup&gt;
+    &lt;EmbeddedResource Include="Resources\l10n.csv" /&gt;
+&lt;/ItemGroup&gt;</code></pre>
+
+  <p>
+    <strong>Loading embedded resources:</strong>
+    <code>Assembly.GetManifestResourceStream()</code> expects the full resource name in the format
+    <code>{AssemblyName}.{FolderPath}.{FileName}</code> where folder separators are replaced with dots.
+    For example, <code>Resources/l10n.csv</code> in assembly <code>MyMod</code> becomes
+    <code>MyMod.Resources.l10n.csv</code>.
+  </p>
+
+  <h2>JavaScript-Side Translation Resolution</h2>
+
+  <p>
+    When using the low-level cohtml communication pattern (without the React/TypeScript build
+    pipeline), JavaScript code can resolve localization keys via <code>engine.translate()</code>:
+  </p>
+
+  <pre><code class="language-javascript">// Resolve a localization key to its translated string
+var translatedText = engine.translate("MyMod.Title");
+
+// Use in dynamically injected DOM elements
+var label = document.createElement('span');
+label.textContent = engine.translate("MyMod.Greeting");</code></pre>
+
+  <p>
+    <code>engine.translate()</code> queries the same <code>LocalizationDictionary</code> used by the
+    C# side. It returns the translated string for the active locale, falling back to the fallback
+    locale if the key is not found. This is the cohtml-level equivalent of
+    <code>LocalizedString.Id()</code> on the C# side.
+  </p>
+
+  <p>
+    <strong>Note:</strong> When using the standard TypeScript/React build pipeline, localization is
+    typically handled via <code>LocalizedString</code> bindings pushed from C# rather than calling
+    <code>engine.translate()</code> directly. The <code>engine.translate()</code> approach is primarily
+    useful for raw DOM injection patterns (see ModUIButtons research).
+  </p>
+
+  <h2>Harmony Patch Points</h2>
+
+  <h3>Candidate 1: LocalizationManager.AddSource</h3>
+  <table>
+    <thead><tr><th>Detail</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>void AddSource(string localeId, IDictionarySource source)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix</td></tr>
+      <tr><td>What it enables</td><td>Monitor when sources are added, inject additional entries</td></tr>
+      <tr><td>Risk level</td><td>Low</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Candidate 2: LocalizationDictionary.TryGetValue</h3>
+  <table>
+    <thead><tr><th>Detail</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Signature</td><td><code>bool TryGetValue(string entryID, out string value)</code></td></tr>
+      <tr><td>Patch type</td><td>Postfix</td></tr>
+      <tr><td>What it enables</td><td>Override specific string lookups dynamically</td></tr>
+      <tr><td>Risk level</td><td>High (called very frequently)</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Mod Blueprint</h2>
+
+  <ul>
+    <li><strong>To add localized strings:</strong> Create a <code>MemorySource</code> with a
+    <code>Dictionary&lt;string, string&gt;</code> and call
+    <code>LocalizationManager.AddSource("en-US", source)</code> for each supported locale.</li>
+    <li><strong>To support multiple languages:</strong> Create separate <code>MemorySource</code>
+    instances per locale, each with the same keys but translated values.</li>
+    <li><strong>Access:</strong> Get the manager via
+    <code>GameManager.instance.localizationManager</code>.</li>
+  </ul>
+
   <h2>Open Questions</h2>
 
   <ul>
     <li>How does the UI template engine resolve <code>ILocElement</code> arguments in format strings?</li>
     <li>How are indexed entries used in practice?</li>
+    <li>How does <code>UILocalizationManager</code> bridge between <code>LocalizationManager</code> and the Cohtml UI layer?</li>
     <li>What is the complete set of locale IDs supported by the base game?</li>
   </ul>
 

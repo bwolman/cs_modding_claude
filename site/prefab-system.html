@@ -325,6 +325,99 @@ if (prefabSystem.TryGetPrefab(id, out PrefabBase prefab))
     }
 }</code></pre>
 
+  <h2>City Service Building Prefab Components</h2>
+
+  <p>
+    City service buildings carry type-specific prefab data components (ECS <code>IComponentData</code>)
+    that define their capacities and behaviors:
+  </p>
+
+  <table>
+    <thead><tr><th>Component</th><th>Key Fields</th><th>Used By</th></tr></thead>
+    <tbody>
+      <tr><td><code>SchoolData</code></td><td><code>m_StudentCapacity</code>, <code>m_EducationLevel</code></td><td>Education</td></tr>
+      <tr><td><code>HospitalData</code></td><td><code>m_PatientCapacity</code>, <code>m_TreatmentBonus</code></td><td>Healthcare</td></tr>
+      <tr><td><code>PrisonData</code></td><td><code>m_PrisonerCapacity</code></td><td>Police</td></tr>
+      <tr><td><code>PowerPlantData</code></td><td><code>m_ElectricityProduction</code></td><td>Electricity</td></tr>
+      <tr><td><code>FireStationData</code></td><td>(capacity fields)</td><td>Fire response</td></tr>
+      <tr><td><code>PoliceStationData</code></td><td>(capacity fields)</td><td>Police dispatch</td></tr>
+      <tr><td><code>GarbageFacilityData</code></td><td>(capacity fields)</td><td>Garbage collection</td></tr>
+      <tr><td><code>MaintenanceDepotData</code></td><td>(capacity fields)</td><td>Road maintenance</td></tr>
+      <tr><td><code>TransportDepotData</code></td><td>(capacity fields)</td><td>Public transport</td></tr>
+      <tr><td><code>TransportStationData</code></td><td><code>m_WatercraftRefuelTypes</code>, <code>m_AircraftRefuelTypes</code>, <code>m_ComfortFactor</code></td><td>Transport</td></tr>
+      <tr><td><code>CargoTransportStationData</code></td><td>(cargo-specific fields)</td><td>Cargo transport</td></tr>
+      <tr><td><code>ParkData</code></td><td>(capacity fields)</td><td>Parks &amp; recreation</td></tr>
+      <tr><td><code>SolarPoweredData</code></td><td>(identifies solar plants)</td><td>Power system</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Station Subtype Detection Pattern</h3>
+
+  <p>
+    <code>TransportStationData</code> can be classified by checking refuel types and comfort factor:
+  </p>
+
+  <ul>
+    <li><strong>Port:</strong> <code>m_WatercraftRefuelTypes != 0</code></li>
+    <li><strong>Airport:</strong> <code>m_AircraftRefuelTypes != 0</code></li>
+    <li><strong>Passenger station:</strong> <code>m_ComfortFactor &gt; 0</code> (without watercraft/aircraft refuel)</li>
+    <li><strong>Cargo station:</strong> has <code>CargoTransportStationData</code></li>
+  </ul>
+
+  <h2>DLC Asset Pack Detection</h2>
+
+  <p>
+    Buildings can be linked to DLC content packs via the <code>AssetPackData</code> and
+    <code>AssetPackElement</code> components:
+  </p>
+
+  <pre><code class="language-csharp">// Query asset packs
+EntityQuery m_AssetPackQuery = GetEntityQuery(new EntityQueryDesc
+{
+    All = new[] {
+        ComponentType.ReadOnly&lt;AssetPackData&gt;(),
+        ComponentType.ReadOnly&lt;PrefabData&gt;(),
+    }
+});
+
+// Detect DLC membership on a building
+if (AssetPackElementBufferLookup.TryGetBuffer(buildingEntity, out var elements))
+{
+    for (int index = 0; index &lt; elements.Length; ++index)
+    {
+        Entity pack = elements[index].m_Pack;
+        string packName = PrefabSystem.GetPrefabName(pack);
+        // Known pack names: "uk", "de", "nl", "fr", "jp", "cn", "ee",
+        //   "ussw", "usne", "mediterraneanheritage", "dragongate", "skyscrapers"
+    }
+}</code></pre>
+
+  <p>
+    This is useful for mods that need per-DLC behavior adjustments (e.g., region-specific density factors).
+  </p>
+
+  <h2>ObjectGeometryPrefab and RenderPrefab</h2>
+
+  <p>
+    <code>ObjectGeometryPrefab</code> is a <code>ComponentBase</code> subclass that provides mesh/LOD
+    data for objects. <code>RenderPrefab</code> provides computed mesh bounds. Combine them to
+    determine physical mesh size at the prefab level:
+  </p>
+
+  <pre><code class="language-csharp">if (prefab.TryGet&lt;ObjectGeometryPrefab&gt;(out var geom))
+{
+    foreach (var meshInfo in geom.m_Meshes)
+    {
+        RenderPrefab renderPrefab = meshInfo.m_Mesh;
+        if (renderPrefab != null)
+        {
+            Bounds3 bounds = renderPrefab.bounds;
+            float3 size = bounds.max - bounds.min;
+            // size.x = width, size.y = height, size.z = depth
+        }
+    }
+}</code></pre>
+
   <h2>Content Source Detection</h2>
 
   <p>
@@ -494,6 +587,190 @@ EntityManager.SetComponentData(entity, def);</code></pre>
     defer via <code>RegisterUpdater</code>.
   </p>
 
+  <h2>Incremental Prefab Update with Created/Updated Queries</h2>
+
+  <p>
+    To build efficient systems that react to prefab changes (e.g., maintaining a search index), use
+    <code>Created</code> and <code>Updated</code> marker components:
+  </p>
+
+  <pre><code class="language-csharp">// Only run when prefabs have changed
+RequireForUpdate(SystemAPI.QueryBuilder()
+    .WithAll&lt;PrefabData&gt;()
+    .WithAny&lt;Created, Updated&gt;()
+    .Build());
+
+// Handle removals via Deleted component
+EntityQuery deletedQuery = SystemAPI.QueryBuilder()
+    .WithAll&lt;PrefabData, Deleted&gt;()
+    .Build();</code></pre>
+
+  <p>
+    <code>Created</code> is added by <code>PrefabInitializeSystem</code> when a prefab entity is first
+    created. <code>Updated</code> is added when a prefab is modified. Both are removed the frame after
+    processing. <code>Deleted</code> marks entities being destroyed.
+  </p>
+
+  <h2>FakePrefab Pattern (Custom Mod Entities)</h2>
+
+  <p>
+    Mods that need custom entities which pass vanilla <code>PrefabRef</code> validation can use the
+    "FakePrefab" pattern: create a minimal <code>PrefabBase</code> subclass, register it with
+    <code>PrefabSystem.AddPrefab()</code>, and use the resulting prefab entity as the
+    <code>PrefabRef.m_Prefab</code> for mod-created entities.
+  </p>
+
+  <h3>Timing: IPreDeserialize</h3>
+
+  <p>
+    Register fake prefabs during <code>IPreDeserialize.PreDeserialize()</code> -- this runs before
+    <code>PrefabInitializeSystem</code> processes entities, ensuring the prefab is indexed before any
+    entity references it:
+  </p>
+
+  <pre><code class="language-csharp">public class Mod : IMod, IPreDeserialize
+{
+    public void PreDeserialize(Context context)
+    {
+        var prefabSystem = World.DefaultGameObjectInjectionWorld
+            .GetOrCreateSystemManaged&lt;PrefabSystem&gt;();
+
+        // Create a minimal prefab
+        var fakePrefab = ScriptableObject.CreateInstance&lt;StaticObjectPrefab&gt;();
+        fakePrefab.name = "MyMod_DataCarrier";
+
+        // Register it -- creates the ECS entity with PrefabData
+        prefabSystem.AddPrefab(fakePrefab);
+    }
+}
+
+// After registration, retrieve via PrefabID lookup:
+PrefabID id = new PrefabID(nameof(StaticObjectPrefab), "MyMod_DataCarrier");
+if (m_PrefabSystem.TryGetPrefab(id, out PrefabBase prefab))
+{
+    Entity prefabEntity = m_PrefabSystem.GetEntity(prefab);
+    // Use prefabEntity as PrefabRef.m_Prefab for mod entities
+}</code></pre>
+
+  <p>
+    <strong>Key constraint:</strong> The fake prefab must be registered before any entity references it
+    via <code>PrefabRef</code>. Using <code>IPreDeserialize</code> ensures this.
+  </p>
+
+  <h2>UpdatePrefab and Runtime Re-Initialization</h2>
+
+  <p>
+    <code>PrefabSystem.UpdatePrefab(prefab)</code> schedules a prefab for re-initialization, causing its
+    ECS entity to be rebuilt with updated component data. This is needed when modifying a prefab's
+    <code>ComponentBase</code> list after initial registration.
+  </p>
+
+  <h3>UIGroupElement Buffer Cleanup</h3>
+
+  <p>
+    When updating prefabs that have <code>UIObject</code> components (toolbar entries), clean up
+    <code>UIGroupElement</code> buffer references before calling <code>UpdatePrefab()</code>:
+  </p>
+
+  <pre><code class="language-csharp">if (prefab.TryGet&lt;UIObject&gt;(out var uiObject) &amp;&amp; uiObject.m_Group != null)
+{
+    Entity groupEntity = m_PrefabSystem.GetEntity(uiObject.m_Group);
+    if (EntityManager.HasBuffer&lt;UIGroupElement&gt;(groupEntity))
+    {
+        var buffer = EntityManager.GetBuffer&lt;UIGroupElement&gt;(groupEntity);
+        Entity prefabEntity = m_PrefabSystem.GetEntity(prefab);
+        for (int i = buffer.Length - 1; i &gt;= 0; i--)
+        {
+            if (buffer[i].m_Prefab == prefabEntity)
+                buffer.RemoveAt(i);
+        }
+    }
+}
+
+// Now safe to update -- will re-add UIGroupElement entries
+m_PrefabSystem.UpdatePrefab(prefab);</code></pre>
+
+  <p>
+    After <code>UpdatePrefab()</code> processes, the prefab entity receives the <code>Updated</code>
+    component. Systems that cache prefab data should react to this via queries.
+  </p>
+
+  <h2>PlaceableObjectData Cost Modification</h2>
+
+  <p>
+    Modify ECS component data on prefab entities at runtime. Use managed <code>PrefabBase.TryGet</code>
+    as source of truth for restoring original values:
+  </p>
+
+  <pre><code class="language-csharp">protected override void OnGameLoadingComplete(Purpose purpose, GameMode mode)
+{
+    base.OnGameLoadingComplete(purpose, mode);
+
+    // Make all trees free
+    var query = SystemAPI.QueryBuilder()
+        .WithAll&lt;TreeData, PlaceableObjectData&gt;()
+        .Build();
+    var entities = query.ToEntityArray(Allocator.Temp);
+    foreach (var entity in entities)
+    {
+        var data = EntityManager.GetComponentData&lt;PlaceableObjectData&gt;(entity);
+        data.m_ConstructionCost = 0;
+        EntityManager.SetComponentData(entity, data);
+    }
+    entities.Dispose();
+}
+
+// Restore original cost from managed ComponentBase (immutable original):
+PrefabBase prefab = m_PrefabSystem.GetPrefab&lt;PrefabBase&gt;(prefabData);
+if (prefab.TryGet&lt;PlaceableObject&gt;(out var original))
+{
+    // PlaceableObject (managed ComponentBase) = immutable original
+    // PlaceableObjectData (ECS component) = mutable runtime copy
+}</code></pre>
+
+  <h2>PrefabRef-Based Entity Counting</h2>
+
+  <p>
+    Count placed instances of each prefab in the game world using <code>PrefabRef</code>:
+  </p>
+
+  <pre><code class="language-csharp">private EntityQuery m_PlacedObjectQuery;
+
+protected override void OnCreate()
+{
+    base.OnCreate();
+    m_PlacedObjectQuery = SystemAPI.QueryBuilder()
+        .WithAll&lt;PrefabRef&gt;()
+        .WithAny&lt;Game.Objects.Object, Game.Net.Edge&gt;()
+        .WithNone&lt;Owner, Controller, Overridden&gt;()
+        .Build();
+}
+
+public Dictionary&lt;int, int&gt; CountPrefabInstances()
+{
+    var counts = new Dictionary&lt;int, int&gt;();
+    var chunks = m_PlacedObjectQuery.ToArchetypeChunkArray(Allocator.Temp);
+    var prefabRefHandle = GetComponentTypeHandle&lt;PrefabRef&gt;(true);
+
+    foreach (var chunk in chunks)
+    {
+        var prefabRefs = chunk.GetNativeArray(ref prefabRefHandle);
+        for (int i = 0; i &lt; prefabRefs.Length; i++)
+        {
+            int key = prefabRefs[i].m_Prefab.Index;
+            counts.TryGetValue(key, out int count);
+            counts[key] = count + 1;
+        }
+    }
+    chunks.Dispose();
+    return counts;
+}</code></pre>
+
+  <p>
+    <strong>Performance:</strong> Run on a timer (e.g., every 60 seconds), not every frame. Exclude
+    <code>Owner</code> and <code>Controller</code> to count only top-level placed entities.
+  </p>
+
   <h2>Warnings &amp; Pitfalls</h2>
 
   <ul>
@@ -508,7 +785,10 @@ EntityManager.SetComponentData(entity, def);</code></pre>
 
   <ul>
     <li>How does the asset database load PrefabAsset objects from disk at startup?</li>
-    <li>How does <code>ReplacePrefabSystem</code> handle entity replacement when prefabs are updated?</li>
+    <li><strong>[Answered]</strong> <code>UpdatePrefab()</code> replaces the entity. Requires reflection-based
+    <code>m_PrefabIndices</code> fixup and <code>UIGroupElement</code> buffer cleanup. Cascading
+    <code>Updated</code> components signal downstream systems. See "UpdatePrefab and Runtime
+    Re-Initialization" above.</li>
     <li><strong>[Answered]</strong> ComponentBase subclasses documented above: PlaceableObject, EditorAssetCategoryOverride, ThemeObject, AssetPackItem, ContentPrerequisite, UIObject, ObjectGeometryPrefab, and many type-specific subclasses.</li>
     <li><strong>[Answered]</strong> <code>ContentPrerequisite.m_ContentPrerequisite.TryGet&lt;DlcRequirement&gt;()</code> chains to get the <code>DlcId</code> enum value. The check runs during <code>PrefabInitializeSystem</code>.</li>
   </ul>

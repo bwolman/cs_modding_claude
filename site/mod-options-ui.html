@@ -323,7 +323,7 @@ public DropdownItem&lt;string&gt;[] GetStyleOptions()
     <tr><td><code>[SettingsUIWarning]</code></td><td>Property</td><td>Warning indicator on a specific option</td></tr>
     <tr><td><code>[SettingsUIPageWarning]</code></td><td>Class</td><td>Warning indicator on the entire page</td></tr>
     <tr><td><code>[SettingsUITabWarning]</code></td><td>Class</td><td>Warning indicator on a specific tab</td></tr>
-    <tr><td><code>[SettingsUISetter]</code></td><td>Property</td><td>Custom callback before the property setter</td></tr>
+    <tr><td><code>[SettingsUISetter]</code></td><td>Property</td><td>Custom callback invoked when the property value changes in the UI</td></tr>
     <tr><td><code>[SettingsUIValueVersion]</code></td><td>Property</td><td>Forces widget re-read when version changes</td></tr>
     <tr><td><code>[SettingsUICustomFormat]</code></td><td>Property</td><td>Custom number formatting (decimal places, sign, separators)</td></tr>
   </tbody>
@@ -516,6 +516,273 @@ public class ConditionalSettings : ModSetting
     }
 }</code></pre>
 
+<h3>Buttons with Confirmation Dialogs</h3>
+
+<p>
+  Write-only <code>bool</code> properties as action buttons and <code>[SettingsUIConfirmation]</code>
+  for destructive actions. <code>[SettingsUIButtonGroup]</code> groups buttons horizontally.
+</p>
+
+<pre><code class="language-csharp">[FileLocation(nameof(ButtonExampleMod))]
+[SettingsUIShowGroupName("Actions")]
+public class ButtonSettings : ModSetting
+{
+    public ButtonSettings(IMod mod) : base(mod) { }
+
+    // Write-only bool -&gt; automatically renders as a button
+    [SettingsUISection("General", "Actions")]
+    public bool RefreshData { set { /* trigger data refresh */ } }
+
+    // Button with confirmation dialog
+    [SettingsUISection("General", "Actions")]
+    [SettingsUIButton]
+    [SettingsUIConfirmation]
+    public bool ResetAllSettings
+    {
+        set { SetDefaults(); ApplyAndSave(); }
+    }
+
+    // Grouped buttons appear in one row
+    [SettingsUISection("General", "Actions")]
+    [SettingsUIButton]
+    [SettingsUIButtonGroup("ImportExport")]
+    public bool ImportConfig { set { /* import logic */ } }
+
+    [SettingsUISection("General", "Actions")]
+    [SettingsUIButton]
+    [SettingsUIButtonGroup("ImportExport")]
+    public bool ExportConfig { set { /* export logic */ } }
+
+    public override void SetDefaults() { }
+}</code></pre>
+
+<h3>Multi-Tab Layout with Group Headers</h3>
+
+<p>
+  Organizing settings across multiple tabs with ordered groups. <code>[SettingsUITabOrder]</code>
+  and <code>[SettingsUIGroupOrder]</code> control ordering, while <code>[SettingsUIShowGroupName]</code>
+  makes group headers visible.
+</p>
+
+<pre><code class="language-csharp">[FileLocation(nameof(LayoutExampleMod))]
+[SettingsUITabOrder("General", "Advanced")]
+[SettingsUIGroupOrder("Core", "Visual", "Performance", "Debug")]
+[SettingsUIShowGroupName("Core", "Visual", "Performance")]  // "Debug" has no header
+public class LayoutSettings : ModSetting
+{
+    public LayoutSettings(IMod mod) : base(mod) { }
+
+    // --- General tab, Core group ---
+    [SettingsUISection("General", "Core")]
+    public bool AutoStart { get; set; } = false;
+
+    [SettingsUISection("General", "Core")]
+    public bool ShowWelcome { get; set; } = true;
+
+    // --- General tab, Visual group ---
+    [SettingsUISection("General", "Visual")]
+    [SettingsUISlider(min = 50, max = 200, step = 10, unit = "percentage")]
+    public int UIScale { get; set; } = 100;
+
+    // --- Advanced tab, Performance group ---
+    [SettingsUISection("Advanced", "Performance")]
+    [SettingsUIAdvanced]
+    [SettingsUISlider(min = 1, max = 16, step = 1, unit = "integer")]
+    public int WorkerThreads { get; set; } = 4;
+
+    // --- Advanced tab, Debug group (no header shown) ---
+    [SettingsUISection("Advanced", "Debug")]
+    [SettingsUIDeveloper]
+    public bool VerboseLogging { get; set; } = false;
+
+    public override void SetDefaults()
+    {
+        AutoStart = false;
+        ShowWelcome = true;
+        UIScale = 100;
+        WorkerThreads = 4;
+        VerboseLogging = false;
+    }
+}</code></pre>
+
+<h3>Localization Helper Methods</h3>
+
+<p>
+  <code>ModSetting</code> provides helper methods that generate the correct localization key format.
+  Use these instead of hand-crafting key strings to avoid typos.
+</p>
+
+<pre><code class="language-csharp">private void LoadLocalization(ModSetting settings)
+{
+    var sources = new Dictionary&lt;string, string&gt;();
+
+    // Page title
+    sources[settings.GetSettingsLocaleID()] = "My Mod Name";
+
+    // Tab labels
+    sources[settings.GetOptionTabLocaleID("General")] = "General";
+    sources[settings.GetOptionTabLocaleID("Advanced")] = "Advanced";
+
+    // Group labels
+    sources[settings.GetOptionGroupLocaleID("Core")] = "Core Settings";
+    sources[settings.GetOptionGroupLocaleID("Visual")] = "Visual Settings";
+
+    // Option labels and tooltips
+    sources[settings.GetOptionLabelLocaleID("AutoStart")] = "Auto Start";
+    sources[settings.GetOptionDescLocaleID("AutoStart")] =
+        "Start the mod automatically when the game loads.";
+
+    // Enum values
+    sources[settings.GetEnumValueLocaleID(AnchorPosition.TopLeft)] = "Top Left";
+    sources[settings.GetEnumValueLocaleID(AnchorPosition.TopRight)] = "Top Right";
+
+    // Keybinding labels
+    sources[settings.GetBindingKeyLocaleID("ToggleWindow")] = "Toggle Window";
+    sources[settings.GetBindingMapLocaleID()] = "My Mod Name";
+
+    // Button confirmation warning
+    sources[settings.GetOptionWarningLocaleID("ResetAllSettings")] =
+        "Reset all settings to defaults?";
+
+    GameManager.instance.localizationManager.AddSource("en-US",
+        new MemorySource(sources));
+}</code></pre>
+
+<h3>SettingsUISetter: Reacting to Property Changes</h3>
+
+<p>
+  <code>[SettingsUISetter]</code> specifies a custom callback invoked when the property value changes
+  in the UI. The callback receives the new value and can trigger side effects like enabling/disabling
+  ECS systems or updating UI panels.
+</p>
+
+<pre><code class="language-csharp">[SettingsUISetter(typeof(MySettings), nameof(OnToggleChanged))]
+public bool MyToggle { get; set; }
+
+// Called when the user changes MyToggle in the Options UI.
+public void OnToggleChanged(bool value)
+{
+    World.DefaultGameObjectInjectionWorld
+        .GetOrCreateSystemManaged&lt;MyFeatureSystem&gt;()
+        .Enabled = value;
+}</code></pre>
+
+<p>
+  Used by BetterBulldozer (enable/disable removal systems) and TopoToggle (update panel visibility).
+</p>
+
+<!-- ============================================================ -->
+<h2>Reacting to Settings Changes in ECS Systems</h2>
+
+<p>
+  <code>ModSetting.onSettingsApplied</code> fires whenever the user clicks Apply in the options menu
+  or when <code>ApplyAndSave()</code> is called programmatically. ECS systems can subscribe to react
+  to settings changes at runtime without polling.
+</p>
+
+<pre><code class="language-csharp">public partial class MySimulationSystem : GameSystemBase
+{
+    // Cache settings as local fields for Burst job compatibility.
+    // Burst jobs cannot access managed objects (class instances).
+    private float m_SpeedMultiplier;
+    private int m_MaxIterations;
+    private bool m_FeatureEnabled;
+
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        Mod.Settings.onSettingsApplied += OnSettingsApplied;
+        SyncSettingsToFields(Mod.Settings);
+    }
+
+    private void OnSettingsApplied(Setting setting)
+    {
+        // Type-check: onSettingsApplied fires for ALL settings.
+        if (setting is MyModSettings modSettings)
+            SyncSettingsToFields(modSettings);
+    }
+
+    private void SyncSettingsToFields(MyModSettings settings)
+    {
+        m_SpeedMultiplier = settings.SpeedMultiplier;
+        m_MaxIterations = settings.MaxIterations;
+        m_FeatureEnabled = settings.FeatureEnabled;
+    }
+
+    protected override void OnUpdate()
+    {
+        if (!m_FeatureEnabled) return;
+
+        // Use cached value-type fields in Burst jobs
+        var job = new MyProcessingJob
+        {
+            SpeedMultiplier = m_SpeedMultiplier,
+            MaxIterations = m_MaxIterations
+        };
+        Dependency = job.ScheduleParallel(m_Query, Dependency);
+    }
+
+    protected override void OnDestroy()
+    {
+        Mod.Settings.onSettingsApplied -= OnSettingsApplied;
+        base.OnDestroy();
+    }
+}</code></pre>
+
+<p><strong>Key details:</strong></p>
+
+<ul>
+  <li><strong>Type-checking is required:</strong> The <code>onSettingsApplied</code> event fires with a
+  <code>Setting</code> base class parameter. Multiple mods' settings may fire through the same event.
+  Always check <code>setting is YourSettingsClass</code>.</li>
+  <li><strong>Cache as value-type fields:</strong> Burst-compiled jobs cannot access managed objects.
+  Copy settings to <code>float</code>, <code>int</code>, <code>bool</code> fields.</li>
+  <li><strong>Thread safety:</strong> <code>onSettingsApplied</code> fires on the main thread. Updating
+  cached fields in the handler is safe. The Burst job receives a snapshot at schedule time.</li>
+  <li><strong>Multiple systems:</strong> Each system that needs settings values should subscribe
+  independently and maintain its own cached copies.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2>AssetDatabase.global.LoadSettings</h2>
+
+<p>
+  <code>AssetDatabase.global.LoadSettings()</code> loads persisted mod settings from disk. The
+  pattern uses an <code>asDefault</code> boolean to distinguish live vs defaults instances:
+</p>
+
+<pre><code class="language-csharp">public class Mod : IMod
+{
+    public static ModSettings Settings { get; private set; }
+
+    public void OnLoad(UpdateSystem updateSystem)
+    {
+        // Second param = live settings, third param = defaults instance
+        Settings = new ModSettings(this, asDefault: false);
+        AssetDatabase.global.LoadSettings(
+            ModSettings.SETTINGS_ASSET_NAME,
+            Settings,
+            new ModSettings(this, asDefault: true));
+    }
+}
+
+public class ModSettings : ModSetting
+{
+    public const string SETTINGS_ASSET_NAME = "MyModSettings";
+    private readonly bool _isDefault;
+
+    public ModSettings(IMod mod, bool asDefault = false) : base(mod)
+    {
+        _isDefault = asDefault;
+        if (_isDefault) SetDefaults();
+    }
+}</code></pre>
+
+<p>
+  The <code>asDefault</code> parameter creates a fresh defaults instance. <code>LoadSettings</code>
+  reads saved values into the live instance, falling back to defaults for any missing keys.
+</p>
+
 <!-- ============================================================ -->
 <h2>Key Assemblies</h2>
 
@@ -536,7 +803,9 @@ public class ConditionalSettings : ModSetting
   <li>What is the exact behavior of <code>[SettingsUIValueVersion]</code> -- when does the version getter get called to trigger a widget refresh?</li>
   <li>Can mods add localization for multiple languages, and how does fallback work when a key is missing?</li>
   <li>How does <code>[SettingsUIPlatform]</code> interact with CS2's platform support?</li>
-  <li>Is there a way to listen for setting changes from another mod's settings (cross-mod communication)?</li>
+  <li><strong>[Answered]</strong> Cross-mod settings communication: <code>onSettingsApplied</code> fires for ALL
+  settings instances. Subscribe and type-check for the other mod's settings class (requires assembly
+  reference or reflection). See "Reacting to Settings Changes in ECS Systems" section above.</li>
   <li>What is <code>DropdownItem&lt;T&gt;</code> -- where is it defined and what fields does it have besides <code>value</code> and <code>displayName</code>?</li>
 </ul>
 
