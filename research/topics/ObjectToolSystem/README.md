@@ -532,6 +532,147 @@ public void CheckToolState(ToolSystem toolSystem)
 }
 ```
 
+## Subclassing ObjectToolBaseSystem for Custom Placement Tools
+
+Mods can subclass `ObjectToolBaseSystem` directly to create fully custom placement tools that bypass `ObjectToolSystem` entirely. This is appropriate when the mod needs complete control over prefab management, entity creation, and placement logic -- rather than hooking into or modifying the vanilla object tool's pipeline.
+
+### `toolID` Override
+
+The `toolID` string uniquely identifies the tool to the game's UI system. Custom tools must provide their own `toolID`. To reuse the vanilla object tool's UI (toolbar highlight, options panel), return `ObjectToolSystem`'s `toolID` instead:
+
+```csharp
+public partial class CustomPlacementTool : ObjectToolBaseSystem
+{
+    // Unique ID — game shows no vanilla tool UI
+    public override string toolID => "My Custom Placer";
+
+    // OR: spoof the object tool's ID to reuse its UI panels
+    // public override string toolID => "Object Tool";
+}
+```
+
+### `GetPrefab()` / `TrySetPrefab()` Overrides
+
+These abstract methods manage which prefab the tool places. `GetPrefab()` is called each frame by `ToolSystem` to determine the active prefab (for `EventPrefabChanged`). `TrySetPrefab()` is called by `ToolSystem.ActivatePrefabTool()` when iterating tools:
+
+```csharp
+public partial class CustomPlacementTool : ObjectToolBaseSystem
+{
+    private PrefabBase m_Prefab;
+
+    public override PrefabBase GetPrefab() => m_Prefab;
+
+    public override bool TrySetPrefab(PrefabBase prefab)
+    {
+        // Accept only prefabs this tool handles
+        if (prefab is StaticObjectPrefab staticPrefab
+            && HasCustomRequirements(staticPrefab))
+        {
+            m_Prefab = prefab;
+            return true;
+        }
+        return false;
+    }
+}
+```
+
+### Direct Entity Creation via `ObjectData.m_Archetype`
+
+Instead of going through the `CreationDefinition` → `Temp` → permanent pipeline, custom tools can create entities directly using the prefab's archetype from `ObjectData.m_Archetype`. This skips the preview phase entirely:
+
+```csharp
+public void CreateEntityDirectly(Entity prefabEntity, float3 position, quaternion rotation)
+{
+    var objectData = EntityManager.GetComponentData<ObjectData>(prefabEntity);
+    Entity entity = EntityManager.CreateEntity(objectData.m_Archetype);
+
+    // Set required components
+    EntityManager.SetComponentData(entity, new PrefabRef { m_Prefab = prefabEntity });
+    EntityManager.SetComponentData(entity, new Game.Objects.Transform
+    {
+        m_Position = position,
+        m_Rotation = rotation
+    });
+
+    // Trigger initialization systems
+    EntityManager.AddComponent<Created>(entity);
+    EntityManager.AddComponent<Updated>(entity);
+}
+```
+
+**Warning**: Direct creation bypasses validation, cost deduction, and undo support. Use the `CreationDefinition` pipeline for user-facing placement. Reserve direct creation for programmatic spawning where the mod handles validation.
+
+## Highlighted + Updated Pattern for Preview-to-Permanent Entities
+
+An alternative to the standard `Temp` entity preview pipeline. Instead of creating `Temp` entities (which are destroyed and re-created each frame), mods can create real entities with the `Highlighted` component for preview rendering, then make them permanent by removing `Highlighted`.
+
+### How It Works
+
+1. **Preview phase**: Create a real entity (not `Temp`) using `ObjectData.m_Archetype`. Add `Highlighted` + `Updated` so it renders with the highlight shader but is not yet committed to the game simulation.
+
+2. **Confirm phase**: Remove `Highlighted` and add `Updated` -- the entity becomes a normal game entity. No entity re-creation needed.
+
+3. **Cancel phase**: Add `Deleted` to remove the preview entity.
+
+```csharp
+private Entity m_PreviewEntity;
+
+private void CreatePreview(Entity prefabEntity, float3 position, quaternion rotation)
+{
+    var objectData = EntityManager.GetComponentData<ObjectData>(prefabEntity);
+    m_PreviewEntity = EntityManager.CreateEntity(objectData.m_Archetype);
+
+    EntityManager.SetComponentData(m_PreviewEntity, new PrefabRef { m_Prefab = prefabEntity });
+    EntityManager.SetComponentData(m_PreviewEntity, new Game.Objects.Transform
+    {
+        m_Position = position,
+        m_Rotation = rotation
+    });
+
+    // Highlighted causes highlight rendering; Updated triggers render refresh
+    EntityManager.AddComponent<Highlighted>(m_PreviewEntity);
+    EntityManager.AddComponent<Updated>(m_PreviewEntity);
+}
+
+private void ConfirmPlacement()
+{
+    // Remove highlight — entity becomes permanent
+    EntityManager.RemoveComponent<Highlighted>(m_PreviewEntity);
+    EntityManager.AddComponent<Updated>(m_PreviewEntity);
+    m_PreviewEntity = Entity.Null;
+}
+
+private void CancelPlacement()
+{
+    // Standard CS2 deletion — triggers cleanup systems
+    EntityManager.AddComponent<Deleted>(m_PreviewEntity);
+    m_PreviewEntity = Entity.Null;
+}
+```
+
+**Advantages over Temp pipeline**: No per-frame entity destruction/re-creation, simpler code, entity retains its identity throughout the preview. **Disadvantages**: No built-in undo, no cost calculation, no validation feedback from `Generate*Systems`.
+
+### `Overridden` Component (Game.Common)
+
+Marker component for entities that failed validation during placement or were overridden by another system. Added by game systems when an entity's placement is invalid (e.g., overlapping, out of bounds, or violating constraints):
+
+```csharp
+// Check if an entity was rejected by validation
+if (EntityManager.HasComponent<Overridden>(entity))
+{
+    // Entity failed validation — may need removal or correction
+    Mod.Log.Warn($"Entity {entity.Index} was overridden (failed validation)");
+}
+
+// In PrefabRef-based entity counting, exclude overridden entities:
+EntityQuery validEntities = SystemAPI.QueryBuilder()
+    .WithAll<PrefabRef, Game.Objects.Object>()
+    .WithNone<Owner, Controller, Overridden, Deleted>()
+    .Build();
+```
+
+`Overridden` is commonly used as a filter in entity queries (`.WithNone<Overridden>()`) to exclude invalid entities from counts, spatial queries, and other processing.
+
 ## Tree/Vegetation Tool Properties
 
 ### `ObjectToolSystem.allowAge` (bool)

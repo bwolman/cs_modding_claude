@@ -224,6 +224,44 @@ EntityQuery customPrefabs = SystemAPI.QueryBuilder()
 EntityManager.RemoveComponent<PlaceableInfoviewItem>(customPrefabs);
 ```
 
+### `ObjectGeometryPrefab` (Game.Prefabs, ComponentBase)
+
+Subclass of `ObjectPrefab` that provides geometry and mesh data for objects. Attached as a `ComponentBase` to an `ObjectPrefab` to define its mesh/LOD configuration.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_Meshes` | List\<ObjectMeshInfo\> | List of mesh definitions (LODs, variants, sub-meshes) |
+
+Use `PrefabBase.TryGet<ObjectGeometryPrefab>(out var geom)` to access the mesh list from a managed prefab.
+
+### `RenderPrefab` (Game.Prefabs)
+
+Base class for renderable prefab data. Provides access to computed mesh bounds.
+
+| Field / Property | Type | Description |
+|------------------|------|-------------|
+| `bounds` | Bounds3 | Axis-aligned bounding box of the mesh (min/max float3 corners) |
+
+**Reading object dimensions from prefabs**: Combine `ObjectGeometryPrefab.m_Meshes` with `RenderPrefab.bounds` to determine physical mesh size at the prefab level, before any ECS components are created:
+
+```csharp
+if (prefab.TryGet<ObjectGeometryPrefab>(out var geom))
+{
+    foreach (var meshInfo in geom.m_Meshes)
+    {
+        RenderPrefab renderPrefab = meshInfo.m_Mesh;
+        if (renderPrefab != null)
+        {
+            Bounds3 bounds = renderPrefab.bounds;
+            float3 size = bounds.max - bounds.min;
+            // size.x = width, size.y = height, size.z = depth
+        }
+    }
+}
+```
+
+*Source: `Game.dll` -> `Game.Prefabs.ObjectGeometryPrefab`, `Game.dll` -> `Game.Prefabs.RenderPrefab`*
+
 ## Prefab Type Hierarchy
 
 ```
@@ -722,6 +760,105 @@ protected override void OnGamePreload(Purpose purpose, GameMode mode)
 - `ObsoleteIdentifiers` prevents save corruption when the game encounters unknown prefabs
 - `TryGetPrefab(new PrefabID(...))` for looking up existing prefabs to use as mesh sources
 
+## FakePrefab Pattern (Custom Mod Entities)
+
+Mods that need custom entities which pass vanilla `PrefabRef` validation (e.g., custom markers, spatial index entries, or non-visual data carriers) can use the "FakePrefab" pattern: create a minimal `PrefabBase` subclass, register it with `PrefabSystem.AddPrefab()`, and use the resulting prefab entity as the `PrefabRef.m_Prefab` for mod-created entities.
+
+### Timing: `IPreDeserialize`
+
+Register fake prefabs during `IPreDeserialize.PreDeserialize()` -- this runs before `PrefabInitializeSystem` processes entities, ensuring the prefab is indexed before any entity references it:
+
+```csharp
+public class Mod : IMod, IPreDeserialize
+{
+    public void PreDeserialize(Context context)
+    {
+        var prefabSystem = World.DefaultGameObjectInjectionWorld
+            .GetOrCreateSystemManaged<PrefabSystem>();
+
+        // Create a minimal prefab
+        var fakePrefab = ScriptableObject.CreateInstance<StaticObjectPrefab>();
+        fakePrefab.name = "MyMod_DataCarrier";
+
+        // Register it — creates the ECS entity with PrefabData
+        prefabSystem.AddPrefab(fakePrefab);
+    }
+}
+```
+
+### `PrefabID`-Based Lookups
+
+After registration, retrieve the fake prefab's entity via `PrefabID` lookup:
+
+```csharp
+PrefabID id = new PrefabID(nameof(StaticObjectPrefab), "MyMod_DataCarrier");
+if (m_PrefabSystem.TryGetPrefab(id, out PrefabBase prefab))
+{
+    Entity prefabEntity = m_PrefabSystem.GetEntity(prefab);
+    // Use prefabEntity as PrefabRef.m_Prefab for mod entities
+}
+```
+
+**Key constraints**: The fake prefab must be registered before any entity references it via `PrefabRef`. Using `IPreDeserialize` ensures this. The prefab entity passes all vanilla validation that checks `PrefabRef.m_Prefab` existence.
+
+## UpdatePrefab and Runtime Re-Initialization
+
+`PrefabSystem.UpdatePrefab(prefab)` schedules a prefab for re-initialization, causing its ECS entity to be rebuilt with updated component data. This is needed when modifying a prefab's `ComponentBase` list or properties after initial registration.
+
+### Reflection-Based `m_PrefabIndices` Fixup
+
+`UpdatePrefab()` replaces the old prefab entity with a new one, but `m_PrefabIndices` (a `Dictionary<PrefabID, int>`) may become stale if the prefab's index changes. Use reflection to fix up the index map when needed:
+
+```csharp
+var prefabIndices = typeof(PrefabSystem)
+    .GetField("m_PrefabIndices", BindingFlags.NonPublic | BindingFlags.Instance)
+    .GetValue(m_PrefabSystem) as Dictionary<PrefabID, int>;
+
+// Update the index entry for the modified prefab
+PrefabID id = prefab.GetPrefabID();
+int currentIndex = m_PrefabSystem.GetPrefab<PrefabBase>(
+    EntityManager.GetComponentData<PrefabData>(
+        m_PrefabSystem.GetEntity(prefab))).GetPrefabID().GetHashCode();
+prefabIndices[id] = currentIndex;
+```
+
+### `UIGroupElement` Buffer Cleanup
+
+When updating prefabs that have `UIObject` components (toolbar entries), the `UIGroupElement` buffer on the group entity may contain stale references. Clean up before calling `UpdatePrefab()`:
+
+```csharp
+if (prefab.TryGet<UIObject>(out var uiObject) && uiObject.m_Group != null)
+{
+    Entity groupEntity = m_PrefabSystem.GetEntity(uiObject.m_Group);
+    if (EntityManager.HasBuffer<UIGroupElement>(groupEntity))
+    {
+        var buffer = EntityManager.GetBuffer<UIGroupElement>(groupEntity);
+        Entity prefabEntity = m_PrefabSystem.GetEntity(prefab);
+        for (int i = buffer.Length - 1; i >= 0; i--)
+        {
+            if (buffer[i].m_Prefab == prefabEntity)
+                buffer.RemoveAt(i);
+        }
+    }
+}
+
+// Now safe to update — will re-add UIGroupElement entries
+m_PrefabSystem.UpdatePrefab(prefab);
+```
+
+### Cascading `Updated` Components
+
+After `UpdatePrefab()` processes, the prefab entity receives the `Updated` component. Systems that cache prefab data should react to this via queries:
+
+```csharp
+EntityQuery updatedPrefabs = SystemAPI.QueryBuilder()
+    .WithAll<PrefabData, Updated>()
+    .Build();
+// Re-read any cached data from these prefab entities
+```
+
+Any system that reads prefab ECS data should either query for `Updated` or subscribe to the prefab change pipeline to stay in sync.
+
 ## PlaceableObjectData Cost Modification
 
 Modify ECS component data on prefab entities at runtime. Use managed `PrefabBase.TryGet<ComponentBase>()` as source of truth for restoring original values:
@@ -849,7 +986,7 @@ toolSystem.ActivatePrefabTool(myPrefab);
 ## Open Questions
 
 - [ ] How does the asset database load PrefabAsset objects from disk at startup?
-- [ ] How does `ReplacePrefabSystem` handle entity replacement when prefabs are updated?
+- [x] How does `ReplacePrefabSystem` handle entity replacement when prefabs are updated? -- `UpdatePrefab()` replaces the entity. Requires reflection-based `m_PrefabIndices` fixup and `UIGroupElement` buffer cleanup. Cascading `Updated` components signal downstream systems.
 - [x] What is the complete list of `ComponentBase` subclasses that mods can attach? — Documented: PlaceableObject, EditorAssetCategoryOverride, ThemeObject, AssetPackItem, ContentPrerequisite, UIObject, PlaceholderObjectData, ObjectGeometryPrefab, and many more. Each prefab type has type-specific ComponentBase subclasses.
 - [x] How does the content prerequisite system gate DLC/mod content availability? — `ContentPrerequisite.m_ContentPrerequisite.TryGet<DlcRequirement>()` chains to get the `DlcId` enum value. The prerequisite check runs during `PrefabInitializeSystem`.
 

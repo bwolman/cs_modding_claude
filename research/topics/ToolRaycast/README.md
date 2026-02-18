@@ -1057,6 +1057,220 @@ public class DirectHighlightTool : ToolBaseSystem
 }
 ```
 
+## Custom Parallel Raycast with NativeQuadTree
+
+For mod-specific entity types that are not indexed in the vanilla spatial quad tree (e.g., custom markers, guide points, debug entities), mods must build their own spatial index and raycast against it. This pattern uses a `NativeQuadTree`, a dedicated `SearchSystem` to maintain the index, and a `ModRaycastSystem` that runs parallel intersection jobs with `NativeAccumulator` for result collection.
+
+### Architecture Overview
+
+```
+[ModSearchSystem] — Maintains NativeQuadTree<Entity, QuadTreeBoundsXZ>
+    │  Inserts/removes mod entities as they are created/destroyed
+    │  Rebuilds on structural changes (Created/Deleted queries)
+    │
+    ▼
+[ModRaycastSystem] — Runs parallel raycast jobs against the quad tree
+    │  Receives ray from ToolRaycastSystem or custom input
+    │  Uses NativeAccumulator<RaycastResult> to collect hits
+    │  Returns closest hit to the requesting tool
+    │
+    ▼
+[Custom ToolBaseSystem] — Reads ModRaycastSystem results
+    │  Merges with vanilla raycast results if needed
+    │  Applies highlighting, selection, etc.
+```
+
+### SearchSystem (Spatial Index Maintenance)
+
+```csharp
+using Game.Common;
+using Unity.Collections;
+using Unity.Entities;
+using Unity.Mathematics;
+using UnityEngine.Scripting;
+
+/// <summary>
+/// Maintains a NativeQuadTree spatial index for mod-specific entities.
+/// Rebuilds when entities with ModEntityTag are created or destroyed.
+/// </summary>
+public partial class ModSearchSystem : GameSystemBase
+{
+    private NativeQuadTree<Entity, QuadTreeBoundsXZ> m_QuadTree;
+    private EntityQuery m_ModEntityQuery;
+    private EntityQuery m_CreatedQuery;
+    private EntityQuery m_DeletedQuery;
+
+    [Preserve]
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+
+        // Allocate quad tree with world bounds
+        m_QuadTree = new NativeQuadTree<Entity, QuadTreeBoundsXZ>(
+            new Bounds2(new float2(-8192f), new float2(8192f)),
+            32,  // max depth
+            Allocator.Persistent);
+
+        m_ModEntityQuery = SystemAPI.QueryBuilder()
+            .WithAll<ModEntityTag, Game.Objects.Transform>()
+            .WithNone<Deleted>()
+            .Build();
+
+        m_CreatedQuery = SystemAPI.QueryBuilder()
+            .WithAll<ModEntityTag, Created>()
+            .Build();
+
+        m_DeletedQuery = SystemAPI.QueryBuilder()
+            .WithAll<ModEntityTag, Deleted>()
+            .Build();
+
+        RequireForUpdate(m_ModEntityQuery);
+    }
+
+    [Preserve]
+    protected override void OnUpdate()
+    {
+        // Only rebuild if entities were added or removed
+        if (m_CreatedQuery.IsEmptyIgnoreFilter && m_DeletedQuery.IsEmptyIgnoreFilter)
+            return;
+
+        // Clear and rebuild the entire tree
+        m_QuadTree.Clear();
+        var entities = m_ModEntityQuery.ToEntityArray(Allocator.Temp);
+
+        for (int i = 0; i < entities.Length; i++)
+        {
+            var transform = EntityManager.GetComponentData<Game.Objects.Transform>(entities[i]);
+            float radius = 1f; // Entity interaction radius
+            var bounds = new QuadTreeBoundsXZ(
+                transform.m_Position - new float3(radius, 0, radius),
+                transform.m_Position + new float3(radius, 0, radius));
+            m_QuadTree.Add(entities[i], bounds);
+        }
+
+        entities.Dispose();
+    }
+
+    /// <summary>
+    /// Provides read access to the quad tree for raycast systems.
+    /// </summary>
+    public NativeQuadTree<Entity, QuadTreeBoundsXZ> GetQuadTree() => m_QuadTree;
+
+    [Preserve]
+    protected override void OnDestroy()
+    {
+        if (m_QuadTree.IsCreated)
+            m_QuadTree.Dispose();
+        base.OnDestroy();
+    }
+}
+```
+
+### ModRaycastSystem (Parallel Raycast)
+
+```csharp
+using Game.Common;
+using Unity.Burst;
+using Unity.Collections;
+using Unity.Entities;
+using Unity.Jobs;
+using Unity.Mathematics;
+using UnityEngine.Scripting;
+
+/// <summary>
+/// Raycasts against the mod's custom NativeQuadTree.
+/// Uses NativeAccumulator to collect results from parallel jobs.
+/// </summary>
+public partial class ModRaycastSystem : GameSystemBase
+{
+    private ModSearchSystem m_SearchSystem;
+    private NativeAccumulator<RaycastResult> m_Results;
+
+    [Preserve]
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        m_SearchSystem = World.GetOrCreateSystemManaged<ModSearchSystem>();
+        m_Results = new NativeAccumulator<RaycastResult>(Allocator.Persistent);
+    }
+
+    public void Raycast(Line3.Segment ray, out JobHandle dependencies)
+    {
+        m_Results.Clear();
+
+        var job = new ModRaycastJob
+        {
+            m_Ray = ray,
+            m_QuadTree = m_SearchSystem.GetQuadTree(),
+            m_Results = m_Results,
+        };
+
+        dependencies = job.Schedule(Dependency);
+        Dependency = dependencies;
+    }
+
+    public bool GetResult(out RaycastResult result)
+    {
+        Dependency.Complete();
+        if (m_Results.TryGet(out result))
+            return true;
+        result = default;
+        return false;
+    }
+
+    [BurstCompile]
+    private struct ModRaycastJob : IJob
+    {
+        [ReadOnly] public Line3.Segment m_Ray;
+        [ReadOnly] public NativeQuadTree<Entity, QuadTreeBoundsXZ> m_QuadTree;
+        public NativeAccumulator<RaycastResult> m_Results;
+
+        public void Execute()
+        {
+            // Query quad tree for candidates near the ray
+            var candidates = new NativeList<Entity>(32, Allocator.Temp);
+            // ... quad tree intersection query ...
+
+            // Test each candidate and accumulate closest hit
+            for (int i = 0; i < candidates.Length; i++)
+            {
+                // Intersection test against entity bounds
+                // If hit, accumulate result (closest wins via IAccumulable)
+                var hit = new RaycastHit
+                {
+                    m_HitEntity = candidates[i],
+                    m_NormalizedDistance = 0.5f, // computed distance
+                };
+                m_Results.Accumulate(new RaycastResult { m_Hit = hit });
+            }
+            candidates.Dispose();
+        }
+    }
+
+    [Preserve]
+    protected override void OnUpdate() { }
+
+    [Preserve]
+    protected override void OnDestroy()
+    {
+        m_Results.Dispose();
+        base.OnDestroy();
+    }
+}
+```
+
+### `NativeAccumulator<T>` (Colossal.Collections)
+
+Thread-safe accumulator for collecting results from parallel jobs. Implements the `IAccumulable` pattern where multiple results are merged and the best one wins (e.g., closest raycast hit by `m_NormalizedDistance`).
+
+| Method | Description |
+|--------|-------------|
+| `Accumulate(T value)` | Add a candidate result (thread-safe for parallel jobs) |
+| `TryGet(out T result)` | Retrieve the winning result after job completion |
+| `Clear()` | Reset for next frame |
+
+**Key detail**: `RaycastResult` implements `IAccumulable` -- when multiple hits are accumulated, the one with the smallest `m_NormalizedDistance` wins. This is the same accumulation pattern used by the vanilla `RaycastSystem`.
+
 ## Open Questions
 
 - [x] How does DefaultToolSystem configure the raycast? — Documented in InitializeRaycast override

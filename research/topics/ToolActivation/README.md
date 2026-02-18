@@ -438,7 +438,77 @@ Key patterns:
 - `ActivatePrefabTool` returns `false` if no tool accepted the prefab -- caller may need fallback behavior
 - The `_settingPrefab` flag pattern lets the mod distinguish its own prefab changes from user actions
 
-### Example 6: ToolbarUISystem.Apply Postfix for Theme Tracking
+### Example 6: Reactivating a Custom Tool on Prefab Change
+
+Subscribe to `ToolSystem.EventPrefabChanged` to reactivate a custom tool when the user selects a different prefab via the toolbar. Use a deferred flag rather than setting `activeTool` directly inside the event handler to avoid re-entrant tool switching during the event dispatch:
+
+```csharp
+using Game.Prefabs;
+using Game.Tools;
+using Unity.Entities;
+using UnityEngine.Scripting;
+
+public partial class CustomPlacementToolSystem : ToolBaseSystem
+{
+    public override string toolID => "Custom Placement Tool";
+
+    private ToolSystem _toolSystem;
+    private bool _reactivateNextFrame;
+
+    [Preserve]
+    protected override void OnCreate()
+    {
+        base.OnCreate();
+        _toolSystem = World.GetOrCreateSystemManaged<ToolSystem>();
+
+        // Subscribe to prefab changes — fires when user picks a different
+        // prefab in the toolbar while any tool is active.
+        _toolSystem.EventPrefabChanged += OnPrefabChanged;
+    }
+
+    private void OnPrefabChanged(PrefabBase newPrefab)
+    {
+        // Only react if our tool was active but lost focus due to prefab change
+        // (e.g., ActivatePrefabTool switched to ObjectToolSystem).
+        if (_toolSystem.activeTool != this && newPrefab != null)
+        {
+            // Don't set activeTool here — we're inside the event dispatch.
+            // Setting activeTool would fire EventToolChanged while
+            // EventPrefabChanged is still propagating, which can confuse
+            // other subscribers. Instead, defer to next frame.
+            _reactivateNextFrame = true;
+        }
+    }
+
+    [Preserve]
+    protected override JobHandle OnUpdate(JobHandle inputDeps)
+    {
+        if (_reactivateNextFrame)
+        {
+            _reactivateNextFrame = false;
+            // Now safe to switch — we're in ToolUpdate phase.
+            _toolSystem.activeTool = this;
+        }
+
+        // ... normal tool logic ...
+        return inputDeps;
+    }
+
+    public override PrefabBase GetPrefab() => _toolSystem.activePrefab;
+    public override bool TrySetPrefab(PrefabBase prefab) => false;
+
+    [Preserve]
+    protected override void OnDestroy()
+    {
+        _toolSystem.EventPrefabChanged -= OnPrefabChanged;
+        base.OnDestroy();
+    }
+}
+```
+
+**Key pattern**: Setting `activeTool` inside `EventPrefabChanged` is technically safe (single-threaded), but causes re-entrant event dispatch -- `EventToolChanged` fires while `EventPrefabChanged` subscribers are still running. The deferred flag avoids this by waiting until the next `OnUpdate`. This pattern is used by mods that replace vanilla placement tools but need to stay active when the user browses different prefabs.
+
+### Example 7: ToolbarUISystem.Apply Postfix for Theme Tracking
 
 Patch `ToolbarUISystem.Apply` to detect toolbar theme/category changes for multi-select support:
 
