@@ -545,6 +545,68 @@ CitizenUtils.HouseholdMoveAway(
 | `snippets/CitizenPresenceSystem.cs` | Building occupancy tracking system |
 | `snippets/LeaveHouseholdSystem.cs` | Young adult household independence system |
 
+## Mod Blueprint: Building Occupancy/Capacity Rebalancing
+
+A building occupancy mod recalculates household counts, worker counts, and service building capacities based on building mesh dimensions and custom formulas. This is one of the most popular CS2 mod archetypes, involving a complex set of interacting systems that modify how many people can live and work in each building.
+
+**Reference implementation**: [RealisticWorkplacesAndHouseholds](https://github.com/ruzbeh0/RealisticWorkplacesAndHouseholds/)
+
+### Systems to Create
+
+1. **Residential capacity updater** -- recalculates household count from building mesh dimensions (SubArea geometry, floor area)
+2. **Workplace capacity updater** -- recalculates worker count for zoned companies based on building size
+3. **City service capacity updater** -- recalculates workers/students/patients for service buildings (schools, hospitals, prisons, power plants)
+4. **Building check system** -- handles evictions when capacity decreases (coordinates with `CheckBuildingsSystem` eviction pipeline)
+5. **Vacancy monitor** -- tracks and controls residential vacancy rates to prevent population collapse
+6. **Parameter updater** -- adjusts `EconomyParameterData` for rent/upkeep rebalancing to match new capacities
+7. **Footprint calculator** (optional) -- computes usable area from `SubArea` geometry for more realistic density
+
+### Components to Create
+
+- **Marker components** for "already processed" entities -- prevents re-processing buildings that have already had their capacity updated
+- **Data components** storing original vs. modified values -- enables clean save/load and mod removal without corrupting save data
+
+### Systems to Disable
+
+- `BuildingUpkeepSystem` -- if modifying upkeep calculations to match new capacities
+- `BudgetApplySystem` -- if modifying city budget expenses to account for changed service building costs
+- `HouseholdSpawnSystem` -- if controlling spawn rates to match new vacancy targets
+
+### Key Game Components
+
+| Component | Namespace | Role |
+|-----------|-----------|------|
+| `BuildingPropertyData` | Game.Prefabs | `m_ResidentialProperties` -- the primary field to modify for household count |
+| `SpawnableBuildingData` | Game.Prefabs | `m_Level` -- building level, affects capacity scaling |
+| `ZoneData` | Game.Prefabs | Area type classification for zone-specific formulas |
+| `WorkProvider` | Game.Companies | `m_MaxWorkers` -- workplace capacity to modify |
+| `WorkplaceData` | Game.Prefabs | Base worker count and complexity |
+| `SubMesh` | Game.Prefabs | Building mesh data for dimension calculations |
+| `MeshData` | Game.Prefabs | Mesh geometry dimensions |
+| `GroupAmbienceData` | Game.Prefabs | Housing type classification (low-rent vs. market-rate) |
+| `AssetPackData` / `AssetPackElement` | Game.Prefabs | Asset pack membership for batch processing |
+| `ServiceCompanyData` | Game.Prefabs | Service company worker requirements |
+| `IndustrialProcessData` | Game.Prefabs | Industrial building processing data |
+| `SchoolData` | Game.Prefabs | Student capacity for education buildings |
+| `HospitalData` | Game.Prefabs | Patient capacity for healthcare buildings |
+| `PrisonData` | Game.Prefabs | Prisoner capacity for prison buildings |
+| `PowerPlantData` | Game.Prefabs | Worker requirements for power plants |
+| `ConsumptionData` | Game.Prefabs | Upkeep cost data -- must rebalance when capacity changes |
+| `PollutionParameterData` | Game.Prefabs | Pollution parameters affected by density changes |
+| `EconomyParameterData` | Game.Prefabs | Economy parameters for rent/upkeep rebalancing |
+| `DemandParameterData` | Game.Prefabs | Demand parameters for immigration rate tuning |
+
+### Harmony Patches Needed
+
+- **`CityServiceBudgetSystem.GetExpense()`** -- postfix to reduce service building expenses to match rebalanced worker counts
+- **`CityServiceBudgetSystem.GetTotalExpenses()`** -- postfix to ensure budget totals reflect modified expense values
+
+### Implementation Notes
+
+- Modifying `BuildingPropertyData.m_ResidentialProperties` at runtime triggers the `CheckBuildingsSystem` eviction pipeline after a grace period (see Key Systems above)
+- Use `GroupAmbienceData.m_AmbienceType` to differentiate low-rent housing from market-rate for level-dependent capacity adjustments
+- The exponential level scaling in `BuildingUpkeepSystem` (`pow(2, level)`) means capacity changes at higher levels have amplified effects on building condition
+
 ## Open Questions
 
 - **Resolved**: `MovingAway` is triggered by `HouseholdBehaviorSystem` for three reasons: `NoAdults` (only children/teens left), `NotHappy` (happiness-based probability using quadratic formula), or `NoMoney` (totalWealth + salary < -1000). It calls `CitizenUtils.HouseholdMoveAway()`.

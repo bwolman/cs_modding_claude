@@ -843,6 +843,74 @@ if (random.NextInt(kUpdatesPerDay * 1000) &lt;= threshold)
   </p>
 
   <!-- ============================================================ -->
+  <h2>Mod Blueprint: Building Occupancy/Capacity Rebalancing</h2>
+
+  <p>A building occupancy mod recalculates household counts, worker counts, and service building capacities
+    based on building mesh dimensions and custom formulas. This is one of the most popular CS2 mod archetypes,
+    involving a complex set of interacting systems that modify how many people can live and work in each building.</p>
+
+  <p><strong>Reference implementation:</strong>
+    <a href="https://github.com/ruzbeh0/RealisticWorkplacesAndHouseholds/">RealisticWorkplacesAndHouseholds</a></p>
+
+  <h3>Systems to Create</h3>
+  <ol>
+    <li><strong>Residential capacity updater</strong> -- recalculates household count from building mesh dimensions (SubArea geometry, floor area)</li>
+    <li><strong>Workplace capacity updater</strong> -- recalculates worker count for zoned companies based on building size</li>
+    <li><strong>City service capacity updater</strong> -- recalculates workers/students/patients for service buildings (schools, hospitals, prisons, power plants)</li>
+    <li><strong>Building check system</strong> -- handles evictions when capacity decreases (coordinates with <code>CheckBuildingsSystem</code> eviction pipeline)</li>
+    <li><strong>Vacancy monitor</strong> -- tracks and controls residential vacancy rates to prevent population collapse</li>
+    <li><strong>Parameter updater</strong> -- adjusts <code>EconomyParameterData</code> for rent/upkeep rebalancing to match new capacities</li>
+    <li><strong>Footprint calculator</strong> (optional) -- computes usable area from <code>SubArea</code> geometry for more realistic density</li>
+  </ol>
+
+  <h3>Components to Create</h3>
+  <ul>
+    <li><strong>Marker components</strong> for "already processed" entities -- prevents re-processing buildings that have already had their capacity updated</li>
+    <li><strong>Data components</strong> storing original vs. modified values -- enables clean save/load and mod removal without corrupting save data</li>
+  </ul>
+
+  <h3>Systems to Disable</h3>
+  <ul>
+    <li><code>BuildingUpkeepSystem</code> -- if modifying upkeep calculations to match new capacities</li>
+    <li><code>BudgetApplySystem</code> -- if modifying city budget expenses to account for changed service building costs</li>
+    <li><code>HouseholdSpawnSystem</code> -- if controlling spawn rates to match new vacancy targets</li>
+  </ul>
+
+  <h3>Key Game Components</h3>
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Namespace</th><th>Role</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>BuildingPropertyData</code></td><td>Game.Prefabs</td><td><code>m_ResidentialProperties</code> -- the primary field to modify for household count</td></tr>
+      <tr><td><code>SpawnableBuildingData</code></td><td>Game.Prefabs</td><td><code>m_Level</code> -- building level, affects capacity scaling</td></tr>
+      <tr><td><code>ZoneData</code></td><td>Game.Prefabs</td><td>Area type classification for zone-specific formulas</td></tr>
+      <tr><td><code>WorkProvider</code></td><td>Game.Companies</td><td><code>m_MaxWorkers</code> -- workplace capacity to modify</td></tr>
+      <tr><td><code>WorkplaceData</code></td><td>Game.Prefabs</td><td>Base worker count and complexity</td></tr>
+      <tr><td><code>SubMesh</code></td><td>Game.Prefabs</td><td>Building mesh data for dimension calculations</td></tr>
+      <tr><td><code>GroupAmbienceData</code></td><td>Game.Prefabs</td><td>Housing type classification (low-rent vs. market-rate)</td></tr>
+      <tr><td><code>SchoolData</code></td><td>Game.Prefabs</td><td>Student capacity for education buildings</td></tr>
+      <tr><td><code>HospitalData</code></td><td>Game.Prefabs</td><td>Patient capacity for healthcare buildings</td></tr>
+      <tr><td><code>ConsumptionData</code></td><td>Game.Prefabs</td><td>Upkeep cost data -- must rebalance when capacity changes</td></tr>
+      <tr><td><code>EconomyParameterData</code></td><td>Game.Prefabs</td><td>Economy parameters for rent/upkeep rebalancing</td></tr>
+      <tr><td><code>DemandParameterData</code></td><td>Game.Prefabs</td><td>Demand parameters for immigration rate tuning</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Harmony Patches Needed</h3>
+  <ul>
+    <li><strong><code>CityServiceBudgetSystem.GetExpense()</code></strong> -- postfix to reduce service building expenses to match rebalanced worker counts</li>
+    <li><strong><code>CityServiceBudgetSystem.GetTotalExpenses()</code></strong> -- postfix to ensure budget totals reflect modified expense values</li>
+  </ul>
+
+  <h3>Implementation Notes</h3>
+  <ul>
+    <li>Modifying <code>BuildingPropertyData.m_ResidentialProperties</code> at runtime triggers the <code>CheckBuildingsSystem</code> eviction pipeline after a grace period</li>
+    <li>Use <code>GroupAmbienceData.m_AmbienceType</code> to differentiate low-rent housing from market-rate for level-dependent capacity adjustments</li>
+    <li>The exponential level scaling in <code>BuildingUpkeepSystem</code> (<code>pow(2, level)</code>) means capacity changes at higher levels have amplified effects on building condition</li>
+  </ul>
+
+  <!-- ============================================================ -->
   <h2>Open Questions</h2>
 
   <h3>Resolved</h3>
