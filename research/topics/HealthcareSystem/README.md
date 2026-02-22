@@ -98,15 +98,15 @@ Component on ambulance vehicle entities tracking dispatch state.
 
 | Flag | Value | Meaning |
 |------|-------|---------|
-| Returning | 1 | Heading back to hospital |
+| Returning | 1 | Heading back to home building |
 | Dispatched | 2 | En route to pick up patient |
-| Transporting | 4 | Carrying patient to hospital |
-| AnyHospital | 8 | Can go to any hospital, not just home |
-| FindHospital | 16 | Searching for a hospital with room |
-| AtTarget | 32 | Arrived at patient location |
+| Transporting | 4 | Carrying patient to a hospital |
+| AnyHospital | 8 | Set unconditionally on ALL dispatched ambulances; triggers FindHospital mode after pickup |
+| FindHospital | 16 | Actively pathfinding to nearest hospital with HasRoomForPatients |
+| AtTarget | 32 | Arrived at patient location, loading |
 | Disembarking | 64 | Patient is exiting ambulance |
 | Disabled | 128 | Ambulance disabled (over capacity) |
-| Critical | 256 | Critical patient (emergency priority) |
+| Critical | 256 | Critical patient (emergency lights/priority routing) |
 
 ### `HealthcareRequest` (Game.Simulation)
 
@@ -214,17 +214,29 @@ Global singleton with healthcare system parameters.
 - **Reads**: HospitalData (prefab), OwnedVehicle, Patient buffer, HealthProblem, Efficiency, CityModifier
 - **Writes**: Hospital flags, Patient buffer, vehicle spawning, ServiceUsage
 - **Key methods**:
-  - `Tick()` -- main hospital update. Treatment bonus formula: `efficiency * resourcePenalty * prefabTreatmentBonus` (capped at 255). Hospital efficiency includes city modifier `HospitalEfficiency` (slot 26). Patients with Dead flag are deleted. Patients who can't be treated are ejected.
+  - `Tick()` — main hospital update. Treatment bonus formula: `efficiency * resourcePenalty * prefabTreatmentBonus` (capped at 255). Hospital efficiency includes city modifier `HospitalEfficiency` (slot 26). Patients with Dead flag are deleted. Patients who can't be treated (wrong disease/injury capability) are ejected.
+  - Copies `HospitalData.m_HealthRange` → `Hospital.m_MinHealth`/`m_MaxHealth` every 256 frames. These are used by the pathfinder's `SetupTargetType.Hospital` search to prefer health-range-matched buildings.
+  - `SpawnVehicle()` — unparks or creates a vehicle, always sets initial `Ambulance.m_State = Dispatched | AnyHospital`. The dispatching building is the ambulance's home (it returns here), but it is NOT necessarily the delivery destination for the patient.
+  - `HasRoomForPatients` flag is set only when `patients.Length < prefabHospitalData.m_PatientCapacity`. Clinics with `m_PatientCapacity = 0` never set this flag and therefore cannot receive patients — their ambulances always route patients to a different hospital.
 
 ### `AmbulanceAISystem` (Game.Simulation)
 
 - **Base class**: GameSystemBase
-- **Update phase**: Simulation
-- **Queries**: Vehicles with Ambulance component
-- **Reads**: Ambulance, PathInformation, Target, Car, CarCurrentLane
-- **Writes**: Ambulance.m_State, Target, PathOwner, Passenger
+- **Update phase**: Simulation (every 16 frames)
+- **Queries**: Vehicles with Ambulance component (excludes Deleted, Temp, TripSource, OutOfControl)
+- **Reads**: Ambulance, PathInformation, Target, Car, CarCurrentLane, Hospital (for parking/disable check)
+- **Writes**: Ambulance.m_State, Target, PathOwner, Passenger buffer
 - **Key methods**:
-  - `AmbulanceTickJob` -- handles ambulance state machine: Dispatched -> AtTarget -> Transporting -> Returning
+  - `Tick()` — main state machine:
+    1. `Dispatched` → navigate to patient's current building/transport
+    2. `AtTarget` → call `LoadPatients()`: stop vehicle, wait for citizen to board as Passenger
+    3. Once aboard, set `Transporting`; if `Citizen.m_Health < random(100)` also set `Critical`
+    4. `TransportToHospital()` — since `AnyHospital` is **always** set, clears dispatch and enters `FindHospital` mode (target = Entity.Null, triggers pathfind to nearest available hospital)
+    5. `FindHospital` pathfind uses `SetupTargetType.Hospital` + district of **pickup location** (`m_TargetLocation`) as search hint
+    6. On path resolved: `pathInformation.m_Destination` becomes the delivery hospital; `FindHospital` cleared
+    7. `Transporting` → navigate to hospital, `UnloadPatients()` on arrival
+    8. `Returning` → navigate back to `owner.m_Owner` (dispatching building), park or despawn
+  - `Critical` flag upgrades pathfind weights to `(1,0,0,0)` (time-only) and ignores combustion/heavy-traffic bans
 
 ## Data Flow
 
@@ -277,17 +289,27 @@ HOSPITAL PROCESSING (every 256 frames)
           |
           v
 AMBULANCE LIFECYCLE
-  AmbulanceAISystem
-    Dispatched -> navigate to patient location
-    AtTarget -> pick up patient (add as Passenger)
-    Transporting -> navigate to hospital
-    Returning -> navigate back to home hospital
+  AmbulanceAISystem (every 16 frames)
+    Dispatched -> navigate to patient's current location
+    AtTarget -> stop vehicle, wait for patient to board as Passenger
+    On board -> set Transporting (+ Critical if health < random(100))
+    TransportToHospital() -> AnyHospital always set, so:
+      Enter FindHospital mode (target cleared)
+      Pathfind: SetupTargetType.Hospital near patient's pickup district
+      Prefers hospital with HasRoomForPatients, health range match
+      Critical patients use time-only pathfind weights + ignore restrictions
+    Path resolved -> target = nearest eligible hospital (may differ from dispatch origin)
+    Transporting -> navigate to delivery hospital
+    UnloadPatients() -> Disembarking state until passenger exits
+    Returning -> navigate back to owner.m_Owner (home building), park or despawn
           |
           v
 PATIENT ADMISSION
-  Patient added to Hospital's Patient buffer
-  Treatment bonus applied through hospital efficiency
-  Citizens removed from Patient buffer when HealthProblem resolved
+  Patient added to delivery hospital's Patient buffer
+  treatment = efficiency * resourcePenalty * prefabTreatmentBonus (capped 255)
+  Patients ejected if hospital lacks CanCureDisease/CanCureInjury capability
+  Dead patients deleted from Patient buffer
+  Citizens removed when HealthProblem resolved
 ```
 
 ## Prefab & Configuration
@@ -489,14 +511,16 @@ public partial class AmbulanceTrackerSystem : GameSystemBase
 
 ## Open Questions
 
-- [ ] Exact health recovery rate for patients admitted to hospitals -- the treatment bonus is stored but the system that restores citizen health needs further tracing
-- [ ] How `HospitalData.m_HealthRange` affects patient admission filtering
+- [ ] Exact health recovery rate for patients admitted to hospitals -- the treatment bonus is stored but the system that restores citizen health needs further tracing (likely in HealthProblemSystem or a treatment tick)
+- [x] How `HospitalData.m_HealthRange` affects patient admission filtering — **resolved**: `m_HealthRange` is copied to `Hospital.m_MinHealth`/`m_MaxHealth` each tick; the pathfinder's `SetupTargetType.Hospital` uses these to score/prefer hospitals whose health range matches the patient. It does not filter in `AmbulanceAISystem` itself.
 - [ ] Medical helicopter landing pad requirements (MedicalAircraftAISystem)
 - [ ] Conditions that trigger the NoHealthcare flag on citizens
+- [ ] How the pathfinder scores `SetupTargetType.Hospital` candidates — does it weight by health range match, distance, HasRoomForPatients independently? Requires tracing `PathfindHeuristicSystem` or similar.
 
 ## Sources
 
-- Decompiled from: Game.dll -- Game.Simulation.HospitalAISystem, Game.Simulation.HealthProblemSystem, Game.Simulation.SicknessCheckSystem, Game.Simulation.HealthcareDispatchSystem, Game.Simulation.AmbulanceAISystem
+- Decompiled from: Game.dll -- Game.Simulation.HospitalAISystem, Game.Simulation.HealthProblemSystem, Game.Simulation.SicknessCheckSystem, Game.Simulation.HealthcareDispatchSystem, Game.Simulation.AmbulanceAISystem, Game.Vehicles.AmbulanceFlags (enum)
 - Runtime components: Game.Citizens.HealthProblem, Game.Buildings.Hospital, Game.Buildings.Patient, Game.Vehicles.Ambulance
 - Prefab types: Game.Prefabs.HospitalData, Game.Prefabs.HealthcareParameterData, Game.Prefabs.HealthEventData
 - Enums: Game.Citizens.HealthProblemFlags, Game.Buildings.HospitalFlags, Game.Vehicles.AmbulanceFlags, Game.Simulation.HealthcareRequestType, Game.Prefabs.HealthEventType
+- Key verified behaviors: AnyHospital unconditionally set in HospitalAISystem.SpawnVehicle (line 506); FindHospital pathfind uses SetupTargetType.Hospital + pickup district; m_HealthRange copied to Hospital.m_MinHealth/m_MaxHealth each 256-frame tick
