@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-17
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -66,6 +66,26 @@ The core data for an individual citizen.
 - Age = `GetAge()` reads AgeBit1/AgeBit2 from m_State
 - Education level = 0-4, encoded in EducationBit1/2/3
 
+**Age bit encoding (runtime-confirmed):**
+
+| AgeBit1 | AgeBit2 | Age |
+|---------|---------|-----|
+| 0 | 0 | Child (0) |
+| 1 | 0 | Teen (1) |
+| 0 | 1 | Adult (2) |
+| 1 | 1 | Elder (3) |
+
+**Education bit encoding (runtime-confirmed):**
+
+| EducationBit1 | EducationBit2 | EducationBit3 | Level |
+|---------------|---------------|---------------|-------|
+| 0 | 0 | 0 | Uneducated (0) |
+| 1 | 0 | 0 | Poorly Educated (1) |
+| 1 | 1 | 0 | Educated (2) |
+| 0 | 1 | 0 | Educated (2) — alternate encoding |
+| 1 | 0 | 1 | Well Educated (3) |
+| high combo | — | — | Highly Educated (4) |
+
 ### `CitizenAge` (Game.Citizens)
 
 ```
@@ -110,12 +130,9 @@ Attached to citizen entities. Single field `m_Household` pointing to the househo
 
 ### `Worker` (Game.Citizens)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| m_Workplace | Entity | Company/service building entity |
-| m_LastCommuteTime | float | Time of last commute |
-| m_Level | byte | Job level |
-| m_Shift | Workshift | Day/evening/night shift |
+**Runtime-confirmed: `Worker` is a zero-sized tag component with no fields.** Its presence on a citizen entity signals that the citizen is employed. The employment relationship (which company/building) is tracked via the employer's `WorkProvider` component and `Employee` buffer — not stored on the `Worker` tag itself.
+
+Early decompilation incorrectly documented fields (`m_Workplace`, `m_LastCommuteTime`, `m_Level`, `m_Shift`) that do not exist on this component.
 
 ### Age Tag Components
 
@@ -611,6 +628,8 @@ A building occupancy mod recalculates household counts, worker counts, and servi
 
 - **Resolved**: `MovingAway` is triggered by `HouseholdBehaviorSystem` for three reasons: `NoAdults` (only children/teens left), `NotHappy` (happiness-based probability using quadratic formula), or `NoMoney` (totalWealth + salary < -1000). It calls `CitizenUtils.HouseholdMoveAway()`.
 - **Resolved**: `LeaveHouseholdSystem` gives new households exactly `kNewHouseholdStartMoney = 2000` money, deducted from the parent household. The citizen must be employed (have `Worker`) and the parent must have >4000 money.
+- **Resolved** (runtime-confirmed): `Worker` is a zero-sized tag — no fields. Employment relationship is tracked on the employer side via `WorkProvider`'s `Employee` buffer. Education is stored in `Citizen.m_State` bit flags, not in `HouseholdMember`. `HouseholdMember` has only one field: `m_Household` (entity ref).
+- **Resolved** (runtime-confirmed): Age bit encoding: AgeBit1=Teen, AgeBit2=Adult, both=Elder, neither=Child. Education encoding: EducBit1 alone=PoorlyEducated, EducBit1+EB2=Educated, EducBit1+EB3=WellEducated. High-education (4) uses higher-bit combinations. Highly Educated represents only ~0.4% of sampled live citizens.
 - What is the exact shape of the `m_DeathRate` curve in `HealthcareParameterData`? It is a `BezierCurve` evaluated at normalized age. The control points were not extracted.
 - How do commuter and tourist households differ in lifecycle from resident households? Tourist households are excluded from `HouseholdBehaviorSystem`'s main query. `LeaveHouseholdSystem` can create commuter households when no residential property is available.
 - What are the exact `AnimationCurve1` control points for `m_ElectricityFeeWellbeingEffect`, `m_WaterFeeHealthEffect`, and `m_WaterFeeWellbeingEffect` in `CitizenHappinessParameterData`?
