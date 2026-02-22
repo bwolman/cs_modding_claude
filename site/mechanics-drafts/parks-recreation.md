@@ -40,6 +40,38 @@ Parks degrade continuously, at a rate proportional to how many buildings share t
 
 ---
 
+## Types of Leisure Providers
+
+Not every leisure building works the same way. Your city has access to several distinct categories, each satisfying different leisure needs for different citizens under different conditions.
+
+**Parks (small and large)** are the universal outdoor leisure option. They're free to visit, accessible to all age groups and wealth levels, and their coverage radiates outward from the park building itself. A park in the middle of a residential neighborhood satisfies the park leisure category for every citizen within walking distance, regardless of how much money those citizens have. Their one hard constraint is weather — rain drops park demand by up to 95%, and below-freezing temperatures suppress it further.
+
+**Plazas and squares** function similarly to parks but typically cover a smaller radius. They're most useful for filling gaps in dense districts where a full park doesn't fit spatially. A plaza won't replace a park in a large neighborhood, but it can prevent a small pocket of residents from going entirely without green-space access.
+
+**Sports facilities** — fields, courts, and gyms — satisfy the entertainment and activity leisure category rather than the general park category. They tend to be preferred by younger citizens, particularly teens and young adults. Outdoor sports fields are subject to the same weather suppression as parks. Indoor gyms are not — a gym functions as a leisure provider regardless of rain or temperature, which makes them disproportionately valuable in cold or wet climates.
+
+**Cultural venues** — museums, libraries, and theaters — satisfy the indoor city facilities leisure category. These buildings are critical infrastructure, not decorative choices. During rain and winter, when outdoor leisure demand collapses, cultural venues absorb the shift in citizen preferences. A city with a strong network of museums and libraries maintains steady leisure satisfaction year-round. Cultural venues also contribute to city attractiveness, which feeds into tourism demand.
+
+**Restaurants and cafes** are commercial buildings, but the game treats them as leisure providers for the dining category. Citizens who roll dining as their leisure choice will pathfind to a restaurant and spend time and money there. This means a healthy commercial district doubles as recreational infrastructure — your downtown isn't just generating tax revenue, it's also keeping your wealthier residents' leisure counters full. Citizens who roll dining but cannot find a restaurant within pathfinding range go unsatisfied, so commercial gaps in a neighborhood translate directly to leisure gaps for residents with disposable income.
+
+**Tourist attractions and landmark buildings** satisfy the sightseeing and tourist-attraction leisure categories. These serve both local citizens and visitors from outside your city. Their attractiveness score feeds directly into tourism demand — a city with no landmarks will never generate meaningful hotel occupancy or tourism revenue. Unlike parks, their value scales significantly with placement: a landmark near transit, in a dense area with good pedestrian access, reaches far more people than one placed on the edge of the map.
+
+---
+
+## Seasonal Leisure Patterns
+
+Your city's leisure infrastructure needs to function in all seasons, and the seasons create very different demands.
+
+**Summer is peak outdoor leisure season.** Parks, beaches, sports fields, and outdoor entertainment all see their highest demand. If your city has coastline, beachfront neighborhoods become leisure magnets for the whole city during warm months — citizens will travel significant distances to reach beach access when temperatures are right. A well-positioned beach can carry an enormous share of citywide leisure demand in summer.
+
+**Winter suppresses outdoor leisure sharply.** Citizens shift heavily toward indoor options: dining out, entertainment venues, cultural facilities. A city that has invested primarily in parks will see widespread leisure dissatisfaction from autumn through early spring, as the weather makes the parks effectively inaccessible to the majority of citizens who would otherwise use them.
+
+This creates a real infrastructure planning challenge. Outdoor parks that handle 80% of your summer leisure demand need to be complemented by indoor venues that cover the winter gap. The right ratio depends on your climate zone — a consistently sunny map needs fewer indoor venues than one where rain or cold are common. Cities that over-invest in parks relative to indoor options will have happiness that cycles with the seasons: high in summer, struggling in winter, in a pattern that's difficult to smooth out without adding indoor capacity.
+
+**Rain within any season can trigger the same shift.** Even in summer, a rainy week will push citizens heavily toward indoor leisure. A city in a rainy or temperate climate zone needs more indoor capacity than one in an arid or sunny zone. Check your climate conditions when planning leisure infrastructure — the right mix differs meaningfully by map.
+
+---
+
 ## Park Attractiveness and the Environment Around It
 
 Every park and attraction building has an attractiveness score that affects both how desirable your city is to visitors and — indirectly — property values in the surrounding area. This score is not purely about the building itself. The terrain around the park matters.
@@ -51,6 +83,8 @@ All of these terrain bonuses multiply against the park's base attractiveness. A 
 Building efficiency matters too. A park running at reduced efficiency — perhaps because you've underfunded city services — sees its attractiveness cut accordingly. Only signature landmark buildings are exempt from this efficiency penalty.
 
 > **Info:** The maintenance-to-attractiveness relationship is a direct multiplier: a park at 80% maintenance operates at 96% of its maximum attractiveness (calculated as 0.8 + 0.2 × maintenance ratio). At 50% maintenance, attractiveness drops to 90% of maximum. Letting parks fall to zero maintenance cuts attractiveness to 80% of the designed value regardless of terrain bonuses.
+
+Parks and attractions also influence the city-level attractiveness score, which affects how many tourists want to visit and how desirable your city appears to residents considering moving in. A well-parked residential neighborhood will have higher land value and attract wealthier residents than an identical neighborhood without green space. Tourist-oriented landmarks specifically feed into tourism demand — the more unique attractions your city offers, the more it can sustain a hotel and hospitality industry. These effects stack: a city with diverse, well-maintained parks and cultural venues will outperform an equally populous city that neglected its recreational infrastructure, in both tourism revenue and residential desirability.
 
 ---
 
@@ -75,3 +109,7 @@ Beaches, when your map has coastline, are the most powerful summer leisure optio
 **No park nearby means the lottery fails.** When a citizen "rolls" park as their desired activity but no park is within a reasonable pathing distance, the leisure need goes unmet. The citizen doesn't automatically re-roll to a different activity type — they simply fail to satisfy that need until the next leisure cycle. Dense neighborhoods with no green space can build up sustained leisure deficits.
 
 **Terrain attractiveness is permanent and invisible.** Placing a park on flat, treeless land in the center of the city will always underperform the same park placed near a forest or waterfront. If you're trying to maximize a park's contribution to your city's attractiveness score, location matters as much as the building choice itself.
+
+**Winter leisure deficit from an outdoor-only strategy.** A city built around parks, beaches, and sports fields will see happiness drop every autumn and stay low until spring. Citizens shift to indoor leisure categories in cold and rainy weather, and if there are no museums, theaters, or other indoor venues to absorb that demand, the leisure need goes unmet at scale. Adding indoor cultural and entertainment venues is the only reliable fix — you cannot park-build your way out of a seasonal happiness cycle.
+
+**Landmark parks placed far from residential density serve almost no one.** Citizens pathfind by proximity. A large unique park on the edge of your city, surrounded by industrial zones or empty land, will draw almost no visitors — not because it's unattractive, but because no one lives nearby to use it. Landmark recreational buildings need residential density within reasonable walking or transit distance to actually function as leisure providers. Placing one far from where people live wastes its coverage and its contribution to city attractiveness.

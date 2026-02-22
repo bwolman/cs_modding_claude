@@ -2,6 +2,8 @@
 
 Your city produces three invisible layers of damage: air pollution, ground pollution, and noise pollution. Each behaves differently, spreads differently, and hurts your residents in different ways. Understanding them is the difference between a thriving city and one where half your population is sick and land values have cratered.
 
+> **Info:** The game provides three separate info-view overlays — one for each pollution type. The air pollution overlay uses a color gradient from clean (blue-green) to heavily polluted (red) and highlights active emitters. The ground pollution overlay shows contaminated soil cells and lets you spot old industrial footprints that are still leaching. The noise overlay rebuilds in real time and is the fastest way to see which roads and buildings are the loudest contributors. Players who do not check these overlays regularly will miss building problems until the damage is already done.
+
 ---
 
 ## Air Pollution
@@ -38,6 +40,30 @@ That makes noise highly reactive — but it also means it is always present wher
 
 ---
 
+## How Pollution Hurts Your Citizens
+
+The three pollution types do not cause the same harm — they each affect citizens through different channels.
+
+**Air pollution** reduces citizen wellbeing and increases the probability of illness. The effect is not triggered by momentary spikes — the game tracks sustained exposure over time. A brief period of high air pollution near a factory that is quickly cleaned up matters far less than a persistent background level across a whole district. Citizens living in chronically polluted areas will have persistently lower wellbeing, and sickness rates in those households will be elevated, increasing the load on your healthcare network.
+
+**Ground pollution** hurts citizens primarily through the water supply — contaminated groundwater enters your pipes and reaches taps if pumps are not protected or water is not adequately treated. But ground pollution has a second, quieter effect: it directly suppresses land value in affected cells. Commercial and residential buildings sitting on contaminated soil operate less efficiently because land value feeds into building performance. Residents there earn less desirability, shops attract fewer customers, and office workers are less productive — all without any visible notification pointing to soil contamination as the cause.
+
+**Noise pollution** reduces wellbeing for residents, measured per household based on the noise level at the building's specific location. High-density housing concentrates many households close together, so a noisy block affects more citizens than the same noise next to a single-family home. The effect is strongest at night, when residents are home and exposure is continuous. Noise also reduces efficiency for commercial buildings — shops and offices in loud areas are less attractive to customers and workers alike, which pulls down revenue and productivity. A highway running through what was a quiet commercial district can gradually degrade the entire strip without ever generating a direct complaint notification.
+
+---
+
+## Building Types and Pollution Output
+
+Not all buildings pollute equally, and knowing which building types drive each pollution type helps you zone and plan more deliberately.
+
+**Air and ground pollution** come primarily from industrial buildings and power plants. Fossil-fuel power generation is among the highest emitters for air. Landfills and waste processing facilities contribute significantly to ground pollution. Road traffic — particularly on high-volume arterials — generates meaningful air pollution even without any industry nearby.
+
+**Noise pollution** comes overwhelmingly from roads, scaled by traffic volume. Highways and high-speed roads are the loudest by a wide margin. Industrial facilities are the next biggest contributors. Residential buildings generate very little noise of any type — they are almost entirely receivers, not sources.
+
+**Building efficiency scales pollution output.** A factory running below capacity emits less than one running at full throughput. This cuts both ways: a struggling industrial building is less productive but also less damaging to its surroundings. Some buildings scale their pollution directly with occupancy count, so low-occupancy phases during early game are naturally lower-pollution phases too. Certain building upgrades apply additive reductions to a building's pollution multiplier, and stacking several of them on a major emitter can produce a meaningful real-world difference.
+
+---
+
 ## What Reduces Pollution
 
 **Zoning separation** is your first line of defense. Industrial zones belong away from residential ones, with commercial or civic buffers in between.
@@ -60,6 +86,8 @@ That makes noise highly reactive — but it also means it is always present wher
 
 **Abandoned buildings are a noise trap.** An area that slides into abandonment does not just look bad — it generates noise pollution that discourages the very redevelopment that would fix the problem.
 
-**Ground pollution outlasts its source.** Demolishing a factory stops new emissions, but the soil contamination fades slowly. Plan around that delay before rezoning the land for residential use.
+**Ground pollution outlasts its source.** Demolishing a factory stops new emissions, but the soil contamination fades slowly. Plan around that delay before rezoning the land for residential use. If you rezone an old industrial block to residential immediately after clearing the buildings, new residents move into land that is still contaminated — suffering suppressed land value and degraded wellbeing for however many seasons it takes the soil to recover.
 
 **Notification thresholds lag behind reality.** The game only alerts you when pollution crosses certain levels, but damage to land value and citizen health accumulates before those alerts fire. Watching the overlay maps directly gives you much earlier warning.
+
+**A new highway can silently degrade a formerly quiet neighborhood.** When you route a highway through or adjacent to an established residential district to solve a traffic problem, the noise overlay will spike immediately — but the land value and wellbeing consequences take time to surface. Players who check only city-wide satisfaction numbers may not connect the new road to the gradual decline in that district until it has progressed significantly. Check the noise overlay before committing to any highway corridor that passes near housing.

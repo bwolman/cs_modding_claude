@@ -26,6 +26,30 @@ Once a company is staffed and producing, it runs a continuous financial cycle. R
 
 > **Info:** The game tracks a "profitability rating" from 0 to 255 for every company, where 127 means exactly breaking even. The rating is calculated once per in-game day by comparing the company's total worth now to its total worth the previous day. Profitable industrial and office companies distribute a daily dividend to the households of their employees — a company's current money divided by eight times the number of employees — so company profits filter down into residential household income.
 
+When a company is profitable, dividends represent a direct cash transfer from the company to its workers' households every in-game day. This means a thriving industrial district does more than pay wages — it enriches the households of everyone working there, raising their purchasing power at nearby shops and ultimately increasing residential tax revenue. The chain runs in reverse as well: companies under financial stress stop paying dividends before they go bankrupt, squeezing household income as an early warning signal before any building actually closes.
+
+## The Supply Chain: Inputs, Outputs, and Warehouses
+
+Industrial companies produce physical goods as output. Those goods need to go somewhere: either to a warehouse for storage, to a commercial building to be sold to customers, or to an outside connection for export. A factory sitting idle because no one is collecting its output will underperform just as surely as one that cannot get raw materials.
+
+Commercial buildings — shops, restaurants, markets — do not produce goods. They receive goods from industry or warehouses and sell them to citizens. A store with empty shelves cannot generate revenue. Before your commercial district can function, it needs a working supply of goods flowing in from somewhere.
+
+Warehouses act as buffers and distributors between producers and retailers. They receive goods from nearby industrial companies and then dispatch their own delivery trucks outward to commercial buildings that need restocking. A city without warehouses forces direct industry-to-retail delivery over whatever distance separates them, which becomes increasingly inefficient as your city grows. Warehouses absorb surplus production, smooth out timing mismatches, and give commercial zones a reliable local source instead of depending on trucks crossing the whole city.
+
+Outside connections — highway interchanges, rail freight depots, ports, and airports — allow your city to import goods it does not produce locally and to export surplus production for revenue. Import costs appear as an expense in your budget; export revenue appears as income. A city that imports most of its commercial goods is paying that cost continuously, and it will not be obvious unless you check the trade section of the Economy panel.
+
+> **Info:** Goods move between producers, warehouses, and retailers via delivery trucks, not citizen vehicles. Delivery trucks follow the same road network as everything else. A congested arterial road between your industrial district and your commercial zone is a bottleneck in your supply chain, not just a traffic nuisance. If trucks cannot complete deliveries on time, companies run out of inputs and production halts even when the goods exist somewhere in your city.
+
+## Commercial Buildings: Customers and Foot Traffic
+
+Commercial buildings operate differently from industrial or office companies. Their revenue does not come from producing output — it comes entirely from how many citizens visit them as customers and what those customers spend.
+
+Citizens choose commercial destinations based on proximity, available goods, and price. A shop near dense residential areas naturally draws more foot traffic than the same shop placed far from where people live. Commercial zones placed in isolated locations or connected only by roads that citizens avoid will struggle to generate consistent revenue regardless of how well-stocked they are.
+
+The no-customers warning over a commercial building means the surrounding population is too sparse, too far away, or already well served by other nearby shops. Building commercial zones ahead of residential density — or laying out retail corridors that are car-dependent and hard for pedestrians to reach — results in businesses that are perpetually underperforming despite being fully stocked.
+
+> **Info:** Commercial buildings are also sensitive to land value. Higher land value areas attract wealthier customers who spend more per visit, but the building itself also pays higher rent to reflect the prime location. The same shop in a high-value district may earn more gross revenue than in a low-value area while simultaneously carrying higher costs. Both the revenue gain and the cost increase are real — land value helps only if the revenue improvement outpaces the rent increase.
+
 ## When There Are Not Enough Workers or Customers
 
 Two warning icons can appear over a business: a worker-shortage icon and a customer-shortage icon.
@@ -59,3 +83,7 @@ Bankruptcy follows a different path. The game tracks each company's total worth 
 **Commercial zones are full of goods but have no customers.** Either the residential population is too small to generate foot traffic, or the zoning layout puts shops too far from where people live and leisure. It can also appear temporarily after a city expansion when commercial zones grow faster than the population that would patronize them.
 
 **Companies are going bankrupt even with customers and workers.** Check the full cost picture: rent on large buildings, utility bills, and the cost of buying input resources all drain company funds before wages and taxes. High land values inflate rent. Poor utility coverage or high service fees add costs silently. A company paying too much for its building in a high-value district can fail even with strong sales.
+
+**Supply chain broken by road congestion.** Goods can exist in your industrial district and still never reach your commercial zone if delivery trucks are caught in gridlock. Unlike a simple traffic problem, this manifests as commercial buildings going idle and eventually bankrupt while nearby factories show full inventory. Dedicated freight routes, separated industrial road networks, or warehouses placed closer to retail districts all help move goods through a congested city.
+
+**Silent import dependency draining the budget.** If your commercial sector relies on imported goods because local industry is not producing enough, every sale at every shop in your city is coming at a cost your budget is absorbing quietly. The drain is easy to miss because it does not appear as a single line item. Check the trade balance in the Economy panel: if imports consistently outrun exports, your commercial sector is profitable on paper but costing the city more than it earns.
