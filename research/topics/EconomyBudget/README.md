@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-17
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -147,7 +147,11 @@ Buffer element on city service entities. Tracks collected fees per service resou
 | Field | Type | Description |
 |-------|------|-------------|
 | m_ExtractorCompanyExportMultiplier | float | Multiplier for extractor company exports |
-| m_Wage0 through m_Wage4 | int | Base wages per job level (0-4) |
+| m_Wage0 | int | **1200** — base wage for job level 0 (uneducated) |
+| m_Wage1 | int | **1500** — base wage for job level 1 (poorly educated) |
+| m_Wage2 | int | **2000** — base wage for job level 2 (educated) |
+| m_Wage3 | int | **2500** — base wage for job level 3 (well educated) |
+| m_Wage4 | int | **3000** — base wage for job level 4 (highly educated) |
 | m_CommuterWageMultiplier | float | Wage multiplier for commuters |
 | m_CompanyBankruptcyLimit | int | Money threshold for company bankruptcy |
 | m_ResidentialMinimumEarnings | int | Minimum residential household earnings |
@@ -168,12 +172,12 @@ Buffer element on city service entities. Tracks collected fees per service resou
 | m_TrafficReduction | float | Traffic reduction factor |
 | m_MaxCitySpecializationBonus | float | Maximum city specialization bonus |
 | m_ResourceProductionCoefficient | int | Resource production coefficient |
-| m_LandValueModifier | float3 | Land value modifier (3 components) |
-| m_RentPriceBuildingZoneTypeBase | float3 | Base rent per building zone type |
-| m_MixedBuildingCompanyRentPercentage | float | Mixed building company rent percentage |
-| m_ResidentialUpkeepLevelExponent | float | Residential upkeep level scaling exponent |
-| m_CommercialUpkeepLevelExponent | float | Commercial upkeep level scaling exponent |
-| m_IndustrialUpkeepLevelExponent | float | Industrial upkeep level scaling exponent |
+| m_LandValueModifier | float3 | **Runtime-confirmed: (0.35, 0.70, 0.50)** for Residential/Commercial/Industrial |
+| m_RentPriceBuildingZoneTypeBase | float3 | **Runtime-confirmed: (0.5, 3.0, 0.8)** for Residential/Commercial/Industrial base rent |
+| m_MixedBuildingCompanyRentPercentage | float | **Runtime-confirmed: 0.30** — companies pay 30% of rent in mixed-use buildings |
+| m_ResidentialUpkeepLevelExponent | float | **Runtime-confirmed: 1.05** — residential upkeep level scaling exponent |
+| m_CommercialUpkeepLevelExponent | float | **Runtime-confirmed: 2.1** — commercial upkeep level scaling exponent |
+| m_IndustrialUpkeepLevelExponent | float | **Runtime-confirmed: 2.0** — industrial upkeep level scaling exponent |
 | m_CityServiceWageAdjustment | float | Wage multiplier for city service jobs |
 | m_PlayerStartMoney | int | Starting money for new games |
 | m_BuildRefundPercentage | float3 | Building refund percentage curve |
@@ -187,6 +191,8 @@ Buffer element on city service entities. Tracks collected fees per service resou
 | m_ProfitabilityRange | int2 | Company profitability range |
 
 Singleton component on the economy prefab entity. `GetWage(jobLevel, cityServiceJob)` returns wages scaled by `m_CityServiceWageAdjustment` for city service jobs. The `m_LoanMinMaxInterestRate` field feeds directly into `LoanSystem.GetTargetInterest()`.
+
+**Runtime-confirmed wage values** (from ECS singleton dump): Level 0=1200, Level 1=1500, Level 2=2000, Level 3=2500, Level 4=3000. These represent monthly income before tax. A level-4 worker earns 3000/month = 100/day base wage.
 
 *Source: `Game.dll` -> `Game.Prefabs.EconomyParameterData`*
 
