@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-16
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -122,6 +122,8 @@ Component on police station building entities.
 | m_TargetRequest | Entity | Active reverse-search request for dispatching |
 | m_Flags | PoliceStationFlags | HasAvailablePatrolCars (1), HasAvailablePoliceHelicopters (2), NeedPrisonerTransport (4) |
 | m_PurposeMask | PolicePurpose | Which purposes this station serves |
+
+**Runtime-confirmed**: Extension buildings (e.g. police station extensions) carry the `PoliceStation` component with `m_PurposeMask = 0` (no flags set). Only buildings with `TelecomConsumer` present serve `Intelligence` purpose — the `TelecomConsumer` component co-occurrence is the reliable marker for intelligence-capable stations. Main police stations have `m_PurposeMask` with `Patrol | Emergency` (value 3). Extension-only buildings with `m_PurposeMask = 0` are not dispatched to by `ServiceRequestSystem`.
 
 ### `PoliceEmergencyRequest` (Game.Simulation)
 
@@ -1469,6 +1471,8 @@ public partial class RobustPoliceDispatchSystem : GameSystemBase
 - [x] How does the game prevent double-dispatch? -- AccidentSite.m_PoliceRequest + Dispatched component + station/car m_TargetRequest
 - [x] What traffic rules do emergency vehicles ignore? -- All: ForbidCombustionEngines, ForbidTransitTraffic, ForbidHeavyTraffic, ForbidPrivateTraffic, ForbidSlowTraffic, AvoidBicycles. Plus CarNavigationSystem grants additional lane/signal exemptions via CarFlags.Emergency.
 - [x] How does IsCloseEnough work? -- Checks 30m distance to target Transform, or to any InvolvedInAccident entity in the event's TargetElement buffer
+- [x] What components does a PolicePatrolRequest entity have? -- Runtime-confirmed (ECS dump, Q1): 4 components total (PolicePatrolRequest, Dispatched, RequestGroup, and one more). All 10 live instances observed were already Dispatched — bare (undispatched) patrol requests are very short-lived.
+- [x] Does PolicePurpose filtering happen via m_PurposeMask on stations? -- Runtime-confirmed (ECS dump, Q2): Yes. Extension buildings have m_PurposeMask=0 and are not dispatched to. Intelligence stations carry TelecomConsumer. Main stations have Patrol|Emergency (3).
 - [ ] Exact rendering pipeline path from CarFlags.Emergency to siren mesh/audio activation -- deep in the game's rendering subsystem, not accessible via Game.dll decompilation
 - [ ] How exactly does CarNavigationSystem make other vehicles yield? -- Likely in CarNavigationHelpers.LaneReservation, not fully traced
 
