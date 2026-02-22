@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -964,6 +964,8 @@ Done
 - [x] Can police be dispatched to building targets via PoliceEmergencyRequest? **Answer (in-game tested)**: No. `AccidentLocation` pathfinding is road-only. Police cars targeting buildings float in straight lines instead of following roads. Use ServiceDispatch buffer injection instead.
 - [x] Can synthetic AccidentSites be created on arbitrary entities? **Answer (in-game tested)**: No. `AccidentSiteSystem` strips `RequirePolice` within ~1 second if the event lacks valid `InvolvedInAccident` entities. The site becomes inert almost immediately.
 - [x] Does `SecureAccidentSite` require an AccidentSite component on the target? **Answer (in-game tested)**: Yes. Without an `AccidentSite` on the target entity, `SecureAccidentSite` returns `true` immediately — the police car leaves as soon as it arrives.
+- [x] Do fire stations carry `CrimeProducer`? **Runtime-confirmed**: Yes. Fire stations have `CrimeProducer` with `m_Crime` values up to 1213 observed in a 599K city. This means police patrol fire stations as a crime target. The crime value reflects staff activity or vandalism modeling — not a design oversight.
+- [x] What is the AccidentSite archetype? **Runtime-confirmed (ECS dump)**: AccidentSite is attached to the building entity (not a standalone entity). All 11 live AccidentSite instances observed were `CrimeScene` type. No live `TrafficAccident` AccidentSite was observed — traffic accident scenes resolve very quickly relative to crime scenes.
 
 ## Sources
 
