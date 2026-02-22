@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-16
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -89,16 +89,16 @@ Properties: `TotalCount`, `SimpleWorkplacesCount` (levels 0+1), `ComplexWorkplac
 
 ### `Worker` (Game.Citizens)
 
-Citizen-side component linking a citizen to their workplace.
+**Runtime-confirmed: `Worker` is a zero-sized tag component with no fields.** Its presence on a citizen entity signals that the citizen is employed. The employment relationship details (workplace entity, education slot, shift) are tracked on the **employer side** via:
+- `WorkProvider.m_MaxWorkers` — total capacity
+- `Employee` buffer on the WorkProvider entity — lists individual employed citizens with their level/shift
+- `Employee.m_Worker` (Entity) — the citizen entity
+- `Employee.m_Level` (byte) — education level slot
+- `Employee.m_Shift` (Workshift) — shift assignment
 
-| Field | Type | Description |
-|-------|------|-------------|
-| m_Workplace | Entity | The company/building entity where this citizen works |
-| m_LastCommuteTime | float | Duration of last commute (from pathfinding) |
-| m_Level | byte | Education level slot the citizen fills (0-4) |
-| m_Shift | Workshift | Assigned work shift: Day (0), Evening (1), Night (2) |
+**The decompiled `Worker` struct fields (`m_Workplace`, `m_LastCommuteTime`, `m_Level`, `m_Shift`) do not exist at runtime.** Systems that need to find a citizen's employer must query the `Employee` buffer on `WorkProvider` entities rather than reading fields from the `Worker` component.
 
-*Source: `Game.dll` -> `Game.Citizens.Worker`*
+*Source: `Game.dll` -> `Game.Citizens.Worker` (decompiled); runtime-confirmed by ECS entity dump*
 
 ### `JobSeeker` (Game.Agents)
 
