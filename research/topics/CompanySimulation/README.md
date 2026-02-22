@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-16
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -88,7 +88,7 @@ These are zero-size tag components that categorize companies. A company entity h
 | `ExtractorCompany` | Raw resource extractors (farms, mines, oil rigs, logging) |
 | `ProcessingCompany` | Factories that transform input resources into output resources |
 | `StorageCompany` | Warehouses that store and redistribute resources |
-| `TransportCompany` | Companies that operate transport vehicles |
+| `TransportCompany` | Companies that operate transport vehicles. **Runtime-confirmed: present on ALL company entities** (including commercial/industrial/office), not only logistics companies. |
 
 *Source: `Game.dll` -> `Game.Companies.*`*
 
@@ -791,7 +791,9 @@ public void BoostExtractorEfficiency(EntityManager em, float multiplier)
 - [ ] **EconomyParameterData.m_CompanyBankruptcyLimit**: The exact default value for the bankruptcy threshold is defined in EconomyParameterData (singleton). Needs decompilation of that type to determine the default.
 - [ ] **EconomyParameterData.m_ProfitabilityRange**: The x/y range used by `GetCompanyProfitability()` to map profit to the 0-255 byte. Default values unknown.
 - [ ] **Company creation from zones**: The exact system that creates company entities when a building spawns in a zone is not fully traced. `CompanyPrefab.GetArchetypeComponents()` defines the archetype, but the spawning trigger likely lives in ZoneSpawnSystem or a building AI system.
-- [ ] **Office company distinction**: Office companies are identified by having `OfficeProperty` on their building, not by a dedicated tag component. The ProcessingCompanySystem checks `OfficeProperty` to determine tax type and efficiency modifiers.
+- [x] **Office company distinction**: Runtime-confirmed — `IndustrialProperty` and `OfficeProperty` always coexist on Tech Industry buildings. Both tags are present on the same entity; OfficeProperty alone does not imply a different archetype.
+- [x] **TransportCompany on all companies**: Runtime-confirmed — `TransportCompany` is present on ALL company entities (commercial, industrial, office), not just logistics firms. Every company is potentially a transport operator.
+- [x] **CompanyStatisticData fields**: Runtime-confirmed — 19 fields: `m_MaxNumberOfCustomers`, `m_MonthlyCustomerCount`, `m_MonthlyCostBuyingResources`, `m_CurrentNumberOfCustomers`, `m_CurrentCostOfBuyingResources`, `m_Income`, `m_Worth`, `m_Profit`, `m_WagePaid`, `m_RentPaid`, `m_ElectricityPaid`, `m_WaterPaid`, `m_SewagePaid`, `m_GarbagePaid`, `m_TaxPaid`, `m_CostBuyResource`, `m_LastUpdateWorth`, `m_LastFrameLowIncome`, `m_LastUpdateProduce`. Mean company profit in a 599K city was -107,020 (widespread economic stress).
 
 ## Sources
 
