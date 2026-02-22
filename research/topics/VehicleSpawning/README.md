@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-16
-> **Last updated**: 2026-02-17
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -97,6 +97,8 @@ Marks a vehicle as parked in a specific lane.
 | m_CurvePosition | float | Position along the lane curve (0-1) |
 
 *Source: `Game.dll` -> `Game.Vehicles.ParkedCar`*
+
+**Runtime-confirmed**: `ParkedCar` is used for ALL vehicle types when stationary — not just personal cars. Aircraft, helicopters, ships, and service vehicles also receive `ParkedCar` when parked. It is the universal "stationary vehicle" marker across all transport categories.
 
 ### `OwnedVehicle` (Game.Vehicles)
 
