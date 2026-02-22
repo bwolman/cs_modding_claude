@@ -216,8 +216,8 @@ Global singleton with healthcare system parameters.
 - **Key methods**:
   - `Tick()` — main hospital update. Treatment bonus formula: `efficiency * resourcePenalty * prefabTreatmentBonus` (capped at 255). Hospital efficiency includes city modifier `HospitalEfficiency` (slot 26). Patients with Dead flag are deleted. Patients who can't be treated (wrong disease/injury capability) are ejected.
   - Copies `HospitalData.m_HealthRange` → `Hospital.m_MinHealth`/`m_MaxHealth` every 256 frames. These are used by the pathfinder's `SetupTargetType.Hospital` search to prefer health-range-matched buildings.
-  - `SpawnVehicle()` — unparks or creates a vehicle, always sets initial `Ambulance.m_State = Dispatched | AnyHospital`. The dispatching building is the ambulance's home (it returns here), but it is NOT necessarily the delivery destination for the patient.
-  - `HasRoomForPatients` flag is set only when `patients.Length < prefabHospitalData.m_PatientCapacity`. Clinics with `m_PatientCapacity = 0` never set this flag and therefore cannot receive patients — their ambulances always route patients to a different hospital.
+  - `SpawnVehicle()` — unparks or creates a vehicle, always sets initial `Ambulance.m_State = Dispatched | AnyHospital`. The dispatching building is also the ambulance's home (it returns here after delivery).
+  - `HasRoomForPatients` flag is set only when `patients.Length < prefabHospitalData.m_PatientCapacity`. When a clinic is full, this flag is absent and ambulances route past it to the next nearest building with room.
 
 ### `AmbulanceAISystem` (Game.Simulation)
 
@@ -232,11 +232,12 @@ Global singleton with healthcare system parameters.
     2. `AtTarget` → call `LoadPatients()`: stop vehicle, wait for citizen to board as Passenger
     3. Once aboard, set `Transporting`; if `Citizen.m_Health < random(100)` also set `Critical`
     4. `TransportToHospital()` — since `AnyHospital` is **always** set, clears dispatch and enters `FindHospital` mode (target = Entity.Null, triggers pathfind to nearest available hospital)
-    5. `FindHospital` pathfind uses `SetupTargetType.Hospital` + district of **pickup location** (`m_TargetLocation`) as search hint
-    6. On path resolved: `pathInformation.m_Destination` becomes the delivery hospital; `FindHospital` cleared
-    7. `Transporting` → navigate to hospital, `UnloadPatients()` on arrival
-    8. `Returning` → navigate back to `owner.m_Owner` (dispatching building), park or despawn
-  - `Critical` flag upgrades pathfind weights to `(1,0,0,0)` (time-only) and ignores combustion/heavy-traffic bans
+    5. `FindHospital` pathfind uses `SetupTargetType.Hospital` + district of **pickup location** (`m_TargetLocation`) as search hint. ALL healthcare buildings (clinics and hospitals) have the `Hospital` component, so the nearest eligible building is usually the dispatching clinic itself — the ambulance typically returns its patient to the same clinic it came from
+    6. The ambulance routes to a different (larger) hospital only when the clinic has no room (`HasRoomForPatients` not set, i.e., clinic is at patient capacity)
+    7. On path resolved: `pathInformation.m_Destination` becomes the delivery building; `FindHospital` cleared
+    8. `Transporting` → navigate to delivery building, `UnloadPatients()` on arrival
+    9. `Returning` → navigate back to `owner.m_Owner` (dispatching clinic), park or despawn
+  - `Critical` flag: set probabilistically at pickup — `random(100) >= citizen.m_Health` (low health = high chance). Upgrades pathfind weights to `(1,0,0,0)` (time-only) and ignores combustion/heavy-traffic bans. Independent of delivery destination — a critical patient may still go to the local clinic
 
 ## Data Flow
 
@@ -296,12 +297,14 @@ AMBULANCE LIFECYCLE
     TransportToHospital() -> AnyHospital always set, so:
       Enter FindHospital mode (target cleared)
       Pathfind: SetupTargetType.Hospital near patient's pickup district
-      Prefers hospital with HasRoomForPatients, health range match
-      Critical patients use time-only pathfind weights + ignore restrictions
-    Path resolved -> target = nearest eligible hospital (may differ from dispatch origin)
-    Transporting -> navigate to delivery hospital
+      All healthcare buildings (clinics + hospitals) are eligible targets
+      Nearest building with HasRoomForPatients wins -> usually the dispatching clinic
+      Only routes to a larger hospital if the local clinic is full
+      Critical patients (random(100) >= m_Health) get time-only pathfind + ignore restrictions
+    Path resolved -> target = nearest eligible building (usually home clinic)
+    Transporting -> navigate to delivery building
     UnloadPatients() -> Disembarking state until passenger exits
-    Returning -> navigate back to owner.m_Owner (home building), park or despawn
+    Returning -> navigate back to owner.m_Owner (home clinic), park or despawn
           |
           v
 PATIENT ADMISSION
