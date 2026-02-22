@@ -106,7 +106,9 @@ Tracks a building's cumulative maintenance condition, driving level-up and level
 |-------|------|-------------|
 | m_Condition | int | Accumulates positive (well-maintained) or negative (neglected) value. Triggers level-up when >= levelingCost, level-down (abandonment) when <= -abandonCost. |
 
-*Source: `Game.dll` -> `Game.Buildings.BuildingCondition`*
+**Runtime-confirmed scale**: In a mature city (599K population), residential `m_Condition` ranges from ~268,000 to 1,045,000 for healthy buildings. Commercial buildings can go negative (observed minimum -6,144, indicating near-abandonment). The large magnitude is expected — condition accumulates at `conditionChange * pow(2, level) * renterCount` over thousands of update ticks. Do not expect small integers; valid ranges are hundreds of thousands for level 2+ buildings. Use `m_Condition <= 0` as a reliable indicator of a deteriorating building.
+
+*Source: `Game.dll` -> `Game.Buildings.BuildingCondition`; values runtime-confirmed via ECS entity dump*
 
 ### `BuildingPropertyData` (Game.Prefabs)
 

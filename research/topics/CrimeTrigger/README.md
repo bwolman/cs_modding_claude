@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-17
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -961,6 +961,8 @@ public partial class CrimeProbabilityModifierSystem : GameSystemBase
 - [x] How does crime accumulation on buildings work? -> `CrimeAccumulationSystem` accumulates based on zone rate and police coverage
 - [x] How exactly does the crime event entity trigger adding the `Criminal` component to the citizen? -> `CrimeCheckSystem` creates crime event -> `InitializeSystem.InitializeCrimeEvent` creates `AddCriminal` command -> `AddCriminalSystem` adds `Criminal` component
 - [x] What system processes `AccidentSite` state transitions? -> `AccidentSiteSystem` (every 64 frames): manages CrimeDetected, CrimeFinished, RequirePolice, police request creation, and cleanup
+- [x] Is `AccidentSite` a standalone entity or attached to an existing entity? **Runtime-confirmed**: `AccidentSite` is a component added to existing **building entities** — not a separate standalone entity. The building continues to function normally while marked as a crime scene. The `m_Event` field points to a separate lightweight crime event entity. AccidentSite can appear on any building type including parks, cargo airports, and transit stations — not just commercial/residential buildings.
+- [x] Do "zombie" crime scenes persist after the criminal escapes? **Runtime-confirmed**: Yes. If police never secure a site (`m_SecuredFrame` stays 0), the AccidentSite lingers indefinitely. `AccidentSiteSystem` only removes it when no valid `InvolvedInAccident` / unarrested `Criminal` remains in the event's `TargetElement` buffer. In a 599K city, 9 of 11 live AccidentSites had `CrimeFinished` set but `m_SecuredFrame = 0` — the criminal escaped but the site was never cleaned up.
 - [ ] How does `Purpose.Crime` trip pathfinding select the target building? The `TripNeeded` with `Purpose.Crime` is consumed by the citizen movement system, but the exact building selection logic (closest building with CrimeProducer? random?) is in the trip/pathfinding system and not traced here.
 - [ ] Can a mod add new `CrimeType` enum values and have them processed by `CriminalSystem`? Currently only `Robbery` exists and the steal logic has `if (crimeType == CrimeType.Robbery)` guard.
 

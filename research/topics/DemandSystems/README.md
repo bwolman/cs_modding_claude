@@ -235,10 +235,10 @@ The central configuration struct, stored as an ECS singleton component. All thre
 | m_OfficePrefab | Entity | -- | Entity reference to the office industry prefab |
 | m_MinimumHappiness | int | 30 | Floor for happiness in demand calc |
 | m_HappinessEffect | float | 2.0 | Weight multiplied by happiness delta |
-| m_TaxEffect | float3 | (1, 1, 1) | Tax weight per sector (x=residential, y=commercial, z=industrial/office) |
-| m_StudentEffect | float | 1.0 | Weight for study position factor |
-| m_AvailableWorkplaceEffect | float | 8.0 | Weight for free workplace factor |
-| m_HomelessEffect | float | 20.0 | Weight for homelessness factor |
+| m_TaxEffect | float3 | (2, 1, 1) | Tax weight per sector (x=residential, y=commercial, z=industrial/office). Residential is 2x more tax-sensitive than commercial/industrial. |
+| m_StudentEffect | float | 2.0 | Weight for study position factor |
+| m_AvailableWorkplaceEffect | float | 4.0 | Weight for free workplace factor |
+| m_HomelessEffect | float | 10.0 | Weight for homelessness factor |
 | m_NeutralHappiness | int | 50 | Happiness value that produces zero effect |
 | m_NeutralUnemployment | float | 15.0 | Unemployment rate (%) that produces zero effect |
 | m_NeutralAvailableWorkplacePercentage | float | 10.0 | Free workplace % that produces zero effect |
