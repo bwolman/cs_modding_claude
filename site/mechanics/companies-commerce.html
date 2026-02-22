@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Companies and Employment: How the Economy Actually Works - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html" class="active">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>Companies and Employment: How the Economy Actually Works</h1>
+<p>Every commercial strip, factory district, and office park in your city is filled with simulated companies that hire workers, produce goods or services, pay bills, and can go out of business. Understanding how this machinery runs helps you build cities that thrive rather than silently bleed out.</p>
+<h2>How Companies Get Workers</h2>
+<p>When a building opens for business, the game immediately calculates how many workers it needs and what education levels those workers should have. A small farm needs mostly uneducated laborers. A software office needs mostly well-educated and highly-educated staff. A retail shop lands somewhere in between.</p>
+<p>Every company has a fixed number of job slots divided across five education tiers: uneducated, poorly educated, educated, well-educated, and highly educated. The split depends on two things: the type of business (its "complexity") and the building's current level.</p>
+<blockquote>
+<p><strong>Info:</strong> There are four complexity tiers. Manual businesses (farms, mines) fill roughly 75% of slots with uneducated workers and 25% with poorly educated workers. Simple businesses (basic industry) spread workers across the lower tiers. Complex businesses (offices, services) favor educated and well-educated. Hitech businesses (software, research) fill about 75% of slots with highly educated workers and 25% with well-educated workers. As a building levels up, its slot distribution shifts toward higher education tiers.</p>
+</blockquote>
+<p>Citizens looking for work each have an education level of their own. The job-seeking system tries to match them to an open slot at their education level. If no slot at their level is available, the system looks at slots one tier lower, then two tiers lower — a university graduate can take a coffee shop job if nothing better is open. Workers are assigned to one of three shifts — day, evening, or night — based on the employer's configuration.</p>
+<h2>What Determines How Much Gets Done</h2>
+<p>Education is not just a hiring filter — it directly determines how much productive work each employee contributes. A highly-educated worker produces roughly five times the output of an uneducated worker at the same happiness level.</p>
+<p>Worker happiness also matters. Happy workers produce more. The formula combines education and happiness multiplicatively, so a well-educated but miserable workforce is noticeably less productive than a well-educated and content one.</p>
+<p>If a company is understaffed, its building takes an efficiency penalty that ramps up gradually the longer the shortage persists. A brief hiring gap hurts less than a sustained one.</p>
+<h2>How Companies Make a Profit (or Don't)</h2>
+<p>Once a company is staffed and producing, it runs a continuous financial cycle. Revenue flows in from customers buying goods or services. Costs flow out in the form of wages, rent on the building, electricity, water, sewage, garbage collection, taxes, and the price of any raw materials or intermediate goods the company needs to keep operating.</p>
+<blockquote>
+<p><strong>Info:</strong> The game tracks a "profitability rating" from 0 to 255 for every company, where 127 means exactly breaking even. The rating is calculated once per in-game day by comparing the company's total worth now to its total worth the previous day. Profitable industrial and office companies distribute a daily dividend to the households of their employees — a company's current money divided by eight times the number of employees — so company profits filter down into residential household income.</p>
+</blockquote>
+<h2>When There Are Not Enough Workers or Customers</h2>
+<p>Two warning icons can appear over a business: a worker-shortage icon and a customer-shortage icon.</p>
+<p>For worker shortages, the game tracks separately whether the unfilled slots are low-education or high-education. An educated-worker shortage is treated as more serious: it adds a 20% chance per check that the company will decide to leave the city. An uneducated-worker shortage adds 5%.</p>
+<p>For customer shortages, the game watches the ratio of service stock that is sitting unused relative to capacity. When a commercial building has been stocked with goods but nobody is buying, it displays the no-customers warning.</p>
+<blockquote>
+<p><strong>Info:</strong> When a company has no raw materials or input goods to process, it cannot produce anything and the building's efficiency drops to zero for resource-related output. Companies that cannot acquire inputs because their suppliers are too far away or congestion prevents delivery trucks from arriving will quietly underperform without necessarily going bankrupt immediately.</p>
+</blockquote>
+<p>When the city-wide supply of educated jobs exceeds the number of educated residents who can fill them, the game automatically begins spawning commuter households from outside connections. These commuters travel in from off-map to take the surplus positions.</p>
+<h2>When Companies Close Down</h2>
+<p>A company can exit the city in two ways: it can choose to leave, or it can go bankrupt.</p>
+<p>The voluntary move-away check runs sixteen times per in-game day. The probability is driven primarily by the tax rate — 10% tax is the neutral point, and every percentage point above that adds meaningfully to the chance of leaving. Worker shortages stack on top. A high-tax city with chronic educated-worker shortages will hemorrhage businesses over time.</p>
+<p>Bankruptcy follows a different path. The game tracks each company's total worth (cash plus inventory value). If that total falls below a hard minimum and stays there for roughly four in-game days, the company is marked for closure regardless of other factors.</p>
+<blockquote>
+<p><strong>Info:</strong> The bankruptcy timer is not reset by a brief recovery. A company must sustain financial health above the threshold to clear the danger window. A company that bounces just above and then dips back below the threshold will keep restarting its four-day countdown.</p>
+</blockquote>
+<h2>What Can Go Wrong</h2>
+<p><strong>Your city has jobs but no workers to fill them.</strong> This usually means your residential zones are not producing enough citizens at the required education levels. Check whether school and university capacity matches your workforce needs, and whether graduates are staying in the city rather than leaving due to housing or happiness problems.</p>
+<p><strong>Businesses keep leaving despite low taxes.</strong> Look at the educated-worker shortage warning specifically. Even moderate tax rates become secondary to a chronic shortage of university-educated residents. Building more universities and ensuring affordable housing for young adults stabilizes this faster than tax cuts.</p>
+<p><strong>Factories are not producing anything.</strong> If the no-inputs icon appears, the supply chain has broken down upstream. Either the source material does not exist in your city or region, delivery trucks cannot navigate the road network efficiently enough, or a warehouse that should be redistributing goods is full and not dispatching.</p>
+<p><strong>Commercial zones are full of goods but have no customers.</strong> Either the residential population is too small to generate foot traffic, or the zoning layout puts shops too far from where people live and leisure. It can also appear temporarily after a city expansion when commercial zones grow faster than the population that would patronize them.</p>
+<p><strong>Companies are going bankrupt even with customers and workers.</strong> Check the full cost picture: rent on large buildings, utility bills, and the cost of buying input resources all drain company funds before wages and taxes. High land values inflate rent. Poor utility coverage or high service fees add costs silently. A company paying too much for its building in a high-value district can fail even with strong sales.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

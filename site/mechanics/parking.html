@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>How Parking Works in Cities: Skylines II - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html" class="active">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>How Parking Works in Cities: Skylines II</h1>
+<p>When a citizen decides to drive somewhere, finding a parking spot is not a simple step — it is woven into the entire trip from the moment the route is planned. Understanding how the game handles parking explains why traffic behaves the way it does and what you can do as a city builder to keep things running smoothly.</p>
+<h2>How Routes Are Planned Around Parking</h2>
+<p>Before a driver ever leaves home, the pathfinder already considers parking. It looks at every possible parking option near the destination and factors in three things: how much space is available, how convenient the spot is (a comfort score from 0 to 1), and whether a fee is charged. These three values are combined into a single route cost, so a cheap but uncomfortable or distant spot may lose out to a pricier but more convenient garage closer to the destination. The game does this work upfront so vehicles are already heading toward a likely spot before they arrive.</p>
+<h2>Searching for a Spot</h2>
+<p>Once the vehicle is close, the driver does not simply pull into the first space — the game scans ahead through the planned route, checking up to 40,000 path nodes for a valid, open spot. The game checks street parking for free continuous curb space or open slotted spaces, and checks garages by comparing the current number of parked vehicles against the building's capacity.</p>
+<blockquote>
+<p><strong>Info:</strong> The vanilla search range of 40,000 path nodes is significantly larger than what many players consider realistic. Community mods like RealisticParking reduce this to approximately 5 nodes to simulate drivers who give up quickly and circle the block rather than committing to a remote lot.</p>
+</blockquote>
+<h2>When No Parking Is Found</h2>
+<p>If the scan turns up nothing — every nearby lane is full and every garage is at capacity — the vehicle's current route is marked as obsolete and the pathfinder recalculates a new one. The driver will reroute, potentially to a farther parking option. If the city genuinely lacks parking near popular destinations, this triggers repeated rerouting, contributing to congestion as vehicles circle and search.</p>
+<blockquote>
+<p><strong>Info:</strong> Vehicles do not give up and turn around. They will always eventually find somewhere to park, but repeated rerouting means those vehicles stay on the road longer, contributing to congestion even though they have reached their destination area.</p>
+</blockquote>
+<h2>How Parking Fees Work</h2>
+<p>Fees operate at two levels. Street parking fees are set at the district level — when you enable paid parking for a district, every parking lane in that district inherits the fee value. Garage fees are set at the building level, either by the building's own configuration or by upgrades applied to it. When a driver parks, the fee is automatically transferred from the household to the city treasury as parking revenue.</p>
+<blockquote>
+<p><strong>Info:</strong> Fees affect pathfinding decisions. A street spot with a fee will be less attractive than a free one, all else being equal. If you enable paid parking across an entire district, expect drivers to route around it toward cheaper or free options nearby — including potentially your residential side streets.</p>
+</blockquote>
+<h2>Street Parking vs. Parking Garages</h2>
+<p>Street parking and garages operate on different capacity models. Street parking uses available curb length — either measured as a continuous gap or as a counted set of discrete slots depending on the road type. A lane is effectively full when the free space measurement drops to zero. Garages track a simple integer count of vehicles against a fixed capacity ceiling.</p>
+<p>The capacity of a garage depends on the building: dedicated parking facilities have explicit capacities defined per building, while garages attached to residences scale roughly with unit count, and workplace parking scales with the number of workers (roughly one space per twenty workers).</p>
+<blockquote>
+<p><strong>Info:</strong> The comfort score of a parking option influences how strongly the pathfinder prefers it. Dedicated parking facilities have a base comfort value defined in their configuration (typically around 0.5). If a parking facility is not running efficiently — because it lacks workers or is damaged — its comfort score drops, making it less attractive even when spaces are available.</p>
+</blockquote>
+<h2>How Lack of Parking Affects Behavior</h2>
+<p>When parking is scarce, the effects ripple outward. Drivers reroute repeatedly, adding vehicle-minutes to roads that are already near capacity. Trips that should resolve quickly instead keep circulating. In dense commercial districts without adequate parking, this can become a self-reinforcing problem: congestion from searching vehicles slows the road network, which makes the same vehicles take longer to finally park, which keeps them on the road even longer.</p>
+<p>Paid parking reduces the attractiveness of driving to a destination in the first place, nudging citizens toward public transit or walking if those options are viable. This is the game's representation of demand management — pricing people off roads rather than building more road capacity.</p>
+<blockquote>
+<p><strong>Info:</strong> Disabling street parking on a road immediately signals the pathfinder to stop considering those lanes. The change propagates automatically to the route cost model, so vehicles will seek alternatives without any manual nudging.</p>
+</blockquote>
+<h2>What Can Go Wrong</h2>
+<p><strong>Garages that never fill up.</strong> If a garage has a very low comfort score — either because the facility is understaffed or because it was built with a low base comfort setting — the pathfinder will steer vehicles away from it even when it has capacity. The garage appears empty while street parking nearby is saturated.</p>
+<p><strong>Paid parking that backfires.</strong> Enabling paid parking district-wide without adequate free alternatives nearby can push vehicles into adjacent residential streets, overloading parking lanes that were not designed for heavy use.</p>
+<p><strong>Circling traffic that looks like congestion.</strong> If a popular destination area lacks enough total parking, vehicles will repeatedly reroute and stay on the road. This traffic is not passing through — it is looking for a place to stop. More road capacity will not fix it; more parking will.</p>
+<p><strong>Garages attached to buildings with low worker counts.</strong> Workplace parking capacity is calculated from staff numbers. A large office tower that is partially empty due to low demand will have proportionally fewer garage spaces, potentially creating a mismatch between the building's visual size and its actual parking provision.</p>
+<p><strong>Efficiency-based deactivation.</strong> A parking facility that loses all its workers (due to budget cuts, fire, or abandonment) will have its spaces marked inactive entirely. Vehicles will not try to park there at all, even if the structure is physically intact.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

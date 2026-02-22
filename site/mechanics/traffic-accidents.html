@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Traffic Accidents in Cities: Skylines II - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html" class="active">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>Traffic Accidents in Cities: Skylines II</h1>
+<h2>How Accidents Happen</h2>
+<p>Traffic accidents in Cities: Skylines II are not random cosmetic events — they are a genuine simulation of a vehicle losing control, colliding with the world, and triggering a chain of emergency responses that can block your roads for minutes at a time.</p>
+<p>An accident begins when a vehicle is struck by a force strong enough to knock it out of its normal lane-following behavior. At that point, the game stops treating the vehicle as a pathfinding agent and switches it over to a physics simulation: gravity pulls it down, friction slows it, and its momentum carries it wherever the collision sent it. The vehicle can spin, slide across lanes, and hit other vehicles or objects it passes through on the way to rest.</p>
+<blockquote>
+<p>ℹ️ <strong>The physics simulation runs at sub-frame resolution</strong> — four physics steps are calculated per game simulation frame, using a gravity constant of 10 m/s² and a braking coefficient derived from each vehicle type's grip rating. Heavier or less grippy vehicles travel further before stopping.</p>
+</blockquote>
+<h2>Chain Reactions</h2>
+<p>One of the most consequential — and often frustrating — behaviors is the chain reaction. For roughly the first 60 seconds after an accident scene is established, the site is "hot": it can randomly push a passing car into a collision of its own. The game picks a random vehicle traveling through the affected road segment and shoves it sideways at 5 m/s with a 2 rad/s spin. That new vehicle then goes through the same full accident cycle, potentially spreading the scene further down the road.</p>
+<blockquote>
+<p>ℹ️ <strong>The chain-reaction window is exactly 3,600 simulation frames</strong> (approximately 60 seconds of game time). After that, the site stops recruiting new victims. Only one chain reaction is triggered per event cycle, but if the new vehicle also causes impacts, the cascade can widen.</p>
+</blockquote>
+<h2>The Accident Scene</h2>
+<p>Once a sliding vehicle slows to nearly a stop, the game locks it in place and marks the nearest road segment — within 30 meters — as an accident site. This is the location that emergency services respond to and that traffic must navigate around.</p>
+<p>A notification icon appears above the scene. Police are dispatched immediately. Until they arrive and secure the site, the scene remains in an unresolved state. If the accident is severe enough that the vehicle caught fire, a fire unit may also respond.</p>
+<p>Pedestrians and cyclists hit by an out-of-control vehicle have their own outcomes. Cyclists struck by a vehicle are injured every time — there is no chance of walking away unscathed. Pedestrians have a 50% chance of being injured. When an injury occurs, there is a 20% chance it is fatal and the person collapses on the spot, requiring a hearse; the remaining 80% are non-fatal injuries that call an ambulance.</p>
+<blockquote>
+<p>ℹ️ <strong>Injury severity cascades through a vehicle's passengers.</strong> The driver receives the full impact severity; each additional passenger receives 80–90% of the previous passenger's severity. A car full of people means multiple simultaneous emergency requests, each at slightly lower priority.</p>
+</blockquote>
+<h2>How Long Scenes Last</h2>
+<p>The scene persists until police have secured it AND all involved vehicles are either cleared or restarted. Lightly damaged vehicles that have stopped are restarted and sent on their way once police arrive. Destroyed vehicles (wrecks) require a maintenance crew to clear them before the site closes.</p>
+<blockquote>
+<p>ℹ️ <strong>The hard timeout for any accident scene is 14,400 simulation frames</strong> — roughly 4 minutes at 60 fps. If police never arrive, the scene clears itself automatically at that threshold. Bicycle accidents have a much shorter cleanup window of only 300 frames (about 5 seconds). If the accident scene also qualifies as a crime scene, there is an additional buffer of ~17 seconds after securing before the site is fully removed.</p>
+</blockquote>
+<h2>Traffic Impact</h2>
+<p>While the scene is active, the blocked road segment forces vehicles to find alternate routes. Chain reactions can extend the blockage, and a single accident on a congested arterial road can cause ripple congestion across several intersections. The scene does not fully resolve until the last involved vehicle is cleared — meaning a destroyed wreck that is slow to be removed keeps the entire site active and the traffic detour in place.</p>
+<h2>What Can Go Wrong</h2>
+<p><strong>No police coverage nearby.</strong> If you have poor police station placement, the 14,400-frame timeout is your only guarantee that a scene ever clears. In that time, traffic reroutes and can cascade into gridlock across a district.</p>
+<p><strong>Chain reactions on busy roads.</strong> An accident on a high-traffic road during the 60-second hot window can recruit multiple passing vehicles into the scene before police arrive, turning a two-car fender-bender into a multi-vehicle pileup spanning several road segments.</p>
+<p><strong>Destroyed vehicles extending scenes.</strong> A wreck that catches fire or sustains heavy structural damage needs active cleanup. Until it is fully cleared, the accident site stays open. If your maintenance services are overwhelmed, a single bad crash can linger well past its natural resolution window.</p>
+<p><strong>Ambulance and hearse congestion.</strong> A severe accident injuring multiple passengers generates simultaneous transport requests. If those vehicles must navigate around the very road segment that is blocked, response times suffer and injured citizens wait longer — potentially cascading into health and death statistics.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

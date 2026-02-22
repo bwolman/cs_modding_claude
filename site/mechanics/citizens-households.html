@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Mechanics - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html" class="active">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h2>Citizens and Households: How Your City's Population Really Works</h2>
+<p>Every person walking the streets of your city has a full life story playing out behind the scenes — they are born, grow up, find jobs and partners, move into homes, raise children, and eventually die or leave. Understanding how this all works helps explain why your population grows or stalls, why neighborhoods fill up or empty out, and what makes citizens pack up and go.</p>
+<hr>
+<h2>Where Citizens Come From</h2>
+<p>New residents do not simply appear — they immigrate. When your city has unmet residential demand and vacant homes to offer, households form at the edge of your map and start looking for a place to live. The more empty homes you have, the faster new households arrive; a city with abundant vacancies fills up quickly, while one running at near-full occupancy sees immigration slow to a trickle.</p>
+<p>Each arriving household is a family unit. The game picks a household type at random (weighted by the available pool of household profiles), spawns a group of adults at an outside connection, and immediately sends them searching for a suitable property.</p>
+<blockquote>
+<p><strong>ℹ️ Info — What drives immigration demand?</strong>
+Residential demand is tracked separately for low, medium, and high density. The spawn rate scales directly with the number of free residential properties — more vacancies means faster arrivals. If your residential vacancy rate is very low, immigration nearly halts regardless of how high nominal demand appears.</p>
+</blockquote>
+<hr>
+<h2>How Households Find a Home</h2>
+<p>Once a household enters the city, it evaluates available residential properties based on a quality score. That score weighs together several things: how much floor space each family member would get, the building's upgrade level, nearby service coverage (healthcare, education, entertainment), pollution levels, and how far the commute would be from the home to where household members work.</p>
+<p>Wealthier households are more selective — they will pass on a perfectly adequate apartment in a polluted or under-served neighborhood in favor of something better elsewhere. A household without enough money has fewer options and may end up in whatever is available.</p>
+<hr>
+<h2>Growing Up: The Citizen Lifecycle</h2>
+<p>Citizens age through four life stages: child, teen, adult, and elder. The transitions happen on a fixed schedule measured in simulation days.</p>
+<ul>
+  <li><strong>Children</strong> (days 0–20) attend school but otherwise depend entirely on their household.</li>
+  <li><strong>Teens</strong> (days 21–35) continue in school. At the end of this stage they reach adulthood and the game flags them to leave their parents' household and strike out on their own.</li>
+  <li><strong>Adults</strong> (days 36–83) are the city's workforce. They seek jobs, can have children of their own, and form the backbone of household income.</li>
+  <li><strong>Elders</strong> (day 84 and beyond) retire — they lose their jobs automatically when they age into this stage and no longer contribute wages.</li>
+</ul>
+<blockquote>
+<p><strong>ℹ️ Info — When does a young adult actually move out?</strong>
+A teen who ages into adulthood does not move out instantly. The game only splits them off into a new household when three conditions are met: they have found a job, the parent household has more than 4,000 in savings, and — if there are at least 10 vacant homes in the city — a new property can be sought. If housing is tight, the young adult may instead become a commuter rather than a full resident.</p>
+</blockquote>
+<p>A citizen's maximum natural lifespan is roughly 9 game-years. Death probability rises with age along a curve, so early natural deaths are rare but become increasingly likely as citizens grow old. Sick or injured citizens also face a chance of dying, though hospital treatment meaningfully reduces that risk.</p>
+<hr>
+<h2>Having Children</h2>
+<p>Adult female citizens in a housed household have a base 2% chance per update of having a child, roughly 16 times per game day. That probability jumps by an additional 8 percentage points if there is also an adult male in the household. Female students face a 50% reduction to this rate.</p>
+<p>New children are born directly into the existing household. There is no cap on household size written into the birth formula itself, though the internal buffer that tracks household members has a default capacity of five.</p>
+<hr>
+<h2>How Citizens Find Jobs</h2>
+<p>Unemployed adult citizens actively search for open positions. The search is driven partly by how many vacancies exist relative to how many workers are available — when jobs are plentiful, citizens find work faster. Once employed, a citizen has a roughly 3% chance per update of checking for a better position elsewhere, so job-switching is an ongoing background process.</p>
+<p>When a citizen ages from adult to elder, they lose their job automatically. Children and teens do not hold jobs; they are students.</p>
+<hr>
+<h2>What Makes Citizens Happy</h2>
+<p>Every citizen in your city is continuously scored on two separate scales: health (0–255) and wellbeing (0–255). Their overall happiness is simply the average of the two. The game evaluates 26 distinct factors every day and adjusts both scores accordingly.</p>
+<p>The factors that hit health directly include water supply quality, water pollution, sewage service, healthcare coverage, and whether the citizen has an active illness.</p>
+<p>Wellbeing is affected by a broader set: electricity supply and cost, water and sewage service, noise, air and ground pollution, crime levels, garbage collection, entertainment and park access, education coverage, mail delivery, welfare services, leisure activity, taxes, housing quality, shopping satisfaction, and unemployment.</p>
+<blockquote>
+<p><strong>ℹ️ Info — How much do specific factors hurt?</strong>
+Some reference values from the game's own settings:
+- No electricity: −20 wellbeing (after a short delay)
+- No water or sewage: −20 health and −20 wellbeing each
+- Air/ground pollution: up to −50 wellbeing
+- Noise pollution: up to −15 wellbeing
+- Crime: up to −30 wellbeing (below a negligible threshold there is no penalty at all)
+- A family member dying: −20 wellbeing and −10 health
+- Being homeless: −20 health and −20 wellbeing
+- Taxes hit more educated citizens harder — a highly educated citizen suffers twice the tax wellbeing penalty of an uneducated one</p>
+</blockquote>
+<p>Housing quality itself contributes: a cramped apartment in a low-level building scores worse than a spacious unit in a leveled-up building, and that difference feeds directly into wellbeing.</p>
+<hr>
+<h2>When and Why Households Leave</h2>
+<p>A household evaluates its situation regularly and may decide to leave the city for three reasons.</p>
+<p><strong>Unhappiness.</strong> The game computes average happiness across all household members. The lower it falls, the higher the probability of the household deciding to emigrate on any given day. This is not an instant cliff — it is a gradual probability increase, so a mildly unhappy household might stay for a long time, while a deeply miserable one will likely leave soon.</p>
+<p><strong>Financial ruin.</strong> If a household's total wealth plus recent income drops below −1,000, it is forced to leave. Households spend money every day on consumption, and if income cannot keep up — because members are unemployed, taxes are too high, or upkeep drains too much — they will eventually reach this threshold.</p>
+<p><strong>No adults left.</strong> If all adult and elderly members of a household die or leave, with only children or teens remaining, the household immediately leaves. The game does not model orphaned children continuing to live independently.</p>
+<p>When a household decides to leave, it routes to an outside connection — by road if they own a car, otherwise by train, air, or water — and is removed from the simulation on arrival.</p>
+<blockquote>
+<p><strong>ℹ️ Info — What about homelessness?</strong>
+There is no persistent homeless population in Cities: Skylines II. If a household loses its property and cannot find a new one, it is immediately queued to leave the city. Homelessness is an exit state, not a stable condition.</p>
+</blockquote>
+<hr>
+<h2>What Can Go Wrong</h2>
+<p><strong>Population growth stalls despite high demand.</strong> If your residential vacancy rate is very low, the immigration system throttles itself. Build more housing before expecting more residents — demand alone is not enough.</p>
+<p><strong>Young adults never leave home.</strong> If unemployment is high or housing is scarce, adult children stay in their parents' household indefinitely. This inflates household sizes, reduces housing turnover, and can suppress household formation across the city.</p>
+<p><strong>Households leave faster than they arrive.</strong> A city with poor services, high taxes, heavy pollution, or widespread unemployment will see ongoing emigration. Each factor nudges happiness downward, and enough combined pressure tips households over the emigration threshold.</p>
+<p><strong>An aging population drains income.</strong> As adult citizens age into elders and retire, household income drops. If birth rates are low and immigration is slow, a city can tip into a demographic decline where consumption outpaces wages and more households fall into the poverty threshold.</p>
+<p><strong>Service gaps cascade.</strong> A water outage hurts both health and wellbeing simultaneously. Residents in an area that loses water, power, and sewage treatment at the same time will see happiness collapse quickly — and if the outage persists long enough, they will start leaving before services are restored.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

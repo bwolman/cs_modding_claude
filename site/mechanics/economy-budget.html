@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>City Economy and Budget - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html" class="active">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>City Economy and Budget</h1>
+<h2>How Your City Makes Money</h2>
+<p>Your city draws income from two main sources: taxes collected from residents and businesses, and fees charged for services. A third source — government subsidies — acts as a safety net when finances deteriorate.</p>
+<p><strong>Taxes</strong> are the backbone of your budget. Every household and every company in your city accumulates income as the simulation runs, and a portion of that income is regularly swept into your treasury. The tax rate you set in the Economy panel applies across the board, but you can fine-tune it by sector: residential, commercial, industrial, and office zones each have their own offset, and residential taxes can be further adjusted by education level. Commercial and industrial taxes can even be dialed in per resource type — you might tax electronics businesses differently than food producers.</p>
+<p><strong>Service fees</strong> are charges that residents and businesses pay when they consume city services. Healthcare visits, school attendance, electricity use, water consumption, garbage pickup, parking, and public transit all carry fees that you set. Fees flow into the budget separately from taxes, and they also affect behavior: high electricity or water fees dampen consumption and reduce citizen happiness.</p>
+<p><strong>Government subsidies</strong> are a conditional lifeline. The subsidy only kicks in on game modes that enable it, and it scales based on how badly your finances have slipped. The deeper your treasury falls below a threshold, the larger the subsidy becomes, up to a cap expressed as a percentage of your total expenses. Above the threshold, you receive nothing.</p>
+<blockquote>
+<p><strong>Info</strong>: Your city can also earn money by exporting surplus electricity or water to outside connections. If your power grid or water network produces more than local demand, the excess is sold and appears as export revenue in your budget.</p>
+</blockquote>
+<hr>
+<h2>What Your City Spends</h2>
+<p>Expenses fall into several categories, and understanding each one matters for long-term solvency.</p>
+<p><strong>Service upkeep</strong> is usually your largest expense. Every building — from a small park to a hospital — costs money each day simply to keep running. This cost scales with building level, and higher-level commercial and industrial buildings carry disproportionately steeper upkeep than residential ones. The service budget slider in the city services panel lets you underfund services to save money, but there is a direct trade-off: a service running at 80% budget operates less efficiently. Even inactive buildings do not escape entirely — they still pay 10% of their normal upkeep.</p>
+<p><strong>Wages for city service workers</strong> are embedded in service upkeep costs. The game uses fixed base wages by education level — uneducated workers earn the least, highly educated workers earn the most — and city service jobs apply a multiplier to those base rates. A city that relies heavily on educated staff for its hospitals and universities pays more in upkeep than one running basic services.</p>
+<p><strong>Map tile upkeep</strong> grows as you unlock territory. Each new tile you claim adds an ongoing cost, and that cost scales non-linearly — early tiles are cheap, but pushing far from your starting area becomes increasingly expensive.</p>
+<p><strong>Import costs</strong> arise when your city cannot meet its own needs. If you do not generate enough electricity or water locally, the simulation automatically imports from outside connections and charges you for it. The same applies to city services like fire, police, ambulance, and garbage: if outside connections handle calls that your own services cannot reach, your city is billed.</p>
+<p><strong>Loan interest</strong> is a daily expense tied to how much you have borrowed relative to your creditworthiness.</p>
+<blockquote>
+<p><strong>Info</strong>: Wages are paid by companies and households, not directly from your treasury — they affect your budget indirectly by reducing the income those entities have available to pay taxes.</p>
+</blockquote>
+<hr>
+<h2>Tax Rates and Behavior</h2>
+<p>Tax rates are not a simple dial you can crank up for easy money. Residents and businesses respond to taxation.</p>
+<p>High residential taxes reduce household disposable income. Households with less money spend less at commercial businesses, reducing those companies' revenues and therefore their taxable income. Push rates too high and you can create a feedback loop where the very taxes meant to raise revenue shrink the economic activity that generates it.</p>
+<p>High commercial and industrial taxes work similarly. Companies earn less net income, become less profitable, and in extreme cases fail entirely. When a company goes bankrupt, it disappears, taking its jobs, its tax payments, and the commercial foot traffic it attracted with it. The result is lower residential income as workers become unemployed, compounding the revenue loss.</p>
+<p>On the flip side, cutting taxes below a certain point means the game actually subsidizes those sectors — tax revenue for that area turns negative and appears as an expense in your budget.</p>
+<blockquote>
+<p><strong>Info</strong>: Tax rates are stored as a base rate plus per-sector offsets. The effective rate for any taxpayer is the sum of the relevant base and offset values. There are hard limits on how high or low each rate can go, governed by game parameters that vary by sector and education level.</p>
+</blockquote>
+<hr>
+<h2>How Loans Work</h2>
+<p>The loan system provides a cash advance against your city's creditworthiness. Your creditworthiness sets the ceiling on how much you can borrow; it is determined by factors like population size and economic health.</p>
+<p>When you take a loan, the principal lands immediately in your treasury. From that point on, you pay interest every day. The interest rate is not fixed — it rises as your outstanding loan approaches your creditworthiness limit. A small loan against a high creditworthiness limit costs relatively little; a loan that maxes out your limit is penalized with a much higher rate.</p>
+<blockquote>
+<p><strong>Info</strong>: Interest rate = lerp(minimum rate, maximum rate, loan amount / creditworthiness). The minimum and maximum rates are set by game parameters. City modifiers from policies or specializations can reduce the effective rate.</p>
+</blockquote>
+<p>Repaying a loan deducts the principal from your current balance immediately. There is no amortization schedule — you choose when to repay and how much, and you can carry a balance indefinitely as long as you can afford the daily interest.</p>
+<hr>
+<h2>What Can Go Wrong</h2>
+<p><strong>The bankruptcy spiral</strong> is the classic way cities fail financially, and it is self-reinforcing once it starts. It often begins with overbuilding services before the tax base can support them. Upkeep costs exceed tax revenue, creating a daily deficit. The mayor takes a loan to cover the gap, which adds interest expense, widening the deficit further. To compensate, tax rates go up. Higher taxes reduce company profitability; some businesses close. Unemployment rises, household incomes fall, and residential tax revenue drops.</p>
+<p><strong>Specific traps to watch for:</strong></p>
+<ul>
+  <li><strong>Unlocking too many map tiles too quickly</strong> — each new tile adds fixed upkeep before population catches up</li>
+  <li><strong>Heavily leveled commercial districts</strong> with exponentially scaling upkeep</li>
+  <li><strong>High-salary services before the workforce justifies the cost</strong> — hospitals and universities cost more if you need educated staff</li>
+  <li><strong>Extended reliance on imported electricity or water</strong> — the import bill can rival the cost of building your own infrastructure</li>
+  <li><strong>Service fees set too high</strong> — consumption drops, citizens become unhappy, population declines, and the residential tax base shrinks</li>
+  <li><strong>Borrowing to fund operating expenses</strong> rather than capital investment — interest compounds against a budget that never improves</li>
+</ul>
+<p>The warning sign is a widening gap between total income and total expenses on the Economy panel. A small negative balance is manageable; a large and growing one that forces further borrowing is the beginning of a spiral that gets harder to reverse the longer it runs.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Telecommunications and Internet Service - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html" class="active">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>Telecommunications and Internet Service</h1>
+<p>Your city's residents and businesses don't just need roads and electricity — they need connectivity. Telecommunications infrastructure provides the internet and mobile service that modern buildings depend on to function at full capacity. Neglect it early and you'll find your commercial strips underperforming and your office districts quietly struggling, even when everything else looks fine.</p>
+<h2>How Coverage Works</h2>
+<p>Telecom coverage radiates outward from towers and other telecom facilities you place on the map. Each facility broadcasts a signal across a circular area, and that signal weakens the farther you get from the source. The falloff is not linear — signal drops off rapidly near the edge of a tower's range, meaning the outer fringes of coverage are noticeably weaker than the center.</p>
+<blockquote>
+<p><strong>ℹ️ Signal formula</strong>: Signal strength follows a quadratic curve — <code>1 - (distance / range)^2</code>. A building at 70% of a tower's maximum range receives only about half the signal strength of a building right next to it.</p>
+</blockquote>
+<p>The default coverage radius for a standard telecom facility is 1,000 meters. When you hover over a facility while placing it, the game previews the coverage footprint in real time so you can see exactly what will and won't be reached.</p>
+<p>Terrain can also block signal. Most standard towers cannot punch through hills and elevated ground, so valleys and areas behind ridgelines may sit in a "shadow" even if a tower is technically within range. Some higher-tier facilities can penetrate terrain, which is especially useful in hilly or mountainous maps.</p>
+<h2>Network Capacity and Congestion</h2>
+<p>Coverage and capacity are two separate things. A tower can physically reach a neighborhood, but if too many people are on the network at once, service quality degrades. Each facility has a finite bandwidth it can provide, and that capacity is distributed across all the cells within its reach, weighted by how strong the signal is in each area.</p>
+<blockquote>
+<p><strong>ℹ️ Capacity rule</strong>: Network load is tracked per coverage cell alongside signal strength. Quality at any given spot is a function of both: <code>signal strength / (127.5 + network load)</code>. A strong signal into a congested cell produces worse quality than a moderate signal into an uncongested one.</p>
+</blockquote>
+<p>This means dense neighborhoods are harder to serve than sparse ones. Placing a single tower over your downtown core might give strong signal, but if thousands of residents and workers are all connected through it, the effective quality will be poor. You need more towers, not just bigger ones.</p>
+<p>Installing upgrades on a facility stacks additional range and capacity on top of its base values. Upgraded towers serve a larger area and handle more users simultaneously.</p>
+<h2>What Buildings Need Connectivity For</h2>
+<p>Not every building cares equally about telecom service. Residential buildings need it for their households, commercial buildings need it to run their operations, and office buildings tend to be the most dependent of all — connectivity is essentially infrastructure for their core business.</p>
+<p>The game tracks how much each building type relies on telecom. Buildings with a high connectivity need will suffer steeper efficiency penalties when service is poor, while a small warehouse with minimal telecom needs may barely notice the same gap in coverage.</p>
+<blockquote>
+<p><strong>ℹ️ Efficiency penalty</strong>: When the network quality at a building's location falls below a threshold, the building's operational efficiency takes a hit. The penalty grows quadratically — a building just barely below the threshold loses little, but one with no service at all suffers heavily.</p>
+</blockquote>
+<p>Efficiency affects everything downstream: how many goods a commercial building can sell, how many workers an office can effectively employ, how much output a service building delivers. Poor telecom quietly drags down your city's productivity without the obvious visual cues of, say, an unconnected road.</p>
+<h2>The City-Wide Picture</h2>
+<p>The telecom info view shows you a color-coded overlay of signal strength across the entire map. The network availability indicator in the panel reflects a population-weighted average — it weighs coverage quality more heavily in areas where people actually live and work. An empty district with no signal doesn't drag down the number the way a packed residential zone without coverage does.</p>
+<p>City policies and certain milestone rewards can boost your entire network's capacity, effectively giving every tower more bandwidth without changing its physical range.</p>
+<h2>What Can Go Wrong</h2>
+<p><strong>Gaps at the city edge.</strong> As you expand, new neighborhoods outrun your existing towers. Buildings go up before coverage arrives, and residents move in to underserved conditions.</p>
+<p><strong>Downtown congestion.</strong> High population density overwhelms a tower's capacity even when signal is strong. The info view may look green on signal but buildings still underperform. The fix is more towers, not repositioning.</p>
+<p><strong>Terrain shadows.</strong> A hill between a residential area and your nearest tower can cut off an entire neighborhood. Watch for valleys and depressions in your terrain, especially on maps with significant elevation changes.</p>
+<p><strong>Upgrading too slowly.</strong> Tower upgrades stack capacity and range additively. Deferring upgrades means your network ages in place while the city grows around it.</p>
+<p><strong>Misreading the info view.</strong> The overlay shows signal, not congestion. An area can appear fully covered and still deliver poor quality if load is high. Check the network availability indicator for the true picture.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

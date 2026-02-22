@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Healthcare & Ambulances - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html" class="active">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>Healthcare & Ambulances</h1>
+<h2>How Citizens Get Sick or Injured</h2>
+<p>Every citizen in your city is constantly being evaluated for health problems. The lower a citizen's health, the more likely they are to fall ill — and the relationship isn't linear. A citizen at 50% health is far more than twice as likely to get sick as a citizen at full health. Older citizens, citizens living in pollution, and citizens with poor access to parks and services will naturally drift toward lower health, making them significantly more vulnerable over time.</p>
+<p>When a citizen does fall ill or get injured, the game decides one of two things: can this person manage on their own, or do they need an ambulance?</p>
+<blockquote>
+<p><strong>ℹ️ Info — What counts as "needing an ambulance"?</strong>
+Each type of health event (disease, injury, sudden death) has a transport probability range. Whether any given citizen needs an ambulance is rolled at the moment the health event occurs. Mild cases walk to the hospital themselves; serious cases require pickup. Citizens who are trapped in a burning or collapsed building are always flagged as needing emergency transport.</p>
+</blockquote>
+<hr>
+<h2>Two Paths: Walk-In vs. Ambulance</h2>
+<p><strong>If the condition is mild</strong>, the citizen will try to walk or travel to a nearby hospital on their own. They get a destination added to their routine and head there when their schedule allows. No ambulance is involved.</p>
+<p><strong>If the condition is serious</strong>, a request for an ambulance goes out immediately. The game finds the nearest hospital that has an ambulance available and sends one to the citizen's current location — whether that's their home, their workplace, or even a vehicle they're already riding in.</p>
+<blockquote>
+<p><strong>ℹ️ Info — What makes a hospital "available" for dispatch?</strong>
+A hospital can send an ambulance only if it has idle vehicles and its service district covers the area where the citizen is located. Hospitals with no district assignment serve the whole city. Hospitals assigned to specific districts only respond within those districts.</p>
+</blockquote>
+<hr>
+<h2>What Happens After the Ambulance Arrives</h2>
+<p>Once an ambulance reaches the citizen, it stops and waits for them to board. After pickup, the ambulance doesn't automatically head back to the hospital that sent it. Instead, it immediately searches for the <strong>best nearby hospital</strong> to deliver the patient to.</p>
+<p>Most of the time, this will be the same clinic the ambulance came from — it's nearby, it's familiar, and the game gives it a preference. But the ambulance will route to a different hospital if:</p>
+<ul>
+  <li><strong>The home clinic is full</strong> — all patient beds are occupied. A full clinic still counts as a valid option (the ambulance won't ignore it entirely), but a clinic with open beds looks significantly cheaper to the routing system and will usually win.</li>
+  <li><strong>The home clinic can't treat this patient's severity</strong> — basic clinics have a health range. A citizen who is critically ill may be outside what a small neighborhood clinic can handle. In that case, the home clinic is ruled out entirely and the ambulance goes to a facility equipped for serious cases.</li>
+</ul>
+<blockquote>
+<p><strong>ℹ️ Info — How the game picks the delivery hospital</strong>
+After picking up a patient, the ambulance evaluates every healthcare facility in the area. Each one is scored by treatment quality (how good is the staff and equipment?) adjusted for how sick the patient is. Sicker patients weight treatment quality more heavily — the system works harder to find a good hospital for serious cases. A facility with open beds is strongly preferred over a full one, but a full facility isn't ruled out if it's the only option.</p>
+</blockquote>
+<hr>
+<h2>Critical Patients</h2>
+<p>If a citizen is in very poor health when they're picked up, the ambulance marks them as a critical patient. Critical patients get priority routing — the ambulance ignores traffic restrictions and finds the fastest possible path to the delivery hospital, regardless of road type or other limitations.</p>
+<p>Being marked critical doesn't change <em>which</em> hospital the patient goes to — that's still decided by the same quality-and-availability formula. It just means the ambulance drives there faster.</p>
+<hr>
+<h2>Inside the Hospital</h2>
+<p>Once the patient arrives, they're admitted to a patient bed. The hospital works on them over time, and how quickly they recover depends on the hospital's treatment quality — which is influenced by:</p>
+<ul>
+  <li><strong>Building efficiency</strong> (how well-funded and staffed the hospital is)</li>
+  <li><strong>Resource availability</strong> (hospitals without adequate resources treat patients more slowly)</li>
+  <li><strong>The hospital's inherent quality</strong> (larger, more advanced hospitals have higher base treatment capability)</li>
+</ul>
+<p>Not every hospital can treat every condition. Small clinics may only handle diseases, or only injuries. A large general hospital handles both. If a patient ends up at a facility that can't treat their specific condition, they'll be transferred out.</p>
+<blockquote>
+<p><strong>ℹ️ Info — Health range and treatment capability</strong>
+Each hospital has a health range it can treat (e.g., citizens between 30–100% health). Citizens outside that range won't be routed there at all — they go straight to a facility that can handle their severity. Upgrades can expand a hospital's health range, allowing it to treat more critical patients. This is why upgrading a clinic matters: it widens the range of citizens it can help, not just increases capacity.</p>
+</blockquote>
+<hr>
+<h2>What Can Go Wrong</h2>
+<p><strong>No ambulance shows up:</strong> All of that hospital's ambulances are already deployed. If a hospital's fleet is entirely out on calls, it can't send another one until one returns. Adding ambulance capacity via upgrades or building additional hospitals reduces how often this happens.</p>
+<p><strong>The ambulance takes a patient to a distant hospital:</strong> The local clinic's beds are full, or the patient's condition exceeds what the local clinic can treat. Building a larger hospital (or upgrading clinics to handle more patient severity) keeps patients closer to home.</p>
+<p><strong>Citizens are showing the "waiting for ambulance" warning icon:</strong> This appears after a citizen has been waiting too long for pickup. It's a sign that ambulance supply isn't keeping up with demand — either not enough vehicles, or a hospital's coverage district doesn't reach the area in need.</p>
+<p><strong>Citizens dying at home despite healthcare coverage:</strong> Very elderly citizens have a naturally high death probability regardless of health levels. Some deaths are simply age-related and won't be prevented by healthcare coverage. However, citizens who die without access to a hospital at all count differently and may affect your city statistics.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

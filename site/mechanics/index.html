@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare &amp; Ambulances</a>
+    <a href="health-disease.html">Health &amp; Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime &amp; Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks &amp; Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail &amp; Post Service</a>
+    <a href="telecom-internet.html">Telecom &amp; Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water &amp; Sewage</a>
+    <a href="traffic-roads.html">Traffic &amp; Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo &amp; Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy &amp; Budget</a>
+    <a href="companies-commerce.html">Companies &amp; Commerce</a>
+    <a href="industry-resources.html">Industry &amp; Resources</a>
+    <a href="terrain-resources.html">Terrain &amp; Natural Resources</a>
+    <a href="land-value.html">Land Value &amp; Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs &amp; Labor Market</a>
+    <a href="demand-growth.html">Demand &amp; Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population &amp; Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens &amp; Households</a>
+    <a href="zoning.html">Zoning &amp; Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution &amp; Noise</a>
+    <a href="weather-climate.html">Weather &amp; Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts &amp; Policies</a>
+    <a href="milestones-progression.html">Milestones &amp; Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+
+    <h1>Cities: Skylines II Game Mechanics</h1>
+
+    <div class="hero">
+      <h2>How the simulation actually works</h2>
+      <p>
+        Plain-English explanations of CS2's game systems — written for players who want to
+        understand what's really happening under the hood. Each topic covers the rules the game
+        follows, common failure modes, and what you can do about them.
+      </p>
+      <p>
+        Content is derived from decompiled game source code, so the rules described here are
+        the <em>actual</em> rules, not guesses from observed behaviour.
+      </p>
+    </div>
+
+    <div class="path-cards">
+      <div class="path-card">
+        <h3>City Struggling?</h3>
+        <p>Check the economy, demand, and services sections to understand what the simulation is reacting to and why.</p>
+        <a href="economy-budget.html" class="path-link">Economy &amp; Budget &rarr;</a>
+      </div>
+      <div class="path-card">
+        <h3>Traffic Problems?</h3>
+        <p>Understand how vehicles pick routes, how parking causes phantom congestion, and where outside traffic comes from.</p>
+        <a href="traffic-roads.html" class="path-link">Traffic &amp; Roads &rarr;</a>
+      </div>
+      <div class="path-card">
+        <h3>Buildings Not Growing?</h3>
+        <p>Learn how demand, zoning, land value, and building condition interact to determine what gets built where.</p>
+        <a href="demand-growth.html" class="path-link">Demand &amp; Growth &rarr;</a>
+      </div>
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>City Services</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="healthcare-ambulances.html">Healthcare &amp; Ambulances</a></h3>
+        <p>How ambulances decide which patient to pick up, how hospitals process patients, and why sick citizens sometimes wait a long time for help.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="health-disease.html">Health &amp; Disease</a></h3>
+        <p>How pollution, happiness, healthcare access, and age combine to determine whether your citizens get sick — and how quickly they recover.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="fire.html">Fire Department</a></h3>
+        <p>How fires start on buildings and spread to neighbors, how fire trucks are dispatched and assigned priorities, and what makes some buildings burn faster than others.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="crime-and-police.html">Crime &amp; Police</a></h3>
+        <p>How crime probability builds from citizen unhappiness and poverty, how criminals are caught, and what police coverage actually does to crime rates.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="garbage-collection.html">Garbage Collection</a></h3>
+        <p>How trash accumulates on buildings, when collection requests trigger, how trucks are dispatched, and what happens when landfills fill up or incinerators shut down.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="education.html">Education</a></h3>
+        <p>How children enroll in school, how daily attendance and graduation probability work, and how education levels affect the jobs citizens can get.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="deathcare.html">Deathcare</a></h3>
+        <p>How the game handles citizen death, how hearses are dispatched to collect bodies, and what happens when cemetery and crematorium capacity runs out.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="parks-recreation.html">Parks &amp; Recreation</a></h3>
+        <p>How citizens choose where to spend leisure time, how park happiness bonuses work, and how recreation affects overall citizen satisfaction.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="public-transit.html">Public Transit</a></h3>
+        <p>How transit lines move citizens across the city, how vehicles are dispatched from depots, how boarding queues work, and what drives ridership up or down.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="mail-post.html">Mail &amp; Post Service</a></h3>
+        <p>How mail accumulates on buildings, flows through the postal system via mailboxes and post offices, and why post vans sometimes fall behind on deliveries.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="telecom-internet.html">Telecom &amp; Internet</a></h3>
+        <p>How wireless signal coverage spreads from towers, why buildings without internet access suffer efficiency penalties, and how capacity limits affect service quality.</p>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>Infrastructure</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="electricity.html">Electricity</a></h3>
+        <p>How power flows from generators through the grid to buildings, how the game balances supply and demand, and what triggers brownouts and blackouts.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="water-sewage.html">Water &amp; Sewage</a></h3>
+        <p>How fresh water moves from pumping stations through underground pipes to buildings, and how sewage flows back to treatment facilities.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="traffic-roads.html">Traffic &amp; Roads</a></h3>
+        <p>How vehicles pick routes, change lanes, respond to traffic signals, and how congestion builds and clears. Includes lane behaviour and intersection logic.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="traffic-accidents.html">Traffic Accidents</a></h3>
+        <p>How vehicle collisions happen, what triggers chain-reaction accidents, how police and ambulances respond, and how the game cleans up crash sites.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="parking.html">Parking</a></h3>
+        <p>How vehicles search for parking, what happens when no space is found, how parking fees are calculated, and how to prevent parking death spirals.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="personal-cars.html">Personal Cars</a></h3>
+        <p>Who owns cars, how they get onto the road, how they find parking at their destination, and where the background traffic on your roads actually comes from.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="cargo-transport.html">Cargo &amp; Freight</a></h3>
+        <p>How resources move between industry, warehouses, and commercial buildings via delivery trucks, and how cargo trains and ships handle long-distance freight.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="outside-connections.html">Outside Connections</a></h3>
+        <p>How goods, commuters, tourists, and through-traffic flow in and out of your city via highway, rail, air, and sea connections at the map edges.</p>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>Economy</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="economy-budget.html">Economy &amp; Budget</a></h3>
+        <p>Where city income comes from, what drives expenses, how taxes are collected, and how to read the budget screen to understand your city's financial health.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="companies-commerce.html">Companies &amp; Commerce</a></h3>
+        <p>How businesses earn profit, pay dividends to citizen households, respond to market conditions, and decide when it's time to close up or move away.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="industry-resources.html">Industry &amp; Resources</a></h3>
+        <p>How specialized industry zones extract raw materials and transform them into goods, and how the supply chain connects extraction to production to retail.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="terrain-resources.html">Terrain &amp; Natural Resources</a></h3>
+        <p>Where fertile land, ore, oil, and fish are found on the map, how extraction depletes them over time, and which resources can recover and which are gone for good.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="land-value.html">Land Value &amp; Property</a></h3>
+        <p>What raises and lowers property values, how rent is calculated, why buildings level up in good conditions and fall into disrepair when services fail.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="tourism.html">Tourism</a></h3>
+        <p>How tourists find your city, what drives attraction scores, how hotel reservations work, and why weather and amenities have a bigger effect than you might expect.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="jobs-labor.html">Jobs &amp; Labor Market</a></h3>
+        <p>How citizens find work, how education levels are matched to job requirements, why businesses go understaffed, and how commuters from outside the city fill gaps.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="demand-growth.html">Demand &amp; Growth</a></h3>
+        <p>What drives residential, commercial, and industrial demand, how the three demand bars are calculated, and why growth sometimes stalls even when conditions look fine.</p>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>Population &amp; Citizens</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="citizens-households.html">Citizens &amp; Households</a></h3>
+        <p>The full citizen lifecycle — birth, education, work, family formation, aging, death. How households make decisions and what makes them stay or leave your city.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="zoning.html">Zoning &amp; Development</a></h3>
+        <p>How zone types attach to roads, how the game decides which buildings to spawn on vacant lots, and what factors influence building selection and density.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="building-construction.html">Building Construction</a></h3>
+        <p>How buildings progress from foundations to completion, how service upgrades are added, how level-ups work, and the chain of events that leads to abandonment or demolition.</p>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>Environment</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="pollution.html">Pollution &amp; Noise</a></h3>
+        <p>How air, ground, and noise pollution spread across your city, what generates each type, and how they affect citizen health, happiness, and property values.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="weather-climate.html">Weather &amp; Climate</a></h3>
+        <p>Seasonal climate cycles, how weather events spawn and affect the city, snow accumulation on roads, and how extreme weather interacts with services and citizens.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="disasters.html">Disasters</a></h3>
+        <p>How tornadoes, floods, and other disasters unfold, how warning systems work, how buildings take damage, and how citizen evacuation is managed.</p>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <h2>Governance</h2>
+
+    <div class="topic-grid">
+
+      <div class="topic-card">
+        <h3><a href="districts-policies.html">Districts &amp; Policies</a></h3>
+        <p>How district boundaries are drawn, which policies you can apply within them, and how each policy actually modifies simulation behaviour for buildings and roads inside the district.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="milestones-progression.html">Milestones &amp; Progression</a></h3>
+        <p>How XP accumulates from population growth and city achievements, when milestones trigger, and how the development tree unlocks new buildings, zones, and policies.</p>
+      </div>
+
+      <div class="topic-card">
+        <h3><a href="map-expansion.html">Map Expansion (Tiles)</a></h3>
+        <p>How tile purchasing works, what determines the price of each tile, and how expanding your city boundaries affects the simulation.</p>
+      </div>
+
+    </div>
+
+    <!-- ============================================================ -->
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

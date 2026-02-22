@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Public Transit in Cities: Skylines II - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html" class="active">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>Public Transit in Cities: Skylines II</h1>
+<h2>How a Transit Line Works</h2>
+<p>When you draw a bus route or lay down a train line, the game treats the whole line as a single living entity. That entity owns a list of stops, a list of segments connecting those stops, and a pool of vehicles currently assigned to it. The game updates each line roughly once every few seconds of simulation time, recalculating how long the full loop takes, how many vehicles are needed, and whether any vehicles need to be added or sent back to the depot.</p>
+<p>Everything flows from one key number: the <strong>vehicle interval</strong> — how many seconds the game wants between consecutive vehicles arriving at the same stop. Divide the total loop time by that interval and you get the target vehicle count. If the loop takes 600 seconds and the target interval is 60 seconds, the game will try to put 10 vehicles on the line.</p>
+<blockquote>
+<p><strong>Info:</strong> The formula is <code>round(total loop time / vehicle interval)</code>, with a minimum of 1 vehicle. You can override the vehicle count manually from the line's info panel — the game translates your chosen count back into a new interval and uses that going forward.</p>
+</blockquote>
+<h2>How Citizens Decide to Use Transit</h2>
+<p>Citizens weigh the transit network when they pathfind to a destination. They factor in the time it would take to walk to a stop, wait for a vehicle, ride to a transfer or destination, and walk the rest of the way. If that total is competitive with driving or walking the whole way, they will use the line. Stop comfort — which improves when stops are attached to proper transport stations — nudges that calculation further in transit's favor.</p>
+<p>The game does not show you a ridership-demand number directly, but the queue of waiting passengers at each stop is tracked continuously. A long-growing queue signals that the line is either too slow, too infrequent, or that the stop serves a dense area the line cannot keep up with.</p>
+<h2>How Vehicles Get Assigned</h2>
+<p>Vehicles do not appear from thin air. When a line needs more vehicles, the game issues a dispatch request, finds a suitable depot on the same transport network, and sends a vehicle out to the first stop on the line. The vehicle then runs the loop indefinitely. When the line needs fewer vehicles — because you reduced the target count or changed the vehicle model — the game sets an "abandon route" flag on the excess vehicles and they return to the depot at the end of their current run.</p>
+<blockquote>
+<p><strong>Info:</strong> If the game cannot find a reachable depot with available vehicles of the right type, the line displays a "not enough vehicles" notification. The notification clears automatically once a depot comes online or vehicles become available.</p>
+</blockquote>
+<h2>How Stops and Boarding Work</h2>
+<p>When a vehicle arrives at a stop, it goes through a brief <strong>testing</strong> phase to confirm the stop is still accessible before committing to board. Once it pulls in, a boarding window opens: passengers waiting at the stop climb on, passengers whose destination is served by this stop climb off. The length of that window is governed by the line's stop duration and a departure-frame calculation that factors in the current vehicle spacing.</p>
+<blockquote>
+<p><strong>Info:</strong> The default stop dwell time is 1 second of simulation time. Stops attached to transport stations board passengers faster, because stations apply a loading-speed bonus on top of the stop's own loading factor.</p>
+</blockquote>
+<p>The <strong>unbunching factor</strong> (default 0.75) adjusts when a vehicle is allowed to leave a stop. If two buses bunch up behind each other, the trailing bus will sit a little longer than normal to re-establish spacing. This is automatic and runs every time a vehicle departs.</p>
+<h2>What Affects Ridership</h2>
+<p>Several things work together to make a line attractive or unattractive to citizens:</p>
+<ul>
+  <li><strong>Frequency.</strong> More vehicles mean shorter waits. The game calculates expected wait time per stop and citizens weigh it in their travel decisions.</li>
+  <li><strong>Stop comfort.</strong> A stop with a shelter or a full transport station scores higher than a bare kerb-side stop. Higher comfort makes citizens more likely to accept the transit option.</li>
+  <li><strong>Day and night scheduling.</strong> Lines can be restricted to run only during daytime or only at night. A line set to daytime-only is completely inactive after dark — citizens will not find it as a valid path, and vehicles return to depot.</li>
+  <li><strong>Ticket price.</strong> You can enable paid fares on a line via its policy settings. Higher fares reduce the attractiveness of the line to citizens but generate revenue.</li>
+</ul>
+<blockquote>
+<p><strong>Info:</strong> Comfort and loading speed are calculated from two sources added together: the stop's own baseline values from its prefab, and a bonus applied by any transport station building the stop belongs to. The final comfort is clamped between 0 and 1. The final loading speed cannot go below 0.</p>
+</blockquote>
+<h2>What Causes Lines to Fail</h2>
+<p><strong>No vehicles dispatched.</strong> The most common failure. Causes include no depot of the right type within reach, the depot being full, or a road network gap breaking the pathfind from depot to the line's first stop.</p>
+<p><strong>Buses bunching.</strong> Even with unbunching logic, a line with too few vehicles for its loop length will develop clumps. The trailing vehicles in a clump pick up fewer passengers (the leading vehicle already emptied the stop), while the gap ahead of the clump grows and passengers accumulate. Adding vehicles or shortening the loop by splitting the line usually resolves this.</p>
+<p><strong>Stop goes inactive.</strong> If a stop's building loses access — a road is deleted, the parent station is demolished — the stop loses its "allow entry" flag. Vehicles still visit it but nobody can board, leaving a dead spot in the line.</p>
+<p><strong>Wrong depot type.</strong> Each transport mode requires a matching depot. Placing a tram line with no tram depot in the city, or with the only tram depot stranded behind a broken road, will produce the "not enough vehicles" notification indefinitely.</p>
+<p><strong>Day/night mismatch.</strong> A line set to daytime-only in a city where demand peaks at night silently serves no one during those hours. The line looks fine in the UI because it operates correctly during its scheduled window — but ridership will be near zero overall.</p>
+<p><strong>Line too long.</strong> Very long loops raise the total travel time, which increases the vehicle interval needed to maintain reasonable frequency. If the loop is so long that hitting your target frequency would require more vehicles than your depot stocks, the game will provision as many as it can and mark the line as under-served. Splitting a long line into two shorter overlapping lines is usually more efficient than trying to staff one enormous route.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

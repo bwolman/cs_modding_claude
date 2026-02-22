@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Disasters and Emergency Response - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html" class="active">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>Disasters and Emergency Response</h1>
+<p>Natural disasters in Cities: Skylines II are not just cosmetic events — they are fully simulated threats that damage your buildings, displace your citizens, and stress your emergency services. Understanding how the game handles them helps you build a more resilient city and respond effectively when things go wrong.</p>
+<hr>
+<h2>Types of Disasters</h2>
+<p>The game simulates two fundamentally different kinds of disasters, each driven by its own ruleset.</p>
+<p><strong>Weather phenomena</strong> — tornadoes and severe storms — appear as moving events that travel across the map, pushed along by the current wind. Each one has an outer weather system (the visible storm) and a tighter damage zone at its core. Buildings caught inside that inner core start taking structural damage. Storms also throw lightning at the tallest structures in range, and may spin up secondary fires from those strikes.</p>
+<p><strong>Floods and tsunamis</strong> work differently. Rather than a moving damage zone, the threat is rising water. When a flood or tsunami event begins, the water level climbs and the simulation constantly checks every building's elevation against the actual water surface. Once water is more than about half a meter above the surrounding terrain at a building's footprint, that building is considered flooded and starts accumulating damage.</p>
+<hr>
+<h2>How Disasters Are Triggered</h2>
+<p>Weather phenomena occur when atmospheric conditions are right — the game tracks temperature, rainfall, and cloud cover, and each storm type has a range of conditions under which it can appear. Once active, a tornado drifts with the wind, with its damage core oscillating unpredictably.</p>
+<p>Floods are driven by water level change events. A tsunami arrives as a wave (rising and falling in a sine pattern); a river flood responds to rainfall accumulation. Both types can target sea-level water bodies, rivers, or the entire water system, depending on the event configuration.</p>
+<hr>
+<h2>The Warning Window</h2>
+<p>Before the damage zone actually reaches your buildings, the game looks ahead along the storm's projected path and marks buildings in that corridor as endangered. This triggers evacuation orders while the disaster is still approaching. The length of that warning window is influenced by any Early Disaster Warning buildings you have placed — those facilities extend the advance notice your city receives.</p>
+<blockquote>
+<p><strong>Info</strong>: The disaster warning time is a city-wide modifier. Each Early Disaster Warning facility you build increases the lead time before the danger zone arrives, giving evacuation vehicles more time to complete their runs.</p>
+</blockquote>
+<hr>
+<h2>Evacuation</h2>
+<p>When a building is placed under an evacuation order, citizens inside receive one of two instructions: shelter in place (stay indoors) or evacuate. If evacuation vehicles are available, citizens wait for a bus or transport to collect them before heading to an emergency shelter. If no vehicle is coming, they head to the shelter on their own.</p>
+<p>Emergency shelters are the destination for all displaced citizens. They have a finite capacity. Citizens inside an active shelter will only leave once the danger level has dropped sufficiently — the higher the remaining danger, the less likely any individual citizen is to exit early. If a shelter becomes inoperable (damaged or understaffed), citizens are more likely to leave regardless.</p>
+<blockquote>
+<p><strong>Info</strong>: Citizens already dealing with a health problem are excluded from evacuation processing — they remain in place and rely on healthcare services rather than emergency transport.</p>
+</blockquote>
+<hr>
+<h2>How Buildings Take Damage</h2>
+<p>Damage accumulates independently from three sources: storm/weather damage, fire damage, and water/flood damage. Each type builds up separately, but they all contribute to a combined total. When that combined total reaches its maximum, the building is destroyed.</p>
+<p>Every building type has a structural integrity rating built into its design. A high-integrity structure takes much longer to reach that destruction threshold — the same storm that flattens a small residential house might only lightly damage a reinforced civic building. Buildings with extremely high structural integrity are effectively immune to weather damage entirely.</p>
+<p>Flood damage scales with water depth relative to the building's height. A building with the first floor barely under water takes damage more slowly than one that is deeply submerged.</p>
+<blockquote>
+<p><strong>Info</strong>: Your city's overall disaster damage rate is a global modifier that scales all incoming structural damage. Certain service buildings and policy choices can reduce this rate city-wide.</p>
+</blockquote>
+<hr>
+<h2>Collapse and Clearance</h2>
+<p>Once a building is destroyed, it does not vanish immediately. It enters a collapsed state, playing through a destruction animation before settling into rubble. During this phase, a disaster rescue request is automatically generated. Fire and rescue services respond to that request, arriving at the site to handle post-collapse operations. Only fire stations with the <strong>Disaster Response upgrade</strong> can respond to collapsed building rubble — plain stations are ineligible.</p>
+<p>The clearance process progresses through stages — from actively collapsing, to settled rubble, to fully cleared. Destroyed buildings leave a cleared lot waiting for reconstruction.</p>
+<hr>
+<h2>Recovery</h2>
+<p>Once the disaster passes and the danger level drops to zero, evacuation orders lift. Citizens begin returning from shelters. Buildings that were damaged but not destroyed retain their accumulated damage — partial damage does not automatically heal. Destroyed buildings need to be demolished and rebuilt. Vehicles that were stopped and damaged during the disaster generate maintenance requests, and repair crews are dispatched to restore them.</p>
+<p>The overall recovery pace depends on how quickly your emergency services clear rubble sites and how many citizens lost their homes versus those who sheltered temporarily. A city with good emergency facility coverage and early warning infrastructure will move through the recovery cycle significantly faster.</p>
+<hr>
+<h2>What Can Go Wrong</h2>
+<p><strong>Evacuation vehicles can't reach buildings in time.</strong> If the warning window is short (no Early Disaster Warning facilities) and streets are congested, evacuation buses may still be en route when the storm hits. Citizens end up sheltering in buildings that then take damage.</p>
+<p><strong>Emergency shelters fill up.</strong> There is a capacity limit on shelter beds. If a major disaster displaces more citizens than your shelter network can absorb, overflow citizens have nowhere designated to go.</p>
+<p><strong>Cascading fires from lightning.</strong> A storm that passes through a dense area can spark multiple fires across different buildings simultaneously. If your fire coverage is thin, those fires spread before crews arrive, compounding the damage well beyond what the storm itself caused.</p>
+<p><strong>Flood damage on low-lying infrastructure.</strong> Buildings that sit close to sea level or near riverbanks are flooded before most of your city is affected. If critical services — power plants, water treatment facilities — sit in flood-prone zones, they can be knocked offline precisely when the rest of the city needs them most.</p>
+<p><strong>Partial damage persists.</strong> Buildings that survive a disaster with significant damage remain weakened. A second disaster shortly after the first can destroy buildings that would have withstood the same event at full structural health.</p>
+<p><strong>No disaster response upgrade.</strong> If all your fire stations are plain stations without the Disaster Response upgrade, collapsed building rubble will never be cleared. The wreckage sits indefinitely, blocking reconstruction.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

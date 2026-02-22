@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Mechanics - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html" class="active">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h2>How Fires Start and Spread</h2>
+<p>Every building and wild tree in your city has a hidden fire hazard rating. Once every minute or so, the game quietly rolls the dice on a random sample of flammable structures. Most of the time nothing happens. But occasionally a building catches fire — from an arson event, a traffic accident igniting a vehicle, a disaster, or simply bad luck from a building sitting in a high-risk zone without good fire station coverage.</p>
+<p>Several factors make a spontaneous fire more or less likely. Industrial zones carry inherently higher risk than residential ones. Lower-level buildings are slightly more vulnerable than mature, higher-level ones — a level 5 building is about 12% less likely to ignite on its own than a level 1 building. The single most effective protection is fire station service coverage: a building with full coverage from a nearby station is up to 99% less likely to catch fire spontaneously. District policies can push the hazard in either direction.</p>
+<p>For wild trees, climate is everything. The longer it has gone without rain, and the higher the temperature, the more likely a forest fire becomes. Tree fires also require that the natural disasters setting is enabled in your city options.</p>
+<h3>How Fire Spreads</h3>
+<p>Once a building is burning, it does not stay contained to one structure. The game periodically checks whether the fire jumps to neighboring buildings or trees within roughly 20 meters. Spread probability is driven by the burning building's current intensity and the neighboring structure's own hazard rating — the closer and more flammable the neighbor, the more likely the fire leaps across. A low-intensity fire that is caught quickly is unlikely to spread. A raging full-intensity fire is a serious threat to an entire block.</p>
+<h3>How the Fire Escalates</h3>
+<p>Fire intensity starts low and climbs over time. Each building has a structural integrity rating that determines how long it can withstand heat — higher-level buildings are somewhat tougher. As intensity rises, the fire deals structural damage. When a building takes enough damage, it collapses. Once collapsed, it shifts from "on fire" to "rubble that needs clearing" — a different kind of problem that requires a different kind of response (more on this below).</p>
+<p>A building that has already taken storm damage or prior structural damage is actually less likely to spontaneously ignite again — the game models it as having less flammable material remaining.</p>
+<hr>
+<h2>How Fire Engines Are Dispatched</h2>
+<p>When a building catches fire, there is a short delay before a rescue request is formally placed — representing the time it takes for someone to call emergency services. This delay ranges from 3 to 30 seconds of game time, and two things modify it:</p>
+<ul>
+  <li><strong>Telecom coverage</strong> shortens the delay by about 15%, because people with signal call faster.</li>
+  <li><strong>Nighttime</strong> lengthens the delay by about 10%, because fires may go unnoticed longer in the dark.</li>
+</ul>
+<p>Once the request is placed, the dispatch system searches for the nearest available fire engine. "Nearest" is calculated by travel time, not map distance — a station on the other side of a highway interchange may be farther by road than one that looks close on the map.</p>
+<blockquote>
+<p><strong>Info — What does "available" actually mean?</strong>
+A fire station is only considered as a candidate if it currently has at least one engine ready to deploy. If all of a station's engines are out on other calls, that station is completely invisible to the dispatch system. It does not matter how close it is. Only stations with engines sitting in the garage are eligible.</p>
+</blockquote>
+<h3>Why a Distant Station Sometimes Responds Instead of the Nearby One</h3>
+<p>This is one of the most counterintuitive things about fire response in Cities: Skylines II, and it has two separate explanations.</p>
+<p>The first explanation is <strong>availability</strong>. A nearby 2-engine station that has both engines deployed elsewhere simply cannot respond. The pathfinding system that selects which station answers the call does not even consider it — a station with no available engines is invisible to the search. A larger station across town with six engines will almost always have at least one ready, so it wins the dispatch even though it is farther away.</p>
+<p>The second explanation is <strong>service district restrictions</strong>. If you have configured a fire station to serve only specific districts, it will refuse to respond to fires outside those districts, regardless of distance. A local station locked to District A will not respond to a fire in District B even if the burning building is right next door to the station.</p>
+<blockquote>
+<p><strong>Info — The "Disaster Response" upgrade does NOT make a station faster at fighting regular fires.</strong>
+The Disaster Response upgrade adds a separate pool of capacity used exclusively for collapsed building rescues. It has no effect on how quickly or how often a station responds to ordinary fires. Both plain fire stations and upgraded rescue stations are equally eligible for standard fire calls. The upgrade is only relevant when a building has already collapsed and needs its rubble cleared — a task that plain stations cannot perform at all.</p>
+</blockquote>
+<h3>What Happens When the Engine Arrives</h3>
+<p>A fire engine does not just spray one building. It uses an area-of-effect approach: any burning or collapsed structure within its reach gets water, including adjacent buildings that may have caught fire from spread. This means a single engine arriving at a serious fire can simultaneously suppress several structures at once.</p>
+<p>The engine carries a finite water tank. As it works, the tank drains. Once empty, the engine cannot fight any more fires and must return to its station to refill before it can respond again. The game does estimate ahead of time whether a tank will run dry, and factors that prediction into dispatch decisions.</p>
+<p>A deployed engine can also be chained to a second fire on its way back if the call is along its route — the engine handles high-priority queued fires before returning home, so a single truck may serve multiple incidents in one trip.</p>
+<h3>Collapsed Buildings: A Different Kind of Response</h3>
+<p>When a building is destroyed by fire (or a disaster), the rubble left behind is not automatically cleaned up. The collapsed structure gets flagged as needing rescue — debris clearing — and a new request goes out. Only fire stations with the <strong>Disaster Response upgrade</strong> can respond to this type of call. Plain stations are entirely ineligible, no matter how close they are.</p>
+<p>A fire engine responding to a collapsed building enters a debris-clearing mode rather than a firefighting mode. It works the site until the rubble is cleared, at which point the engine returns to its station. If the engine finishes and the site is not yet fully cleared, the dispatch system will send another engine to continue the work.</p>
+<hr>
+<h2>What Can Go Wrong</h2>
+<p><strong>All nearby engines are already deployed.</strong> The most common failure. A neighborhood with only one small fire station becomes completely unprotected the moment that station's engines are out on calls. The fire grows until an engine from a more distant station arrives — by which point, spread to neighboring buildings is likely.</p>
+<p><strong>A station's district restriction excludes the fire's location.</strong> If you have manually configured district-based restrictions on your fire stations, a local station may refuse to respond to a fire that is geographically close but administratively outside its service area. The fire will be handled by a more distant station that is not restricted.</p>
+<p><strong>The fire spreads before the engine arrives.</strong> The response delay — especially at night without telecom coverage — can allow a fast-escalating fire to reach neighboring buildings. By the time an engine arrives, it may be dealing with multiple simultaneous fires, draining its tank faster.</p>
+<p><strong>An engine runs dry mid-fight.</strong> If fire intensity is high and the engine's water tank empties before the fire is out, the engine returns to its station to refill. The fire continues to escalate in the meantime. A second engine may or may not arrive before the building is lost.</p>
+<p><strong>No station can handle a collapsed building.</strong> If all of your fire stations are plain stations without the Disaster Response upgrade, collapsed buildings will never be cleared. The rubble sits indefinitely, preventing reconstruction.</p>
+<p><strong>Simultaneous fires overwhelm the fleet.</strong> During a disaster or a chain of spread events, multiple fires can erupt faster than your stations can respond. Each fire holds an engine for the duration of the call, and a city-wide fleet can be fully deployed with fires still going unserved.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

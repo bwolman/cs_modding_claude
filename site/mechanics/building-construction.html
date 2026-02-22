@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Building Construction and Leveling in Cities: Skylines II - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html" class="active">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>Building Construction and Leveling in Cities: Skylines II</h1>
+<h2>From Empty Lot to Finished Building</h2>
+<p>When your city has enough demand in a zone — say, a residential or commercial district — the game scans for vacant lots and picks one to develop. A building prefab matching the zone type is chosen (always starting at level 1), and construction begins.</p>
+<p>The moment a building is placed, cranes appear on the site. Construction progresses in ticks rather than in real time, and each building gets a randomly assigned construction speed. Some buildings shoot up fast; others take their time.</p>
+<blockquote>
+<p><strong>Info:</strong> Each new building is assigned a random construction speed between 39 and 89 (on an internal scale). At maximum speed, a building can complete construction in roughly 128 simulation frames. At minimum speed it takes around 576 frames. The game checks and advances all active construction sites every 64 frames.</p>
+</blockquote>
+<p>Once construction is complete, the scaffolding and cranes vanish, the finished building appears, and residents or businesses begin moving in. Utility connections — electricity, water, sewage, garbage — activate automatically based on what the building needs.</p>
+<hr>
+<h2>How Buildings Level Up</h2>
+<p>Leveling is driven by a building's condition score, which rises when residents or businesses are happy and falls when they are struggling. Land value, good services, low crime, and reliable utilities all push the condition upward over time.</p>
+<p>When a building accumulates enough positive condition to cross a leveling threshold, it upgrades to the next tier. The building does not go through a slow construction phase when leveling — the swap is essentially instant. The game internally marks the building as "upgrading to a new prefab," and on the very next simulation pass it becomes the higher-level version.</p>
+<blockquote>
+<p><strong>Info:</strong> Level-up construction is set to instant completion (maximum progress from the start). In contrast, new constructions begin at zero progress and work their way up. Both use the same construction pipeline; only the starting progress value differs.</p>
+</blockquote>
+<p>Zoned buildings can reach up to level 5. Each level uses a physically larger or more detailed building model — the lot size and footprint stay the same, but the appearance and capacity change. The game only ever spawns fresh buildings at level 1; higher levels are earned through play.</p>
+<hr>
+<h2>Service Building Upgrades</h2>
+<p>Service buildings — fire stations, police stations, schools, hospitals — can be extended with upgrades rather than replaced entirely. You place an upgrade structure adjacent to the main building using the upgrade tool. Once placed, the upgrade counts as part of the building and adds to its capacity, coverage, or efficiency.</p>
+<blockquote>
+<p><strong>Info:</strong> Some upgrades can only be installed once per building. Each upgrade has a monetary cost and awards a small amount of progression experience when installed. The upgrade's footprint is placed at a fixed offset from the parent building.</p>
+</blockquote>
+<hr>
+<h2>What Causes Abandonment</h2>
+<p>A building's condition can also fall. Persistent problems — high rent that renters cannot afford, poor services, crime, lack of jobs — drag condition downward. If condition drops far enough into negative territory, the building is abandoned.</p>
+<p>When abandonment happens, the building is immediately vacated. Electricity, water, and other utility connections are cut. Crime in the building doubles (abandoned structures attract trouble). The building sits empty, visually decaying, with an abandonment icon overhead.</p>
+<blockquote>
+<p><strong>Info:</strong> Once a building is marked abandoned, the game starts a timer. After a set delay (measured in simulation frames), the abandoned building collapses into a ruin. The ruin remains on the lot until cleared. Abandoned buildings that have not yet collapsed can in principle be restored, but the game does not do this automatically — without mod intervention, the collapse timer runs to zero.</p>
+</blockquote>
+<hr>
+<h2>Condemnation</h2>
+<p>Condemnation is different from abandonment. A building becomes condemned when the zone beneath it changes. If you repaint a residential zone as commercial while buildings are already standing there, those buildings no longer match their zone. The game flags them as condemned.</p>
+<blockquote>
+<p><strong>Info:</strong> Condemned buildings are not removed immediately. The game checks each condemned building periodically and applies a 25% chance of demolition on each check. Checks happen roughly every 1,024 simulation frames per building, so on average a condemned building survives about four checks before being removed — though it could go much sooner or later due to the random roll.</p>
+</blockquote>
+<hr>
+<h2>Manual Demolition</h2>
+<p>Using the bulldoze tool on any building removes it instantly. The lot is cleared, zone cells are freed, occupants are evicted, and the building disappears without a collapse animation. Buildings under construction can be bulldozed just like finished ones.</p>
+<hr>
+<h2>What Can Go Wrong</h2>
+<p><strong>Buildings stuck under construction.</strong> Construction requires the game's simulation to be running. Pausing or running at very low speeds slows construction visibly. If a building appears frozen mid-construction, it is likely waiting on a simulation tick.</p>
+<p><strong>Abandonment cascades.</strong> One abandoned building raises local crime, which harms nearby building conditions, which can trigger further abandonments in the same area. A small problem in a neglected district can ripple outward if left unaddressed.</p>
+<p><strong>Condemned buildings lingering.</strong> After you repaint a zone, the buildings that used to stand there do not vanish right away. Expect them to hang around for several in-game cycles before the condemnation rolls go their way. This is normal and not a bug.</p>
+<p><strong>Level-up not happening despite good conditions.</strong> Leveling requires sustained positive building condition, not just a momentary spike. Short bursts of good service followed by extended neglect reset progress. Consistent city services, stable land value, and affordable rent all matter.</p>
+<p><strong>Ruins blocking redevelopment.</strong> A collapsed abandoned building leaves rubble on the lot. Until that rubble is cleared — manually or by your city's maintenance crews — the zone cells remain occupied and new construction cannot begin on that spot.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

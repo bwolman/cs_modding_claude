@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pollution in Cities: Skylines II - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html" class="active">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>Pollution in Cities: Skylines II</h1>
+<p>Your city produces three invisible layers of damage: air pollution, ground pollution, and noise pollution. Each behaves differently, spreads differently, and hurts your residents in different ways. Understanding them is the difference between a thriving city and one where half your population is sick and land values have cratered.</p>
+<hr>
+<h2>Air Pollution</h2>
+<p>Air pollution is the most mobile of the three types. It rises from industrial buildings, power plants, and heavy traffic, then drifts downwind across your city. The game simulates actual wind direction: pollution does not just radiate outward from its source, it travels.</p>
+<p>Once airborne, pollution also bleeds slowly into neighboring areas even without wind. A factory on the eastern edge of your industrial district will gradually fog up the surrounding blocks. The good news is that air pollution fades on its own over time. If you shut down or relocate a polluter, the air will clear — it just takes a while.</p>
+<blockquote>
+<p><strong>Info</strong>: Air pollution spreads in two ways simultaneously: it is carried downwind (advection) and it bleeds into adjacent areas (diffusion). Each neighboring map cell receives roughly 12.5% of its neighbor's pollution per update tick. Air pollution also decays at a steady rate each game day, so removing the source will eventually clear the air.</p>
+</blockquote>
+<p>High air pollution directly hurts citizen happiness. The game continuously monitors the average air pollution exposure across all households and uses that figure to track your city's progress toward certain milestones. Sustained high air exposure is a happiness drain you cannot offset with parks or amenities alone.</p>
+<hr>
+<h2>Ground Pollution</h2>
+<p>Ground pollution is the quiet menace. Unlike air pollution, it does not drift or spread from cell to cell — it simply accumulates where buildings emit it and then fades very slowly in place. Industrial facilities, waste processing, and certain utility buildings are the main culprits.</p>
+<p>The danger with ground pollution is what it does underground. Contaminated soil leaches into the water table. Once your groundwater is polluted, any water pumping stations drawing from it will pull dirty water into your pipes, which then gets treated (or not) before reaching residents.</p>
+<blockquote>
+<p><strong>Info</strong>: Ground pollution stays exactly where it is generated — there is no lateral spread. It decays slowly over time, but high ground pollution levels contaminate groundwater at a rate proportional to the pollution value. This affects the quality of water drawn by pumping stations.</p>
+</blockquote>
+<p>Ground pollution also suppresses land value in affected areas, making it harder to attract desirable development nearby. Leaving a closed factory's footprint in place is not enough — the soil stays dirty long after the building is gone.</p>
+<hr>
+<h2>Noise Pollution</h2>
+<p>Noise works on a completely different principle than the other two. It does not accumulate or persist between moments in the simulation. Instead, every single update the game wipes the noise map clean and rebuilds it entirely from current sources. If you mute every noise source right now, the noise map is zero within moments.</p>
+<p>That makes noise highly reactive — but it also means it is always present wherever sources are active. Your roads are the dominant source, especially high-traffic arterials and highways. Industrial buildings also contribute. Abandoned buildings generate noise proportional to how much lot space they occupy, and homeless citizens camped in parks add noise as well.</p>
+<blockquote>
+<p><strong>Info</strong>: Noise pollution is recalculated from scratch every update tick. Sources write into a temporary buffer; then the game smooths that buffer using surrounding cells (each cardinal neighbor contributes 12.5% of its value, each diagonal neighbor contributes 6.25%) to produce the final noise map. Nothing carries over from the previous tick.</p>
+</blockquote>
+<hr>
+<h2>What Reduces Pollution</h2>
+<p><strong>Zoning separation</strong> is your first line of defense. Industrial zones belong away from residential ones, with commercial or civic buffers in between.</p>
+<p><strong>Road upgrades</strong> matter significantly for noise. Sound barriers on busy roads reduce noise dramatically — barriers on both sides can eliminate road noise entirely from nearby cells. Even a single-sided barrier gives meaningful directional reduction. Beautification upgrades (trees and landscaping) also reduce road noise by 25–50%. Tunnels produce no surface pollution at all.</p>
+<p><strong>Building efficiency</strong> affects how much pollution a building emits. A building running below capacity pollutes less than one running at full efficiency. Certain buildings scale their pollution with the number of occupants, so low occupancy means lower output.</p>
+<p><strong>Upgrades and policies</strong> can carry pollution modifiers. Some building upgrades additively reduce a building's pollution multiplier — stack enough of them and you can achieve significant reductions.</p>
+<p><strong>City-wide modifiers</strong> can reduce industrial ground and air pollution across your entire city, accessible through certain policies.</p>
+<hr>
+<h2>What Can Go Wrong</h2>
+<p><strong>Dirty groundwater is silent until it is not.</strong> You may not notice that an old industrial district has contaminated the water table until residents start complaining about water quality or you spot the pollution overlay on your water pumps. By then the damage is already widespread.</p>
+<p><strong>Wind direction is not static.</strong> An industrial district that was safely downwind last month may become a problem after wind shifts. Check the air pollution overlay periodically, not just when notifications appear.</p>
+<p><strong>Abandoned buildings are a noise trap.</strong> An area that slides into abandonment does not just look bad — it generates noise pollution that discourages the very redevelopment that would fix the problem.</p>
+<p><strong>Ground pollution outlasts its source.</strong> Demolishing a factory stops new emissions, but the soil contamination fades slowly. Plan around that delay before rezoning the land for residential use.</p>
+<p><strong>Notification thresholds lag behind reality.</strong> The game only alerts you when pollution crosses certain levels, but damage to land value and citizen health accumulates before those alerts fire. Watching the overlay maps directly gives you much earlier warning.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Game Mechanics - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html" class="active">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h2>How Garbage Accumulates</h2>
+<p>Every building in your city that houses citizens, businesses, or industry is constantly generating trash. Sixteen times per in-game day, the game tallies up how much garbage each building has added to its pile. The rate depends on a few factors: a base amount built into the building type, reduced by how educated the occupants are and how high the building has leveled up. Industrial zones get an additional modifier on top of this. Homeless citizens produce extra garbage with no offset from education, so a city with a large homeless population will see accelerated accumulation in affected areas.</p>
+<p>Each building has a hard cap on how much garbage can pile up. Once that ceiling is hit, accumulation stops — but by that point, your city has a serious problem on its hands.</p>
+<blockquote>
+<p><strong>Info — The thresholds that matter</strong>
+There are four key levels of garbage at any building. First, a minimum amount a truck will bother picking up — trucks skip buildings below this. Second, the level that triggers a pickup request. Third, the warning level where a notification icon appears and building efficiency starts to drop. Fourth, the hard cap where accumulation stops entirely. The efficiency penalty grows linearly as garbage rises from the warning level toward the hard cap.</p>
+</blockquote>
+<h2>How Trucks Are Dispatched</h2>
+<p>Once a building's garbage crosses the request threshold, it enters the queue for service. The dispatch system then runs a pathfinding check to find which garbage facility can most efficiently reach that building and assigns the job to one of its trucks.</p>
+<p>This is not purely reactive. Idle trucks and under-utilized facilities can also proactively scan for nearby buildings that have piled-up garbage, rather than sitting at the depot waiting to be called. This "seeking" behavior helps keep collection moving even when formal requests are sparse.</p>
+<p>The dispatch system also respects a separation between regular household waste and industrial waste. Certain trucks and facilities are designated for industrial waste only, so industrial zone garbage is handled by a parallel track of vehicles and facilities.</p>
+<h2>How Trucks Actually Collect</h2>
+<p>Garbage trucks do not drive directly to one building, pick up its trash, and return. Instead, each truck follows a route, and as it drives, it collects from every building connected to the roads along its path — sweeping an entire street or neighborhood in a single run.</p>
+<p>As a truck moves through each road segment, it checks the buildings along the adjacent sidewalks and collects from any that have garbage above the minimum pickup threshold. The truck keeps running its route until its cargo hold is full, or until it is recalled to the depot. At that point it returns to its home facility and unloads.</p>
+<blockquote>
+<p><strong>Info — Capacity planning on the route</strong>
+The game estimates how much garbage a truck will collect before it even departs, based on known building levels along the planned route. If that estimate would fill the truck to capacity, the truck is flagged and will not accept additional dispatch assignments for that run. This prevents overcommitting trucks that are already effectively "full" before they leave the depot.</p>
+</blockquote>
+<h2>What Happens at the Facility</h2>
+<p>When a truck returns and unloads, the garbage is added to the facility's storage. From there, the facility processes it at a rate scaled by the building's current efficiency and how full the storage is. A nearly empty facility processes garbage more slowly; as the facility fills up, processing accelerates somewhat.</p>
+<p>Incinerators destroy garbage through processing and can produce electricity as a byproduct. Landfills simply store garbage long-term without destroying it. The game treats these as fundamentally different: incinerators are processing facilities, landfills are storage facilities.</p>
+<p>Facilities can also transfer garbage between each other. A landfill holding a large stockpile can send loads to an incinerator for processing via dedicated delivery trucks. This inter-facility movement happens automatically when the dispatch system determines it is beneficial.</p>
+<blockquote>
+<p><strong>Info — Landfill "full" warnings</strong>
+Only landfills trigger a facility-full notification, because they are the only type that accumulates garbage permanently. Incinerators that are overwhelmed will back up garbage in storage, but they do not carry the same long-term "full" status since they are expected to process and eliminate their load over time.</p>
+</blockquote>
+<h2>What Can Go Wrong</h2>
+<p><strong>Garbage piles up faster than trucks can clear it:</strong> If your residential or industrial zones are growing faster than your truck fleet, buildings will cross the warning threshold. Once that happens, those buildings lose efficiency — offices and industry produce less, which compounds economic problems.</p>
+<p><strong>All trucks are already deployed:</strong> Facilities only have a fixed number of trucks. If every truck is mid-route or returning with a full load, new requests sit unanswered until one returns. Building more facilities or upgrading existing ones adds more trucks to the fleet.</p>
+<p><strong>Industrial waste has no facility:</strong> Industrial garbage requires specially designated facilities and trucks. If you have heavy industry but only residential-type garbage coverage, industrial waste will accumulate without any trucks responding to it.</p>
+<p><strong>A facility fills up completely:</strong> A landfill that reaches capacity stops accepting incoming garbage. Trucks arriving to unload have nowhere to go, and collection backs up across your entire network. You need to either expand capacity, build a new facility, or route garbage to an incinerator via inter-facility transfer.</p>
+<p><strong>A facility loses efficiency:</strong> Processing speed at a facility scales with how well it is running. A facility with power problems, low coverage from maintenance, or other efficiency penalties will process garbage slower, causing the storage level to creep up even when trucks are delivering normally.</p>
+<p><strong>Poor road layout isolates neighborhoods:</strong> Truck routes are determined by the road network. Buildings in cul-de-sacs, poorly connected districts, or areas with long travel times to the nearest facility will be served infrequently, causing localized garbage buildups even when the rest of the city is running smoothly.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Personal Cars in Cities: Skylines II — How Citizens Decide to Drive - CS2 Game Mechanics</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Research</a>
+  <span class="attribution">Generated with Claude | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+<aside class="sidebar">
+  <h3 class="sidebar-toggle">City Services</h3>
+  <div class="sidebar-links">
+    <a href="healthcare-ambulances.html">Healthcare & Ambulances</a>
+    <a href="health-disease.html">Health & Disease</a>
+    <a href="fire.html">Fire Department</a>
+    <a href="crime-and-police.html">Crime & Police</a>
+    <a href="garbage-collection.html">Garbage Collection</a>
+    <a href="education.html">Education</a>
+    <a href="deathcare.html">Deathcare</a>
+    <a href="parks-recreation.html">Parks & Recreation</a>
+    <a href="public-transit.html">Public Transit</a>
+    <a href="mail-post.html">Mail & Post Service</a>
+    <a href="telecom-internet.html">Telecom & Internet</a>
+  </div>
+  <h3 class="sidebar-toggle">Infrastructure</h3>
+  <div class="sidebar-links">
+    <a href="electricity.html">Electricity</a>
+    <a href="water-sewage.html">Water & Sewage</a>
+    <a href="traffic-roads.html">Traffic & Roads</a>
+    <a href="traffic-accidents.html">Traffic Accidents</a>
+    <a href="parking.html">Parking</a>
+    <a href="personal-cars.html" class="active">Personal Cars</a>
+    <a href="cargo-transport.html">Cargo & Freight</a>
+    <a href="outside-connections.html">Outside Connections</a>
+  </div>
+  <h3 class="sidebar-toggle">Economy</h3>
+  <div class="sidebar-links">
+    <a href="economy-budget.html">Economy & Budget</a>
+    <a href="companies-commerce.html">Companies & Commerce</a>
+    <a href="industry-resources.html">Industry & Resources</a>
+    <a href="terrain-resources.html">Terrain & Natural Resources</a>
+    <a href="land-value.html">Land Value & Property</a>
+    <a href="tourism.html">Tourism</a>
+    <a href="jobs-labor.html">Jobs & Labor Market</a>
+    <a href="demand-growth.html">Demand & Growth</a>
+  </div>
+  <h3 class="sidebar-toggle">Population & Citizens</h3>
+  <div class="sidebar-links">
+    <a href="citizens-households.html">Citizens & Households</a>
+    <a href="zoning.html">Zoning & Development</a>
+    <a href="building-construction.html">Building Construction</a>
+  </div>
+  <h3 class="sidebar-toggle">Environment</h3>
+  <div class="sidebar-links">
+    <a href="pollution.html">Pollution & Noise</a>
+    <a href="weather-climate.html">Weather & Climate</a>
+    <a href="disasters.html">Disasters</a>
+  </div>
+  <h3 class="sidebar-toggle">Governance</h3>
+  <div class="sidebar-links">
+    <a href="districts-policies.html">Districts & Policies</a>
+    <a href="milestones-progression.html">Milestones & Progression</a>
+    <a href="map-expansion.html">Map Expansion (Tiles)</a>
+  </div>
+</aside>
+
+  <main class="content">
+<h1>Personal Cars in Cities: Skylines II — How Citizens Decide to Drive</h1>
+<h2>Do Citizens Even Own a Car?</h2>
+<p>Before a citizen can drive anywhere, their household needs to own a car. Car ownership is not universal — it depends on the household's wealth level and the car type that fits them. Wealthier households tend to own larger or more capable vehicles. Once a household acquires a car, it stays with that household for as long as the household lives in your city. If the household moves away or the building they live in is demolished, the car is deleted along with them.</p>
+<blockquote>
+<p><strong>ℹ️ Ownership rule</strong>: Each car belongs to a specific household. The game maintains a list of cars per household. If that list no longer contains a particular car — because the household sold it, moved, or was deleted — the car disappears from the game within roughly 1,000 simulation frames (about one in-game hour).</p>
+</blockquote>
+<h2>From Parked to Moving</h2>
+<p>When a car is not in use, it sits parked — either in the garage attached to the home building or in a nearby parking lane on the street. The car exists in the simulation the whole time, quietly waiting.</p>
+<p>When a citizen decides to travel somewhere (to work, a shop, a park, or back home), the game checks whether driving is the appropriate mode of transport given the route and the household's circumstances. If driving wins out, the parked car gets flagged as ready to depart.</p>
+<p>There is a deliberate short delay built in before the car actually appears on the road. Think of it as the time a citizen takes to get downstairs, find their keys, and back out of the driveway. The game counts down this timer in the background. Once it hits zero, the car enters a spawn queue, and the spawn system checks whether there is physical space at the departure point for the car to appear. If the spot is clear, the car materializes on the road network and begins its journey.</p>
+<blockquote>
+<p><strong>ℹ️ Spawn rule</strong>: The spawn system runs every 16 simulation frames. A car can only enter the road if its departure location is not physically blocked. If another vehicle is sitting in the way, the car waits in the queue until the space clears.</p>
+</blockquote>
+<h2>Driving and Finding Parking</h2>
+<p>Once on the road, the car follows a calculated path to its destination, changing lanes, navigating intersections, and joining queues at traffic lights just like any other vehicle. Tolls and fees are deducted automatically as the car passes through toll plazas or enters paid zones.</p>
+<p>Approaching the destination, the car needs to find somewhere to park. It scans ahead along its planned path, checking parking lanes on the street and garage spaces inside buildings. If the spot it was heading for has just been taken by another vehicle, it looks further along the path — up to a large number of nodes ahead by default.</p>
+<blockquote>
+<p><strong>ℹ️ Parking search rule</strong>: If no valid parking space is found anywhere along the planned path, the car's route is marked as outdated and the game recalculates a new path specifically looking for parking. This can cause vehicles to make surprising detours or appear to "loop" in an area — they are actively searching for a free spot.</p>
+</blockquote>
+<p>When a space is found and the car parks, the driver and passengers get out. If the parking spot charges a fee, money is transferred from the household to the city at this moment.</p>
+<h2>Dummy Traffic from Outside Connections</h2>
+<p>Not every car you see on your roads belongs to a citizen living in your city. Traffic also flows in from the outside world through highway and road connections at the edges of the map. These vehicles are simulated traffic — they drive real routes through your city, obey traffic rules, and contribute to congestion, but they are not attached to any household or citizen. They exist solely to represent the background flow of regional traffic that any real city would experience.</p>
+<blockquote>
+<p><strong>ℹ️ Outside traffic rule</strong>: Vehicles flagged as dummy traffic are generated at outside connection points and travel through the road network as normal cars. They are not counted as citizen-owned vehicles and do not park or disembark passengers inside your city.</p>
+</blockquote>
+<h2>When Cars Disappear</h2>
+<p>Cars are cleaned up under a few circumstances:</p>
+<ul>
+  <li><strong>Household gone</strong>: When a household moves away or their home is demolished, the car is deleted the next time the ownership check runs.</li>
+  <li><strong>Household no longer owns the car</strong>: If the game decides a household should downsize or sell a vehicle due to poverty or other simulation events, the car ceases to exist.</li>
+  <li><strong>Destination reached and trip complete</strong>: The car parks and stays until the next trip begins. It does not disappear after parking — it waits for the next journey.</li>
+  <li><strong>Disaster or accident</strong>: A destroyed vehicle is removed from the simulation.</li>
+</ul>
+<p>Cars do not simply despawn after driving for a while or after being parked too long. They persist until one of the above conditions is met.</p>
+<h2>What Can Go Wrong</h2>
+<p><strong>Parking death spirals.</strong> If your city does not have enough parking near popular destinations, vehicles will loop endlessly recalculating their path trying to find a space. This creates phantom congestion — cars adding to traffic volume without ever completing their trip. The symptom is vehicles appearing to circle the same area repeatedly.</p>
+<p><strong>Spawn point blocking.</strong> If a parking lane or garage exit near a residential area is perpetually blocked by other vehicles, cars queued to leave home cannot get onto the road. Citizens appear "stuck" at home even though they have somewhere to be.</p>
+<p><strong>Outside connection overload.</strong> If you build wide roads connecting to outside regions without providing realistic capacity through your city network, dummy traffic from those connections floods your roads. This is not a bug — it reflects actual through-traffic demand — but it can overwhelm intersections that look fine on paper.</p>
+<p><strong>Car ownership outlasting the household.</strong> In rare edge cases, a car can end up ownerless but not yet deleted, sitting as a ghost vehicle in a parking lane until the next ownership check clears it out. If you notice permanently stationary vehicles that never move, this is the likely cause.</p>
+
+    <footer>
+      <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>
