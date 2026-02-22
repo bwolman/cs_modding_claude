@@ -60,8 +60,8 @@ Runtime component on hospital building entities tracking operational state.
 | m_TargetRequest | Entity | Current reversed service request (hospital seeking patients) |
 | m_Flags | HospitalFlags | Capability flags computed each tick |
 | m_TreatmentBonus | byte | Effective treatment bonus (0-255), scaled by efficiency |
-| m_MinHealth | byte | Minimum health range from prefab |
-| m_MaxHealth | byte | Maximum health range from prefab |
+| m_MinHealth | byte | Minimum health (from prefab + upgrades); patients below this are hard-filtered out |
+| m_MaxHealth | byte | Maximum health (from prefab + upgrades); patients above this are hard-filtered out |
 
 ### `HospitalFlags` (Game.Buildings)
 
@@ -215,9 +215,10 @@ Global singleton with healthcare system parameters.
 - **Writes**: Hospital flags, Patient buffer, vehicle spawning, ServiceUsage
 - **Key methods**:
   - `Tick()` — main hospital update. Treatment bonus formula: `efficiency * resourcePenalty * prefabTreatmentBonus` (capped at 255). Hospital efficiency includes city modifier `HospitalEfficiency` (slot 26). Patients with Dead flag are deleted. Patients who can't be treated (wrong disease/injury capability) are ejected.
-  - Copies `HospitalData.m_HealthRange` → `Hospital.m_MinHealth`/`m_MaxHealth` every 256 frames. These are used by the pathfinder's `SetupTargetType.Hospital` search to prefer health-range-matched buildings.
+  - Calls `UpgradeUtils.CombineStats()` each tick to merge all `InstalledUpgrade` prefab stats into `HospitalData` before computing flags. `HospitalData.Combine()` merges: `m_AmbulanceCapacity +=`, `m_PatientCapacity +=`, `m_TreatmentBonus +=`, `m_HealthRange.x = min(...)`, `m_HealthRange.y = max(...)`, `m_TreatDiseases |=`, `m_TreatInjuries |=`. This is how clinic upgrades expand health range and unlock disease/injury treatment capability.
+  - Copies combined `HospitalData.m_HealthRange` → `Hospital.m_MinHealth`/`m_MaxHealth` each tick. Patients whose health falls outside this range are **hard-filtered** by the pathfinder — the building won't be a candidate at all, regardless of bed availability.
   - `SpawnVehicle()` — unparks or creates a vehicle, always sets initial `Ambulance.m_State = Dispatched | AnyHospital`. The dispatching building is also the ambulance's home (it returns here after delivery).
-  - `HasRoomForPatients` flag is set only when `patients.Length < prefabHospitalData.m_PatientCapacity`. When a clinic is full, this flag is absent and ambulances route past it to the next nearest building with room.
+  - `HasRoomForPatients` flag set when `patients.Length < m_PatientCapacity`. Full buildings incur a +120 cost penalty in pathfinding but are NOT excluded — they remain valid candidates if all alternatives are worse.
 
 ### `AmbulanceAISystem` (Game.Simulation)
 
@@ -232,8 +233,10 @@ Global singleton with healthcare system parameters.
     2. `AtTarget` → call `LoadPatients()`: stop vehicle, wait for citizen to board as Passenger
     3. Once aboard, set `Transporting`; if `Citizen.m_Health < random(100)` also set `Critical`
     4. `TransportToHospital()` — since `AnyHospital` is **always** set, clears dispatch and enters `FindHospital` mode (target = Entity.Null, triggers pathfind to nearest available hospital)
-    5. `FindHospital` pathfind uses `SetupTargetType.Hospital` + district of **pickup location** (`m_TargetLocation`) as search hint. ALL healthcare buildings (clinics and hospitals) have the `Hospital` component, so the nearest eligible building is usually the dispatching clinic itself — the ambulance typically returns its patient to the same clinic it came from
-    6. The ambulance routes to a different (larger) hospital only when the clinic has no room (`HasRoomForPatients` not set, i.e., clinic is at patient capacity)
+    5. `FindHospital` pathfind uses `SetupTargetType.Hospital` + district of **pickup location** (`m_TargetLocation`) as search hint. ALL healthcare buildings have the `Hospital` component; `SetupHospitalsJob` evaluates each as a candidate
+    6. **Hard filter** (building is excluded entirely if any condition met): patient Sick + `CanCureDisease` not set; patient Injured + `CanCureInjury` not set; `citizen.m_Health < m_MinHealth`; `citizen.m_Health > m_MaxHealth`
+    7. **Cost scoring** for remaining candidates: `(255 - treatmentBonus) * 200 / (20 + patientHealth)` + 10 if not home building + 120 if full (`!HasRoomForPatients`). Lower cost wins. Sicker patients weight treatment quality more heavily (denominator shrinks). Pathfinder routes to lowest-cost reachable candidate.
+    8. **Usually returns to clinic** — clinic passes health range filter + receives home building preference. Routes to a different hospital when: clinic's `m_HealthRange` doesn't cover this patient's severity (hard excluded), OR a higher-quality hospital has significantly lower cost despite the +10 non-home penalty.
     7. On path resolved: `pathInformation.m_Destination` becomes the delivery building; `FindHospital` cleared
     8. `Transporting` → navigate to delivery building, `UnloadPatients()` on arrival
     9. `Returning` → navigate back to `owner.m_Owner` (dispatching clinic), park or despawn
@@ -515,14 +518,14 @@ public partial class AmbulanceTrackerSystem : GameSystemBase
 ## Open Questions
 
 - [ ] Exact health recovery rate for patients admitted to hospitals -- the treatment bonus is stored but the system that restores citizen health needs further tracing (likely in HealthProblemSystem or a treatment tick)
-- [x] How `HospitalData.m_HealthRange` affects patient admission filtering — **resolved**: `m_HealthRange` is copied to `Hospital.m_MinHealth`/`m_MaxHealth` each tick; the pathfinder's `SetupTargetType.Hospital` uses these to score/prefer hospitals whose health range matches the patient. It does not filter in `AmbulanceAISystem` itself.
+- [x] How `HospitalData.m_HealthRange` affects patient admission filtering — **resolved**: hard filter in `SetupHospitalsJob`; patients outside a building's `[m_MinHealth, m_MaxHealth]` are excluded entirely. Upgrades expand range via `HospitalData.Combine()` (`min` of mins, `max` of maxes).
+- [x] How the pathfinder scores `SetupTargetType.Hospital` candidates — **resolved** (`HealthcarePathfindSetup.SetupHospitalsJob`): hard filters first (health range, CanCureDisease/Injury), then cost = `(255-treatmentBonus)*200/(20+health)` + 10 non-home + 120 if full. Lower = preferred. Full buildings penalised but not excluded.
 - [ ] Medical helicopter landing pad requirements (MedicalAircraftAISystem)
 - [ ] Conditions that trigger the NoHealthcare flag on citizens
-- [ ] How the pathfinder scores `SetupTargetType.Hospital` candidates — does it weight by health range match, distance, HasRoomForPatients independently? Requires tracing `PathfindHeuristicSystem` or similar.
 
 ## Sources
 
-- Decompiled from: Game.dll -- Game.Simulation.HospitalAISystem, Game.Simulation.HealthProblemSystem, Game.Simulation.SicknessCheckSystem, Game.Simulation.HealthcareDispatchSystem, Game.Simulation.AmbulanceAISystem, Game.Vehicles.AmbulanceFlags (enum)
+- Decompiled from: Game.dll -- Game.Simulation.HospitalAISystem, Game.Simulation.HealthProblemSystem, Game.Simulation.SicknessCheckSystem, Game.Simulation.HealthcareDispatchSystem, Game.Simulation.AmbulanceAISystem, Game.Simulation.HealthcarePathfindSetup, Game.Prefabs.UpgradeUtils, Game.Prefabs.HospitalData, Game.Vehicles.AmbulanceFlags (enum)
 - Runtime components: Game.Citizens.HealthProblem, Game.Buildings.Hospital, Game.Buildings.Patient, Game.Vehicles.Ambulance
 - Prefab types: Game.Prefabs.HospitalData, Game.Prefabs.HealthcareParameterData, Game.Prefabs.HealthEventData
 - Enums: Game.Citizens.HealthProblemFlags, Game.Buildings.HospitalFlags, Game.Vehicles.AmbulanceFlags, Game.Simulation.HealthcareRequestType, Game.Prefabs.HealthEventType
