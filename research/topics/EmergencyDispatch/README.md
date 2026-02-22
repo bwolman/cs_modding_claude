@@ -176,6 +176,72 @@ Request for healthcare response (ambulance or hearse).
 | Ambulance | Living citizen needing medical transport |
 | Hearse | Dead citizen needing body transport |
 
+### `FireStationFlags` (Game.Buildings)
+
+| Flag | Value | Description |
+|------|-------|-------------|
+| `HasAvailableFireEngines` | 1 | At least one truck slot available (efficiency-adjusted) |
+| `HasFreeFireEngines` | 2 | At least one raw truck slot free (unmodified capacity) |
+| `HasAvailableFireHelicopters` | 4 | At least one helicopter slot available |
+| `HasFreeFireHelicopters` | 8 | At least one raw helicopter slot free |
+| `DisasterResponseAvailable` | 0x10 | Disaster response capacity available |
+
+### `FireEngineFlags` (Game.Vehicles)
+
+| Flag | Value | Description |
+|------|-------|-------------|
+| `Returning` | 1 | Heading back to the fire station |
+| `Extinguishing` | 2 | Stopped at fire, actively extinguishing |
+| `Empty` | 4 | Water tank depleted, cannot fight fires |
+| `DisasterResponse` | 8 | Assigned to disaster response capacity pool |
+| `Rescueing` | 0x10 | Stopped at collapsed building, clearing debris |
+| `EstimatedEmpty` | 0x20 | Predicted to run empty based on current fire intensity |
+| `Disabled` | 0x40 | Over-capacity parked vehicle, stays idle |
+
+### `FireStationData` (Game.Prefabs)
+
+Prefab component on fire station entities. Merged with upgrades via `Combine()`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_FireEngineCapacity` | int | Number of fire truck slots |
+| `m_FireHelicopterCapacity` | int | Number of helicopter slots |
+| `m_DisasterResponseCapacity` | int | Disaster response capacity (separate pool) |
+| `m_VehicleEfficiency` | float | Multiplier for vehicle extinguish rate and effectiveness |
+
+**`Combine()` merge (additive)**:
+```csharp
+m_FireEngineCapacity += otherData.m_FireEngineCapacity;
+m_FireHelicopterCapacity += otherData.m_FireHelicopterCapacity;
+m_DisasterResponseCapacity += otherData.m_DisasterResponseCapacity;
+m_VehicleEfficiency += otherData.m_VehicleEfficiency;
+```
+
+### `FireEngineData` (Game.Prefabs)
+
+Prefab component on fire engine vehicle prefabs.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_ExtinguishingRate` | float | Fire intensity reduction per tick while extinguishing |
+| `m_ExtinguishingSpread` | float | Area-of-effect radius — nearby buildings also get hosed |
+| `m_ExtinguishingCapacity` | float | Total water tank size; 0 = infinite (no tank limit) |
+| `m_DestroyedClearDuration` | float | Time to clear a collapsed building's rubble |
+
+### `FireConfigurationData` (Game.Prefabs)
+
+Singleton prefab. Controls fire response timing and structural integrity.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `m_DefaultStructuralIntegrity` | float | Base integrity for non-building entities |
+| `m_BuildingStructuralIntegrity` | float | Base integrity for buildings (affects water damage rate) |
+| `m_StructuralIntegrityLevel1`–`Level5` | float | Per-level integrity multipliers |
+| `m_ResponseTimeRange` | Bounds1 | Min/max frames before 911 call is placed after ignition |
+| `m_TelecomResponseTimeModifier` | float | Response time reduction from telecom infrastructure |
+| `m_DarknessResponseTimeModifier` | float | Response time increase at night |
+| `m_DeathRateOfFireAccident` | float | Citizen death probability per fire event |
+
 ### `PolicePatrolRequest` (Game.Simulation)
 
 Request for routine police patrol.
@@ -325,11 +391,20 @@ Attached to vehicles/entities involved in a traffic accident.
 
 - **Base class**: GameSystemBase
 - **Update interval**: 16 frames
-- **Purpose**: Processes `FireRescueRequest` entities and dispatches fire engines/helicopters.
-- **Key logic**:
-  1. **ValidateTarget()**: Checks that the target still has `OnFire` component OR `RescueTarget` component. If neither exists, request is destroyed.
-  2. **FindVehicleSource()**: Pathfinds from `SetupTargetType.FireEngine` origin to the fire location. Supports road, flying (helicopter), and offroad paths.
-  3. No filtering by request type in dispatch -- fire engines respond to both Fire and Disaster types.
+- **Purpose**: Processes `FireRescueRequest` entities and dispatches fire engines/helicopters using a two-sided request model.
+- **Two request directions**:
+  - **Non-reversed** (fire needing help): created by `FireSimulationSystem` when a building ignites. The dispatcher searches for the nearest available engine.
+  - **Reversed** (station/engine advertising availability): created by `FireStationAISystem` and `FireEngineAISystem` when capacity is available. The dispatcher searches for a fire to send the vehicle to.
+- **Key logic for non-reversed requests (fire needing help)**:
+  1. **ValidateTarget()**: Checks target still has `OnFire` or `RescueTarget`. Claims ownership via `OnFire.m_RescueRequest = entity`. Destroys request if target no longer burning.
+  2. **FindVehicleSource()**: Determines fire's district (via `CurrentDistrict` or spatial quad-tree lookup). Pathfinds with `SetupTargetType.FireEngine` origin (road+flying+offroad), `SetupTargetType.CurrentLocation` destination at the fire. Max speed ~1000 km/h — pathfinder scores by travel time only. Fire has 30m tolerance radius (`m_Value2 = 30f`).
+  3. **DispatchVehicle()**: When pathfind returns, enqueues a `VehicleDispatch`. `DispatchVehiclesJob` adds `ServiceDispatch` element to the winning station's or engine's buffer.
+- **Key logic for reversed requests (station advertising)**:
+  1. **ValidateReversed()**: Validates source still has `HasAvailableFireEngines` or `HasAvailableFireHelicopters`. Also works for en-route fire engines: validates not `Empty/EstimatedEmpty/Disabled` and `m_RequestCount <= 1`.
+  2. **FindVehicleTarget()**: Pathfinds from the station/engine's current location to `SetupTargetType.FireRescueRequest` destination — the pathfinder finds a matching fire request.
+  3. On success: enqueues `VehicleDispatch`, station's `ServiceDispatch` buffer gets the fire request added.
+- **District lookup**: Uses `AreaSearchSystem` quad-tree to find which `District` entity contains the fire's position if it doesn't already have `CurrentDistrict`.
+- **Pathfind parameters**: `m_IgnoredRules = ForbidCombustionEngines | ForbidTransitTraffic | ForbidHeavyTraffic | ForbidPrivateTraffic | ForbidSlowTraffic | AvoidBicycles`
 
 ### `HealthcareDispatchSystem` (Game.Simulation)
 
@@ -349,6 +424,90 @@ Attached to vehicles/entities involved in a traffic accident.
 - **Purpose**: Manages active fires. Creates `FireRescueRequest` when an entity has `OnFire` and the request frame has been reached.
 - **Request creation**: `new FireRescueRequest(entity, onFire.m_Intensity, FireRescueRequestType.Fire)` with `RequestGroup(4)`
 - **Request archetype**: `ServiceRequest + FireRescueRequest + RequestGroup`
+
+### `FireStationAISystem` (Game.Simulation)
+
+- **Base class**: GameSystemBase
+- **Update interval**: 256 frames (offset 112)
+- **Purpose**: Manages fire station state and deploys vehicles when dispatches arrive in the station's `ServiceDispatch` buffer.
+- **Key logic in `Tick()`**:
+  1. **Capacity calculation**: Computes `vehicleCapacity = GetVehicleCapacity(min(efficiency, immediateEfficiency), m_FireEngineCapacity)`. Efficiency is from the `Efficiency` buffer (service coverage zone). Counts all `OwnedVehicle` entities to determine how many are deployed vs. parked.
+  2. **Upgrade merging**: `UpgradeUtils.CombineStats(ref data, installedUpgrades, ...)` merges all `InstalledUpgrade` entities' `FireStationData.Combine()` results — additively sums all capacity and efficiency values.
+  3. **SpawnVehicle()**: Called for each pending `ServiceDispatch`. Validates:
+     - `availableVehicles > 0` (or `freeVehicles > 0` if request target is the station itself)
+     - Disaster requests also require `disasterResponseAvailable > 0`
+     - If pathfinder pre-selected a specific parked vehicle (via `PathInformation.m_Origin`), deploys that exact entity; otherwise calls `FireEngineSelectData.CreateVehicle()` to spawn from the city configuration's vehicle prefab pool
+     - Sets `Car.Flags = Emergency | StayOnRoad | UsePublicTransportLanes`
+     - No `DisasterResponse` flag unless `FireRescueRequestType.Disaster`
+  4. **Vehicle flag sync**: For parked engines, syncs `Disabled` (over-capacity) and `DisasterResponse` flags via `FireStationActionJob`.
+  5. **FireStationFlags update**: Sets `HasAvailableFireEngines`, `HasFreeFireEngines`, `HasAvailableFireHelicopters`, `HasFreeFireHelicopters`, `DisasterResponseAvailable` based on remaining counts.
+  6. **Available vs Free distinction**:
+     - `availableVehicles = GetVehicleCapacity(min(efficiency, immediateEfficiency), capacity)` — efficiency-adjusted count
+     - `freeVehicles = capacity` — raw configured capacity
+     - Dispatches from other districts use `HasAvailableFireEngines` (efficiency-reduced). Dispatches to the station itself (self-fire) use `HasFreeFireEngines` (raw capacity).
+  7. **RequestTargetIfNeeded()**: If any vehicles available, creates a reversed `FireRescueRequest(station_entity, availableEngines + availableHelicopters, Fire)` — the station advertises itself to the dispatcher.
+- **Helicopter detection**: `m_HelicopterData.HasComponent(vehicle)` distinguishes helicopter vehicles from truck vehicles. Separate counters for each type.
+- **`CheckPathType()`**: Inspects first `PathElement` to determine if a parked vehicle should be deployed as car or helicopter route type.
+- **`FireStationData.Combine()`** (upgrade merge):
+  ```csharp
+  m_FireEngineCapacity += otherData.m_FireEngineCapacity;
+  m_FireHelicopterCapacity += otherData.m_FireHelicopterCapacity;
+  m_DisasterResponseCapacity += otherData.m_DisasterResponseCapacity;
+  m_VehicleEfficiency += otherData.m_VehicleEfficiency;
+  ```
+
+### `FireEngineAISystem` (Game.Simulation)
+
+- **Base class**: GameSystemBase
+- **Update interval**: 16 frames (offset 4)
+- **Purpose**: Controls deployed fire engine behavior — driving to fires, extinguishing, multi-stop chaining, and returning home.
+- **State machine (via `FireEngineFlags`)**:
+
+| Flag | Meaning |
+|------|---------|
+| `Returning` | Heading back to station |
+| `Extinguishing` | Stopped at fire, actively fighting |
+| `Rescueing` | Stopped at collapsed building, clearing debris |
+| `Empty` | Water tank depleted, cannot fight |
+| `EstimatedEmpty` | Predicted empty based on current fire intensity |
+| `Disabled` | Over-capacity at station, stays parked |
+| `DisasterResponse` | Assigned to disaster response pool |
+
+- **Key logic in `Tick()`**:
+  1. **Path end reached**: If at destination and not Extinguishing/Rescueing, calls `BeginExtinguishing()`. If fire is out or can't extinguish, calls `CheckServiceDispatches()` for chained fires, then `ReturnToDepot()`.
+  2. **`BeginExtinguishing()`**: Checks target — if `OnFire` → `Extinguishing`; if `RescueTarget` → `Rescueing`. Stops the vehicle.
+  3. **`TryExtinguishFire()`**: Area-of-effect extinguishing. Uses `ObjectExtinguishIterator` to find all burning/destroyed entities within `m_ExtinguishingSpread` radius. Per tick rate: `4/15 * m_ExtinguishingRate * m_Efficiency`. Water damage: `rate * 10 / structuralIntegrity`. Tank depletion: `m_ExtinguishingAmount -= rate * 4/15`. Sets `Empty` when `m_ExtinguishingAmount == 0`.
+  4. **`CheckServiceDispatches()`**: Selects highest-priority queued fire from `ServiceDispatch` buffer. Priority is `FireRescueRequest.m_Priority`. Checks that fire is on same road endpoint as current path to avoid detours.
+  5. **`SelectNextDispatch()`**: Pops next dispatch, validates fire still burning. If path is pre-computed in `PathElement` buffer, appends it to current path. Otherwise sets new `Target`.
+  6. **`ReturnToDepot()`**: Clears all requests, sets `Returning` flag, sets target to `owner.m_Owner` (the fire station entity).
+  7. **`ParkCar()`**: On arrival home — resets state to 0, restores `m_ExtinguishingAmount = m_ExtinguishingCapacity` (tank refilled), sets `Disabled` if `HasFreeFireEngines` is absent, sets `DisasterResponse` if station has it available.
+  8. **`RequestTargetIfNeeded()`**: Every ~64 frames, if `m_RequestCount <= 1` and not `EstimatedEmpty`, creates reversed `FireRescueRequest(vehicleEntity, 1f, Fire)` — engine advertises itself for additional calls.
+  9. **Emergency pathfinding (to fire)**: `PathfindWeights(1f, 0f, 0f, 0f)` — pure time, no comfort/safety tradeoffs. Ignores combustion engine zones, heavy traffic bans. Destination has 30m tolerance (`m_Value2 = 30f`).
+  10. **Return pathfinding**: `PathfindWeights(1f, 1f, 1f, 1f)` — balanced normal routing.
+  11. **Close-enough shortcut**: If blocked by traffic and within 30m of target, `EndNavigation()` — stops and considers path complete.
+
+### `FirePathfindSetup.SetupFireEnginesJob` (Game.Simulation)
+
+- **Purpose**: For each pending fire rescue pathfind request, identifies which fire stations and engines are eligible candidates and submits them to the pathfinder.
+- **For stations** (`FireStation` chunk):
+  - If request target is the station itself (self-fire): uses `HasFreeFireEngines`/`HasFreeFireHelicopters` (raw capacity)
+  - If request district matches station's service district: uses `HasAvailableFireEngines`/`HasAvailableFireHelicopters`
+  - Disaster requests additionally require `DisasterResponseAvailable`
+  - Outside connections allowed only if city has `ImportOutsideServices` option enabled
+  - Cost: `pathfindWeights.time * 10f` (10-second base penalty per station candidate)
+- **For in-flight engines** (`FireEngine` chunk):
+  - Skip if `Empty` or `EstimatedEmpty`
+  - Skip if not in same service district as the fire
+  - Skip if `Disabled` (unless the fire is at the engine's own station)
+  - Disaster requests require `DisasterResponse` flag on the engine
+  - Cost for chaining: remaining path time + sum of pre-cached `PathInformation.m_Duration` for each queued stop
+
+### `FirePathfindSetup.FireRescueRequestsJob` (Game.Simulation)
+
+- **Purpose**: For reversed requests (station/engine advertising, looking for a fire), finds eligible `FireRescueRequest` entities to respond to.
+- **District filter**: Fire's district must be in the source's service district
+- **Disaster filter**: `DisasterResponse` type requires station `DisasterResponseAvailable` or engine `DisasterResponse` flag
+- **Multiple candidate points per fire**: Adds the fire's road-network-adjacent positions (within 30m radius via `NetTree` search) as path targets — this is how fire engines navigate to the correct side of the road
 
 ### `HealthProblemSystem` (Game.Simulation)
 
@@ -373,6 +532,7 @@ Attached to vehicles/entities involved in a traffic accident.
     |         v
     |     Creates FireRescueRequest entity
     |         (ServiceRequest + FireRescueRequest + RequestGroup(4))
+    |         priority = onFire.m_Intensity
     |
     +---> Accident occurs (ImpactSystem -> AddAccidentSiteSystem)
     |         |
@@ -448,6 +608,15 @@ ServiceRequestSystem.HandleRequestJob: destroys the request entity
 | Accident staging timeout | 3600 frames (~60 seconds) | Hardcoded in AccidentSiteSystem |
 | Police pathfind max speed | 111.111115f (~400 km/h) | PoliceEmergencyDispatchSystem.FindVehicleSource() |
 | Fire pathfind max speed | 277.77777f (~1000 km/h) | FireRescueDispatchSystem.FindVehicleSource() |
+| Fire engine emergency pathfind weights | (1,0,0,0) — pure time | FireEngineAISystem.FindNewPath() outbound |
+| Fire engine return pathfind weights | (1,1,1,1) — balanced | FireEngineAISystem.FindNewPath() returning |
+| Fire engine close-enough threshold | 30m | FireEngineAISystem.IsCloseEnough() |
+| Fire engine extinguish tick rate | 4/15 * ExtinguishingRate * Efficiency | FireEngineAISystem.TryExtinguishFire() |
+| Fire engine water damage cap | 50% (0.5 Damaged.m_Damage.z) | FireEngineAISystem.FireExtinguishingJob |
+| Fire station update interval | 256 frames | FireStationAISystem.GetUpdateInterval() |
+| Fire engine update interval | 16 frames | FireEngineAISystem.GetUpdateInterval() |
+| Fire station capacity base penalty (pathfind) | time_weight * 10f | FirePathfindSetup.SetupFireEnginesJob |
+| Disaster response request priority | 10f | CollapsedBuildingSystem.RequestRescueIfNeeded() |
 | Ambulance pathfind max speed | 277.77777f (~1000 km/h) | HealthcareDispatchSystem.FindVehicleSource() |
 | Hearse pathfind max speed | 111.111115f (~400 km/h) | HealthcareDispatchSystem.FindVehicleSource() |
 | Police purpose for accidents | PolicePurpose.Emergency | AccidentSiteSystem |
@@ -972,5 +1141,5 @@ Done
 ## Sources
 
 - Decompiled from: Game.dll (Cities: Skylines II)
-- Key types: Game.Simulation.ServiceRequest, Game.Simulation.ServiceDispatch, Game.Simulation.Dispatched, Game.Simulation.HandleRequest, Game.Simulation.RequestGroup, Game.Simulation.PoliceEmergencyRequest, Game.Simulation.FireRescueRequest, Game.Simulation.HealthcareRequest, Game.Events.AccidentSite, Game.Events.OnFire, Game.Citizens.HealthProblem, Game.Buildings.RescueTarget, Game.Simulation.ServiceRequestSystem, Game.Simulation.AccidentSiteSystem, Game.Simulation.PoliceEmergencyDispatchSystem, Game.Simulation.FireRescueDispatchSystem, Game.Simulation.HealthcareDispatchSystem, Game.Simulation.FireSimulationSystem, Game.Simulation.HealthProblemSystem, Game.Simulation.CollapsedBuildingSystem, Game.Simulation.FireEngineAISystem
+- Key types: Game.Simulation.ServiceRequest, Game.Simulation.ServiceDispatch, Game.Simulation.Dispatched, Game.Simulation.HandleRequest, Game.Simulation.RequestGroup, Game.Simulation.PoliceEmergencyRequest, Game.Simulation.FireRescueRequest, Game.Simulation.HealthcareRequest, Game.Events.AccidentSite, Game.Events.OnFire, Game.Citizens.HealthProblem, Game.Buildings.RescueTarget, Game.Buildings.FireStation, Game.Buildings.FireStationFlags, Game.Vehicles.FireEngine, Game.Vehicles.FireEngineFlags, Game.Prefabs.FireStationData, Game.Prefabs.FireEngineData, Game.Prefabs.FireConfigurationData, Game.Simulation.ServiceRequestSystem, Game.Simulation.AccidentSiteSystem, Game.Simulation.PoliceEmergencyDispatchSystem, Game.Simulation.FireRescueDispatchSystem, Game.Simulation.FireStationAISystem, Game.Simulation.FireEngineAISystem, Game.Simulation.FirePathfindSetup, Game.Simulation.FireSimulationSystem, Game.Simulation.HealthcareDispatchSystem, Game.Simulation.HealthProblemSystem, Game.Simulation.CollapsedBuildingSystem
 - Decompiled snippets saved to: `research/topics/EmergencyDispatch/snippets/`
