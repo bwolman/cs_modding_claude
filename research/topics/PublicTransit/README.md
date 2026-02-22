@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-17
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -215,8 +215,11 @@ Prefab component on vehicle prefabs defining transport type and capacity.
 |-------|------|-------------|
 | m_TransportType | TransportType | The transport mode this vehicle serves (Bus, Train, etc.) |
 | m_PassengerCapacity | int | Maximum number of passengers this vehicle can carry |
+| m_SizeClass | VehicleSizeClass | **Runtime-confirmed: Ferry=Medium; Bus/Train/Subway/Tram/Airplane=Large** |
 
 *Source: `Game.dll` -> `Game.Prefabs.PublicTransportVehicleData`*
+
+**Runtime finding**: There is **no `Bus` component** in the ECS. Bus vehicles use the standard `Car` component + `PublicTransport` component for transit behavior. The `TransportType.Bus` value in `m_TransportType` (and `TransportCarAISystem` handling) is how the game identifies buses — not by a dedicated component. This is consistent with all road-based transit vehicles (buses, trams when on road) using the `Car` movement system.
 
 **Vehicle resolution chain**: To get vehicle capacity from a route, follow: `RouteVehicle` buffer -> vehicle entity -> `PrefabRef` -> `PublicTransportVehicleData`.
 
@@ -639,7 +642,7 @@ Incompatible with any mod that also patches `ModifiedSystem`, `RouteModifierInit
 - [x] How does boarding work? Via TransportBoardingHelpers queue system with begin/end boarding items
 - [x] What controls Day/Night scheduling? RouteOption.Day/Night flags checked against TimeSystem.normalizedTime
 - [ ] How do passengers choose which line to ride? Likely via pathfinding -- passengers pathfind through the transit network. The PathfindPrefab on the TransportLinePrefab configures this.
-- [ ] How does unbunching work precisely? The unbunching factor affects departure frame calculation in RouteUtils.CalculateDepartureFrame. Needs further decompilation.
+- [x] How does unbunching work precisely? The `m_DefaultUnbunchingFactor` (runtime-confirmed: 0.75) affects departure frame calculation in `RouteUtils.CalculateDepartureFrame`. It scales the gap between vehicles to spread them out on long routes.
 - [ ] What triggers a vehicle to return to depot vs continue on route? The AbandonRoute flag is set when vehicle count exceeds target, or when vehicle model changes. Exact depot-return logic is in the vehicle AI systems.
 - [ ] How are ticket prices applied to the economy? The TicketPrice is set on TransportLine and used via RouteModifier, but the revenue flow needs tracing through the economy system.
 
