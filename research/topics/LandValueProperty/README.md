@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-16
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -156,9 +156,9 @@ Global singleton controlling land value computation factors.
 |-------|------|---------|-------------|
 | m_LandValueInfoViewPrefab | Entity | - | Reference to infoview prefab |
 | m_LandValueBaseline | float | 10.0 | Minimum land value floor |
-| m_HealthCoverageBonusMultiplier | float | 5.0 | Health service coverage bonus weight |
-| m_EducationCoverageBonusMultiplier | float | 5.0 | Education service coverage bonus weight |
-| m_PoliceCoverageBonusMultiplier | float | 5.0 | Police service coverage bonus weight |
+| m_HealthCoverageBonusMultiplier | float | 2.0 | Health service coverage bonus weight |
+| m_EducationCoverageBonusMultiplier | float | 2.0 | Education service coverage bonus weight |
+| m_PoliceCoverageBonusMultiplier | float | 2.0 | Police service coverage bonus weight |
 | m_AttractivenessBonusMultiplier | float | 3.0 | Terrain and tourism attractiveness bonus weight |
 | m_TelecomCoverageBonusMultiplier | float | 20.0 | Telecom/internet coverage bonus weight |
 | m_CommercialServiceBonusMultiplier | float | 10.0 | Nearby commercial services bonus weight |
@@ -166,7 +166,7 @@ Global singleton controlling land value computation factors.
 | m_BusBonusMultiplier | float | 5.0 | Bus transit access bonus weight |
 | m_CommonFactorMaxBonus | float | 100.0 | Cap on bonus from any single common factor |
 | m_GroundPollutionPenaltyMultiplier | float | 10.0 | Ground pollution penalty weight |
-| m_AirPollutionPenaltyMultiplier | float | 5.0 | Air pollution penalty weight |
+| m_AirPollutionPenaltyMultiplier | float | 0.1 | Air pollution penalty weight (runtime-confirmed; early decompilation estimate of 5.0 was 50x too high) |
 | m_NoisePollutionPenaltyMultiplier | float | 0.01 | Noise pollution penalty weight |
 
 *Source: `Game.dll` -> `Game.Prefabs.LandValueParameterData`, defaults from `Game.Prefabs.LandValuePrefab`*
@@ -295,7 +295,7 @@ Global singleton controlling land value computation factors.
 LAND VALUE CALCULATION (32x per day)
   LandValueSystem.EdgeUpdateJob
     For each road edge with LandValue:
-      sum = health_coverage * 5 + education_coverage * 5 + police_coverage * 5
+      sum = health_coverage * 2 + education_coverage * 2 + police_coverage * 2
             + commercial_availability * 10 + bus_availability * 5 + tram_subway * 50
       LandValue.m_LandValue = lerp(current, sum, 0.6)
           |
@@ -305,7 +305,7 @@ LAND VALUE CALCULATION (32x per day)
       avg_edge_value = average nearby edge LandValues
       bonus = attractiveness * 3 + telecom * 20 + terrain_attractiveness * 3
               (each capped at CommonFactorMaxBonus = 100)
-      penalty = ground_pollution * 10 + air_pollution * 5 + noise * 0.01
+      penalty = ground_pollution * 10 + air_pollution * 0.1 + noise * 0.01
       target = max(baseline, baseline + avg_edge_value + bonus - penalty)
       LandValueCell.m_LandValue = lerp(current, target, 0.4)
           |
@@ -364,9 +364,9 @@ BUILDING CONDITION (16x per day)
 | Value | Source | Default |
 |-------|--------|---------|
 | Land value baseline | LandValueParameterData.m_LandValueBaseline | 10.0 |
-| Health coverage bonus multiplier | LandValueParameterData.m_HealthCoverageBonusMultiplier | 5.0 |
-| Education coverage bonus multiplier | LandValueParameterData.m_EducationCoverageBonusMultiplier | 5.0 |
-| Police coverage bonus multiplier | LandValueParameterData.m_PoliceCoverageBonusMultiplier | 5.0 |
+| Health coverage bonus multiplier | LandValueParameterData.m_HealthCoverageBonusMultiplier | 2.0 |
+| Education coverage bonus multiplier | LandValueParameterData.m_EducationCoverageBonusMultiplier | 2.0 |
+| Police coverage bonus multiplier | LandValueParameterData.m_PoliceCoverageBonusMultiplier | 2.0 |
 | Attractiveness bonus multiplier | LandValueParameterData.m_AttractivenessBonusMultiplier | 3.0 |
 | Telecom coverage bonus multiplier | LandValueParameterData.m_TelecomCoverageBonusMultiplier | 20.0 |
 | Commercial service bonus multiplier | LandValueParameterData.m_CommercialServiceBonusMultiplier | 10.0 |
@@ -374,12 +374,16 @@ BUILDING CONDITION (16x per day)
 | Tram/subway bonus multiplier | LandValueParameterData.m_TramSubwayBonusMultiplier | 50.0 |
 | Common factor max bonus | LandValueParameterData.m_CommonFactorMaxBonus | 100 |
 | Ground pollution penalty | LandValueParameterData.m_GroundPollutionPenaltyMultiplier | 10.0 |
-| Air pollution penalty | LandValueParameterData.m_AirPollutionPenaltyMultiplier | 5.0 |
+| Air pollution penalty | LandValueParameterData.m_AirPollutionPenaltyMultiplier | 0.1 |
 | Noise pollution penalty | LandValueParameterData.m_NoisePollutionPenaltyMultiplier | 0.01 |
-| Residential rent base rate | EconomyParameterData.m_RentPriceBuildingZoneTypeBase.x | (from prefab) |
-| Commercial rent base rate | EconomyParameterData.m_RentPriceBuildingZoneTypeBase.y | (from prefab) |
-| Industrial rent base rate | EconomyParameterData.m_RentPriceBuildingZoneTypeBase.z | (from prefab) |
-| Land value modifier (R/C/I) | EconomyParameterData.m_LandValueModifier | (float3) |
+| Residential rent base rate | EconomyParameterData.m_RentPriceBuildingZoneTypeBase.x | 0.5 |
+| Commercial rent base rate | EconomyParameterData.m_RentPriceBuildingZoneTypeBase.y | 3.0 |
+| Industrial rent base rate | EconomyParameterData.m_RentPriceBuildingZoneTypeBase.z | 0.8 |
+| Land value modifier (R/C/I) | EconomyParameterData.m_LandValueModifier | (0.35, 0.70, 0.50) |
+| Mixed building company rent % | EconomyParameterData.m_MixedBuildingCompanyRentPercentage | 0.30 |
+| Residential upkeep level exponent | EconomyParameterData.m_ResidentialUpkeepLevelExponent | 1.05 |
+| Commercial upkeep level exponent | EconomyParameterData.m_CommercialUpkeepLevelExponent | 2.1 |
+| Industrial upkeep level exponent | EconomyParameterData.m_IndustrialUpkeepLevelExponent | 2.0 |
 | Upkeep cost | ConsumptionData.m_Upkeep | Varies by prefab |
 | Updates per day (rent/upkeep) | kUpdatesPerDay | 16 |
 
@@ -791,11 +795,11 @@ The UrbanInequality mod targets `net472` (not `netstandard2.1`) and uses `LangVe
 
 ## Open Questions
 
-- [ ] **Rent formula parameters**: The exact default values of `EconomyParameterData.m_RentPriceBuildingZoneTypeBase` and `m_LandValueModifier` are set by EconomyPrefab, which was not decompiled. These float3 values control the base rate and land value sensitivity per zone type.
-- [ ] **Mixed building rent split**: `EconomyParameterData.m_MixedBuildingCompanyRentPercentage` controls how rent is split between residential and commercial units in mixed-use buildings. The exact default is unknown.
+- [x] **Rent formula parameters**: Runtime-confirmed via ECS dump — `m_RentPriceBuildingZoneTypeBase` = (0.5, 3.0, 0.8) for Residential/Commercial/Industrial; `m_LandValueModifier` = (0.35, 0.70, 0.50). Commercial base rate is 6x residential, reflecting how scarce commercial space drives higher rents.
+- [x] **Mixed building rent split**: Runtime-confirmed — `m_MixedBuildingCompanyRentPercentage` = 0.30 (companies pay 30% of total building rent in mixed-use buildings).
 - [x] **Level-up material costs**: `ZoneLevelUpResourceData` buffer elements on zone prefab entities define per-level resource requirements (m_Level, m_LevelUpResource). `BuildingConfigurationData` provides the global condition decrement and notification prefabs. See Component Map and Advanced Patterns sections.
 - [x] **BuildingCondition increment/decrement rates**: `BuildingConfigurationData.m_BuildingConditionDecrement` provides the base decrement rate. `BuildingUtils.GetBuildingConditionChange()` computes the actual per-tick change and is a Harmony patch target. See Component Map and Harmony Patch Points sections.
-- [ ] **Upkeep level exponents**: `EconomyParameterData.m_ResidentialUpkeepLevelExponent`, `m_CommercialUpkeepLevelExponent`, and `m_IndustrialUpkeepLevelExponent` scale upkeep costs by building level. Defaults not traced.
+- [x] **Upkeep level exponents**: Runtime-confirmed via ECS dump — `m_ResidentialUpkeepLevelExponent` = 1.05, `m_CommercialUpkeepLevelExponent` = 2.1, `m_IndustrialUpkeepLevelExponent` = 2.0. Commercial and industrial upkeep scales much more steeply with level than residential.
 
 ## Sources
 
