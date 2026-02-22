@@ -128,6 +128,10 @@ Buffer element on household entities. Lists all citizens belonging to the househ
 
 Attached to citizen entities. Single field `m_Household` pointing to the household entity.
 
+### `HomelessHousehold` (Game.Citizens) -- Tag
+
+**Runtime-confirmed (archetype analysis)**: `HomelessHousehold` is always co-present with `MovingAway` on the same entity. There is no archetype with `HomelessHousehold` but without `MovingAway`. This means homelessness in CS2 is a **one-step emigration state** — households that lose their property are immediately flagged to leave the city. They do not persist as a stable homeless population; they are queued for departure and deleted when they reach an outside connection.
+
 ### `Worker` (Game.Citizens)
 
 **Runtime-confirmed: `Worker` is a zero-sized tag component with no fields.** Its presence on a citizen entity signals that the citizen is employed. The employment relationship (which company/building) is tracked via the employer's `WorkProvider` component and `Employee` buffer — not stored on the `Worker` tag itself.
