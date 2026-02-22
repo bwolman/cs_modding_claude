@@ -1,0 +1,75 @@
+## How Goods Move Through Your City
+
+Every functioning city in Cities: Skylines II is quietly sustained by an invisible freight network. Factories produce raw materials and manufactured goods, storage buildings accumulate and redistribute those goods, and a constant stream of delivery trucks fans out across your road network to bring supplies to shops, offices, and industrial buildings that need them. Cargo trains, ships, and planes connect your city to the outside world. Disrupting any part of this chain — even subtly — can produce effects that ripple out across your entire economy.
+
+The journey of a single unit of goods typically begins at an industrial building. When a company finishes producing something, that output sits in the building's on-site inventory. From there it needs to move somewhere useful: either to another industrial building that requires it as an input, to a storage facility for holding, to a commercial building that sells it to citizens, or out of the city entirely as an export. The game's logistics machinery is constantly evaluating these needs and dispatching vehicles to match supply with demand.
+
+## Storage Buildings and Why They Matter
+
+Storage buildings are the hubs that smooth out the mismatches between production and consumption. An industrial area might produce steel faster than nearby manufacturers can absorb it, and a storage facility absorbs that surplus and holds it until demand catches up. Conversely, when a commercial district suddenly needs more goods than local industry can supply, storage buildings act as a buffer so that shops do not immediately run dry.
+
+Each storage building handles specific resource types, defined when the building was placed. The game tracks both what the building currently holds and how much of that capacity is in use. When a storage facility is sitting on a surplus, it generates outbound transfer requests — essentially raising its hand to say it has goods available to send elsewhere. When it falls below healthy stock levels, it generates inbound requests, signaling that it needs resupply.
+
+These requests are resolved by delivery trucks. The game's dispatch logic periodically reviews all outstanding requests and matches sources to destinations: a storage building with surplus timber sends a truck to a furniture factory running low on timber. The truck loads at the source, drives to the destination, unloads, and returns. The whole cycle is continuous and automatic, but it depends entirely on your road network being navigable.
+
+> **Info:** Delivery truck transfers between storage buildings are distinct from deliveries to end consumers. Goods moving from one storage facility to another are categorized as storage transfers. Deliveries to shops, offices, or industrial buildings that actually consume the goods are categorized separately and handled by a different dispatch pipeline.
+
+## The Delivery Truck Problem
+
+Delivery trucks are the workhorse of your city's freight system, and they are also the most direct cause of cargo-related road congestion. Every transaction — every time a building needs goods and a nearby source has them — potentially puts another truck on your streets. A dense industrial district with many companies exchanging inputs and outputs can generate a surprisingly large number of simultaneous truck trips, all competing with commuter and service traffic.
+
+Unlike garbage trucks, which sweep neighborhoods in a single continuous run, delivery trucks operate point-to-point. A truck picks up a specific quantity of a specific resource at a specific source and drives directly to a specific destination. There is no consolidation of loads from multiple buildings on a single pass. Each request gets its own vehicle.
+
+This matters for how you lay out your city. Industrial zones placed far from their storage facilities, or storage facilities placed inconveniently relative to the commercial districts they serve, translate directly into longer truck routes and more sustained road load. Zoning industrial and storage land uses in close proximity, with good internal road connectivity, keeps most of that truck traffic off your main arterials.
+
+> **Info:** When a building needs goods and no local source can supply them, the game can fulfill the request via import — goods arriving from outside the city through an outside connection. These imports also arrive by truck, entering your road network from an edge connection and driving to the needing building. A city that relies heavily on imports generates significant external truck traffic into and through the city.
+
+## Cargo Stations: The Freight Hubs
+
+When truck-based delivery is not enough — or when you want to move large volumes of goods efficiently over long distances — cargo stations take over. The game provides four types of freight infrastructure: cargo train stations, cargo harbors, cargo airports, and combined cargo hubs that handle multiple transport modes. Each type works on the same underlying logic, differing mainly in which infrastructure they connect to.
+
+Cargo stations have their own on-site storage. When a cargo train arrives, it is not delivering directly to a factory or shop — it is depositing goods into the station's storage pool. From there, the station's goods enter the same truck-based delivery network: trucks leave the station and drive goods to buildings that need them. The station functions as a large, high-capacity storage building that happens to receive its inventory by rail, ship, or air rather than by road.
+
+Conversely, goods destined for export or transfer to another city area flow in the other direction. Trucks bring surplus goods to the station, the station accumulates them, and when a cargo vehicle arrives and loads, those goods depart. The station's loading efficiency — a measure of how well it can process incoming and outgoing cargo — affects throughput. A poorly placed station with bad road access for local delivery trucks will back up even if the trains are running on time.
+
+> **Info:** Cargo vehicles on routes cycle through distinct phases: loading at the origin station, traveling the route, and unloading at the destination. The loading phase is not instantaneous — vehicles spend real time at the station while goods are transferred. A station serving multiple routes with many vehicles can have several vehicles simultaneously in the loading phase, which affects how quickly goods flow through.
+
+## Cargo Trains
+
+Rail freight is the highest-capacity land-based cargo option. A cargo train station placed in or near your industrial core, connected to a rail line that exits the city, immediately opens up your city's freight capacity beyond what trucks alone can handle. Trains move large volumes of goods per trip and do not consume road capacity at all — their impact on your city's congestion is limited to the truck activity that radiates from the station at each end.
+
+The tradeoff is infrastructure cost and placement constraints. Rail lines require significant space, and a cargo station needs good road connections around it to handle the truck traffic it generates. A cargo station dropped in a poorly accessible location will simply sit underutilized: trains may arrive on schedule, but if the trucks cannot efficiently distribute the unloaded goods, the station's storage fills up and throughput suffers.
+
+Cargo trains operate on routes you establish between stations. Unlike passenger rail, where citizens self-direct to appropriate stops, cargo routes are a deliberate part of your logistics planning. A route between your industrial district station and an outside connection enables exports. A route between two internal cargo stations lets you balance goods supply across distant parts of a large city.
+
+## Cargo Ships and Airports
+
+Cargo harbors and cargo airports follow the same logic as cargo train stations but serve different infrastructure types. Harbors require waterfront placement and connection to a canal or coast, limiting where they can go but offering very high throughput for cities with suitable geography. Airports serve as the highest-speed option for goods that need rapid long-distance movement, though they typically handle lower volumes per trip than trains or ships.
+
+From a player standpoint, the decision between these types is partly geographic (do you have a coastline?) and partly about how you are structuring your outside connections. A city can run all three freight modes simultaneously, with each serving different trade routes or resource types.
+
+> **Info:** Each cargo station type specifies which resource types it handles. Not every station accepts every resource. When placing cargo infrastructure, check what resources the station is configured for and make sure your city's actual freight needs match. A cargo harbor that only handles bulk materials will not help if your primary export is manufactured goods.
+
+## Combined Cargo Hubs vs. Passenger Transit Hubs
+
+It is worth being clear about the distinction between cargo hubs and the transport hubs used for passengers, because they look similar and the game places both in your city.
+
+Passenger transit hubs — train stations, bus terminals, harbors for ferries — exist to move citizens. Their efficiency metrics track comfort and the quality of the travel experience. They do not have on-site resource storage and do not participate in the goods delivery pipeline at all.
+
+Cargo hubs are purely about freight. They store goods, interact with the delivery truck dispatch system, and connect to freight routes. They do not provide any benefit to citizen transit, and citizens do not use them to travel.
+
+Some buildings in the game combine both functions — a mixed train station might handle both passenger services and freight on separate tracks. When that happens, the building is effectively running both systems simultaneously, with separate metrics and separate operational logic for each. The passenger side affects commute times and transit coverage; the cargo side affects your goods flow and industrial productivity. Problems on one side do not directly cause problems on the other, but a poorly placed combined hub can strain your road network from both directions at once.
+
+## What Can Go Wrong
+
+**Delivery trucks are clogging your main roads:** The most common cargo-related traffic problem. Industrial areas that rely heavily on imports, or storage facilities placed far from their consumers, generate sustained truck traffic on whatever roads connect them. Redesigning the road hierarchy so that trucks have direct access to industrial and storage areas without routing through residential streets or city-center arterials is usually more effective than just adding more lanes.
+
+**A storage building keeps running empty:** If a storage facility's stock frequently depletes before it can be resupplied, either the delivery trucks cannot reach it fast enough or the downstream consumers are drawing on it faster than the supply chain can keep up. Check whether an outside connection or cargo station is nearby and connected — if the storage building can only be resupplied by local production, and local production is struggling, the storage will mirror that shortage.
+
+**A cargo station's storage is permanently full:** Goods are arriving at the station faster than trucks can distribute them into the city. This is almost always a road access problem. The station may have excellent rail connectivity but be surrounded by congested or narrow roads that limit how many delivery trucks can depart per hour. Improving road access around the station — dedicated exit roads, grade separations, or simply a better street grid in the surrounding area — is usually the fix.
+
+**Your industrial buildings are running out of input resources:** Factories that run dry lose production efficiency and eventually stop producing. The cause is usually one of three things: no nearby supply of the required resource (a production gap that needs new industrial zoning or a trade route), the delivery trucks carrying that resource are stuck in traffic, or an import connection that was supplying the resource is undersized or missing. The City Economy panel's resource breakdown can point you toward which inputs are most stressed.
+
+**Exports are backing up and profits are falling:** When your city produces more of a resource than it can consume or export, the surplus has nowhere to go and production eventually slows. The fix is either expanding export capacity (more cargo routes, larger outside connections) or stimulating internal consumption (more commercial or industrial zoning that uses that resource). Watching which resources are accumulating in storage facilities over time is a good early indicator before problems compound.
+
+**A cargo hub is barely used despite heavy freight demand:** Cargo infrastructure only works if routes are established connecting it to other stations or outside connections. Placing a cargo train station without creating a route between it and somewhere else means it will sit idle regardless of how much demand exists. Similarly, a station placed in an area with no delivery truck access will accumulate goods internally but be unable to distribute them, eventually appearing to stop functioning even though vehicles are arriving on schedule.

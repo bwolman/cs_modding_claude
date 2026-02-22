@@ -1,0 +1,81 @@
+# Expanding Your City (Map Tiles) in Cities: Skylines II
+
+## The Grid You Are Working With
+
+Every map in Cities: Skylines II is divided into a fixed grid of 529 tiles arranged in a 23-by-23 square. Each tile is a substantial piece of land — roughly 623 meters on a side, or about 388,000 square meters of total area. A single tile is therefore larger than many real-world city blocks. The entire playable map, if you could unlock every tile, would span the equivalent of a small county.
+
+When you start a new city, the map does not dump all of that land in your lap. Instead, nine tiles are automatically unlocked at the beginning, centered on your starting position. These initial tiles give you enough room to lay down your first roads, utility connections, and basic zoning without feeling hemmed in. The other 520 tiles remain locked until you earn the right to purchase them.
+
+## Tile Permits: the Currency of Expansion
+
+Before you can spend money on a new tile, you need a *permit* — the game's way of metering how fast your city can grow. You start with nine permits (matching those nine starter tiles), and new permits arrive in batches as you reach milestones. Each milestone in your city's progression awards a specific number of additional tile permits. Until you have at least one unspent permit, the tile purchase button simply will not activate.
+
+The total number of permits you have available at any moment is: the nine you start with, plus every permit granted by every milestone you have reached so far, minus the number of tiles you already own. If you have used all your current permits, you must keep growing your city until the next milestone unlocks before you can expand again.
+
+> **Info:** The game guarantees a minimum of nine auto-unlocked tiles at the very beginning, regardless of how the map was configured. Some maps may start you with slightly more initial tiles (set in the map editor), but the minimum baseline is always nine.
+
+## What Milestones Actually Unlock
+
+Milestones are the game's way of pacing how quickly a small settlement becomes a sprawling city. Each milestone is tied to an XP threshold — you accumulate experience by building roads, placing services, growing population, and otherwise developing your city. When you hit a threshold, you reach a new milestone.
+
+Some milestones are designated as *major* milestones, which tend to award more tiles, more development tree points, and larger monetary rewards than minor milestones. All milestones contribute some number of tile permits, so steady city development — even without dramatic growth spurts — gradually opens up more expansion slots.
+
+The tile permits from milestones are additive. If three milestones award 2, 3, and 4 tiles respectively, and you have reached all three, you have 9 starter tiles plus 9 from milestones for a total of 18 available permits. Use all 18 and you must wait for your next milestone before buying anything more.
+
+## The Cost of a Tile
+
+Tile prices are not uniform across the map. The game calculates a value for each tile based on what is actually on it. Land area, how much of that land is buildable, the presence of fertile agricultural soil, forest coverage, oil and ore deposits, surface water, groundwater, and fish resources all factor into the price. Resource-rich tiles cost more; empty or largely barren tiles cost less.
+
+When you are shopping for tiles, the cheapest available tiles will generally be the ones with limited buildable land or few natural resources — perhaps mostly steep terrain or open water. The tiles sitting on oil fields or rich agricultural plains will carry a premium.
+
+There is an additional wrinkle that punishes rapid expansion. The cost of each new tile you select is multiplied by how many tiles you already own. Your first purchases are cheap. Your fiftieth tile purchase is far more expensive per tile than your twentieth, even for identical pieces of land. The game specifically sorts any batch of tiles you select so that you pay for the most expensive ones first, making large simultaneous purchases substantially pricier than buying one or two tiles at a time.
+
+> **Info:** When you select multiple tiles at once, the game ranks them from most valuable to least and applies a scaling multiplier to each one based on how many tiles you already own plus the position of that tile in the batch. Buying tiles one at a time and buying them all at once produces different total costs for the same set of tiles. Buying them one at a time is generally cheaper because each purchase resets the multiplier to your current (slightly larger) owned count before adding the next tile's cost.
+
+## Upkeep: Tiles Are Not Free to Hold
+
+Owning more tiles adds an ongoing upkeep cost to your budget. This upkeep is based on the total resource value of all the land you hold and scales with the overall number of tiles you own. The upkeep formula uses a curve rather than a flat rate, which means the cost per tile is not constant — it rises as you hold more total land. The first nine tiles you start with effectively have no upkeep burden at all.
+
+This means expansion is a two-part financial decision: you pay an upfront purchase price when you acquire a tile, and you commit to an indefinite recurring expense that grows with your total land holdings. A tile rich in oil or fertile land will cost more to buy *and* cost more to maintain than a tile of scrubby hills. Before hitting the purchase button on a large batch of tiles, check what your monthly upkeep will increase by — that figure is shown in the purchase panel before you confirm.
+
+> **Info:** Sandbox and no-consequences game modes disable upkeep charges on tiles entirely. In standard play, upkeep is always active and always scaling with your tile count.
+
+## What You Actually Get When You Buy a Tile
+
+Purchasing a tile gives you three things simultaneously. First and most obviously, you get the land itself — you can now zone it, build roads across it, and place buildings on it. The terrain is yours to terraform and develop.
+
+Second, if the tile contains natural resources, those resources become accessible to your city's economy. A tile with oil deposits can now host oil extraction industry. A tile with fertile soil can support farms. Acquiring the tile does not automatically harvest the resource, but it does make harvesting possible. Until you own the tile, those resources might as well not exist.
+
+Third — and this is critically important for city connectivity — owning a tile that borders the edge of the map gives you access to *outside connections*. These are the highway on-ramps, train lines, ship lanes, and air routes that link your city to the outside world for trade, tourism, and commuters. If you have not purchased the tile where an outside connection sits, that connection is unavailable to your traffic network. Many maps have highway connections in multiple directions, and unlocking the right tiles early can dramatically improve your city's traffic flow and economic access to outside markets.
+
+## Adjacency and Expansion Strategy
+
+You cannot buy any tile on the map — you can only purchase tiles that are adjacent to land you already own. The nine starter tiles form a contiguous block, and every subsequent purchase must touch your existing territory. This means your city expands as a connected blob; you cannot claim a distant tile without a chain of purchases bridging the gap.
+
+This adjacency rule shapes nearly all expansion decisions. If you want to reach a highway connection on the far side of the map, you need to buy every tile in between — and pay for each of them at a price that rises as your tile count grows. Sometimes the most efficient route to an outside connection means purchasing tiles you may never develop, treating them as stepping stones rather than productive land.
+
+The 23-by-23 grid is fixed and finite. There are exactly 529 tiles, and milestones only unlock enough permits to purchase a portion of them over the course of a normal campaign. You will not own the entire map in most games, which means tile selection becomes a genuine strategic exercise — deciding which regions are worth the investment and which are not worth the upkeep they would add.
+
+## Fitting Expansion Into Your Growth Strategy
+
+The milestone gating and rising purchase costs together create a natural rhythm for city-building. Early in the game you have enough starting land to establish your economy without needing to expand immediately. The first few milestones arrive quickly and reward a small number of additional tiles each time, encouraging you to grow your footprint in step with your population.
+
+Mid-game is typically when expansion decisions become consequential. You may be bumping up against the edges of your starting tiles and feeling pressure to claim new land for residential or industrial growth. This is also when outside connections start mattering for trade: opening a highway tile to connect to an external highway network can unlock trade routes that substantially accelerate economic development.
+
+Late-game expansion tends to be deliberate rather than urgent. With a mature economy and substantial tax revenue, you can afford the high per-tile prices and ongoing upkeep. The remaining milestones continue to deliver permits, but by late game you likely have more permits than you have strategic need for new land. The question shifts from "can I afford to expand?" to "which tiles actually benefit my city at this stage?"
+
+Saving your permits and purchasing tiles strategically — rather than buying every adjacent tile the moment a permit is available — gives you greater control over your upkeep costs and lets you prioritize the tiles that connect to outside routes or natural resources your industry needs.
+
+## What Can Go Wrong
+
+**Milestone wall: no permits to expand.** The most common frustration is having money to buy tiles but no permits available. This is the milestone gating doing exactly what it is designed to do — you need to develop your existing city more before the game rewards you with more land. Look at your current milestone progress bar and focus on the activities that build XP fastest: expanding infrastructure, growing population, and placing new services.
+
+**Upkeep creep quietly draining the budget.** Players sometimes buy tiles enthusiastically in the early game without noticing the upkeep column in their budget. A large land holding adds a meaningful monthly cost. If your city is running on thin margins and you suddenly start losing money despite stable income, check how much your recent tile purchases added to your monthly upkeep. You cannot sell tiles back, so there is no way to undo this commitment.
+
+**Outside connection blocked by unowned tiles.** If your traffic is backing up despite having road connections in place, check whether the outside connection tile is actually owned. It is possible to build a road that leads toward the edge of the map without having purchased the tile where the highway merge actually occurs. The connection will show on the map but will not function until the tile is yours.
+
+**Buying the wrong adjacent tiles first.** Because you can only expand adjacently, the order of your purchases matters. If you want a resource-rich tile to the northeast but take a scenic detour buying tiles to the southeast, you may end up paying for several tiles you did not want — and ratcheting up your tile count (and therefore your future purchase multipliers) along the way. Planning your expansion route before purchasing saves money.
+
+**Large simultaneous purchases costing far more than expected.** Selecting a batch of tiles and buying them all at once triggers the scaling multiplier on every tile in the batch, applied in order of descending value. If you select eight tiles at once when you already own twenty, the game treats those eight purchases as tiles number 21 through 28 and charges accordingly. Buying them one per session instead — waiting just long enough for the owned count to update — comes out to the same total owned count but can reduce the total price because the marginal multiplier resets between purchases.
+
+**Running out of permits with no milestones left.** There is a finite number of milestones and therefore a finite number of tile permits available in a standard campaign. If you have reached the final milestone and spent all your permits, there are simply no more tiles you can purchase. You can continue building on the land you have, but your city's territory is fixed from that point forward. This situation is only reached in very long, well-developed campaigns, but it is the hard ceiling the game imposes on city size.

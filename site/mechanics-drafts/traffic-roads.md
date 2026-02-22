@@ -1,0 +1,95 @@
+## How Vehicles Choose a Route
+
+Every driver in your city has a destination — a workplace, a shop, a park, or a highway on-ramp heading out of town. Before the vehicle even appears on a road, the game quietly runs a pathfinder that evaluates the full network and picks a sequence of road segments and lane connections to follow. The pathfinder is not simply looking for the shortest path. It is looking for the cheapest path, and cost is a combination of three things: travel time, comfort, and money.
+
+Travel time dominates the calculation. A longer road that lets vehicles move at 120 km/h will usually beat a shorter road stuck at 30 km/h. But travel time is not calculated using the posted speed limit alone — the game also tracks how quickly vehicles have actually been moving through each lane over the last several minutes. Every lane in your city keeps a running record of average travel durations versus distances covered. When a lane is congested, that ratio degrades, and the pathfinder treats it as a more expensive choice. Vehicles actively steer around lanes that have been slow recently.
+
+Comfort and money are secondary factors but not trivial. Lanes that require frequent merges or awkward position changes across multiple lanes cost slightly more than a lane the driver can sit in comfortably. Tolls and parking fees, where applicable, add a direct monetary cost that the pathfinder factors in alongside travel time. A free slow road and a fast toll road may end up with identical total cost — and traffic will divide itself between them accordingly.
+
+> **Info:** The pathfinder calculates routes before the vehicle is placed on the road. The resulting route is a sequence of lane segments the vehicle will follow. The vehicle then executes that plan in real time, making small lane adjustments as it goes. If conditions change dramatically mid-trip, the vehicle may recalculate.
+
+---
+
+## Why Traffic Clumps on Specific Routes
+
+If the pathfinder is steering vehicles away from congested roads, why does your highway still look like a parking lot while the parallel boulevard is empty? The answer lies in timing and the way the game measures congestion.
+
+Lane flow data is updated roughly 32 times per in-game day — about every 512 simulation frames. That means congestion information is not live. When a thousand vehicles simultaneously discover that a new route is the best option, they all choose it before the game has had a chance to register that the route is now filling up. By the time the flow data updates, that route is genuinely congested, and the next wave of vehicles will be told to avoid it. Traffic oscillates: one road fills, vehicles shift, the other road fills, vehicles shift back. In a well-balanced network this oscillation smooths out. In an under-built network it becomes a recurring collapse.
+
+The geometry of your road layout compounds the problem. Cities: Skylines II models individual lanes, and the pathfinder can distinguish between them. A three-lane highway offers three parallel choices, but all three lead to the same bottleneck at the on-ramp. Every vehicle that wants the highway funnel through that single merge point regardless of which lane they picked for the open section. Bottlenecks are almost always at transitions — where a wide road narrows, where a major arterial feeds into a small intersection, where multiple ramps converge.
+
+There is also a basic gravitational pull toward fast roads. A highway is almost always cheaper in the pathfinder's terms than a surface street, so the highway fills first. The parallel boulevard only starts receiving significant traffic when the highway's measured flow has degraded enough to close the cost gap. Until that threshold is crossed, drivers prefer the highway even if a live observer can see that the highway is slower right now.
+
+---
+
+## How Intersections and Traffic Signals Work
+
+When two or more roads meet, the game creates an intersection node. Depending on the road types involved and the configuration of that intersection, traffic is managed by one of three mechanisms: priority rules, yield and stop signs, or traffic signals.
+
+At unsignalized intersections, lanes are marked with right-of-way rules. Some lanes have absolute right of way and vehicles on them do not slow down. Other lanes are marked as yield lanes, where vehicles must slow and check for conflicting cross traffic before proceeding. Stop-marked lanes require vehicles to come to a complete halt before entering the intersection. These rules are baked into the lane geometry when the intersection is created — they are not something vehicles negotiate dynamically. A vehicle approaching a yield lane checks whether any conflicting movement is currently occupying the shared space, and if so, waits.
+
+Signalized intersections work on a cycle. The game groups the lanes at an intersection into signal groups based on direction and conflict analysis. At a typical four-way intersection you might have four groups: northbound, eastbound, southbound, westbound. Only one group is green at a time. The signal state machine steps through: a brief transition phase as the light turns green, an active green phase, a transition to red, and then a short all-red clearance phase before the next group gets green. The minimum green phase lasts at least two simulation ticks before the system will even consider switching. The maximum is six ticks under normal conditions.
+
+> **Info:** Traffic signals are not on a fixed timer. If vehicles are still arriving on the current green group when the signal is ready to switch, the system can extend the green phase rather than cut it off. This adaptive behavior means a road with heavy one-directional flow will hold its green longer than a lightly used road. The extension can continue for up to four additional ticks before the signal is forced to change regardless.
+
+Vehicles waiting at a red light register as "petitioners" against that signal group. The signal system counts how many vehicles are waiting on each group when it is deciding which group gets green next. Groups with more waiting vehicles tend to be prioritized.
+
+Roundabouts are treated separately. Lanes on the roundabout itself have right of way. Vehicles entering from side roads must yield to circulating traffic. There are no signal groups on a roundabout node — the yield rules on the entry lanes handle priority entirely.
+
+---
+
+## Lane Changes
+
+A vehicle does not lock into a single lane and ride it to its destination. Several times along its journey it evaluates whether changing lanes would be beneficial. The cost calculation for a lane change involves multiple factors pulled together at the moment of decision.
+
+The primary consideration is what is ahead. If a lane has a stationary object in it — a stopped vehicle, a parked delivery truck pulling out — the cost of that lane spikes dramatically. Vehicles will move away from an obviously blocked lane as quickly as the rules allow. The secondary consideration is whether the vehicle needs to be in a specific lane further down the road. If the pathfinder has determined that the vehicle needs to exit right at the next interchange, being in the leftmost lane on a three-lane highway is a poor position. The vehicle will start working its way right well in advance.
+
+The cost of changing lanes scales with how many lanes need to be crossed. Moving one lane over is relatively cheap. Crossing two lanes costs roughly eight times as much as a single-lane change, because the cost formula uses a cubic multiplier. This is intentional — it models the real-world reluctance drivers have about cutting across multiple lanes at once. A vehicle that needs to be in the far right lane but is currently in the far left will not necessarily make that move in one aggressive sweep. It will work across the road over the course of a longer approach.
+
+Lane changes are also subject to physical constraints. Some lane boundaries are marked as no-passing zones, and vehicles will not cross them. This most commonly applies to solid center lines on undivided two-lane roads and to certain protected merge areas.
+
+> **Info:** Each vehicle maintains a short lookahead queue of upcoming lane segments — approximately eight segments ahead. Lane change decisions are made based on what the vehicle can "see" in this queue: what lane it needs to be in at each upcoming junction, how far away that requirement is, and what the current lane costs look like in that upcoming stretch.
+
+---
+
+## What Causes Gridlock
+
+Gridlock is a specific failure mode, not just "a lot of traffic." It occurs when vehicles are mutually blocking each other in a cycle — car A cannot move because car B is in the way, car B cannot move because car C is in the way, and car C cannot move because car A is in the way. No vehicle in the loop can make progress because every one of them is waiting for another to move first.
+
+The game actively monitors for this condition. Every 64 frames, it scans all vehicles that are currently blocked. It groups mutually blocking vehicles using a union-find algorithm — essentially asking "which vehicles are all stuck because of each other?" Groups of 10 or more vehicles that are all stuck in mutual dependency are flagged as potential bottlenecks. When that group grows to 50 or more vehicles, the game marks the affected lane segments as confirmed bottleneck lanes.
+
+A confirmed bottleneck triggers the orange bottleneck notification icon that appears on your city's roads. The icon appears when the bottleneck severity timer reaches 15 ticks. The icon persists until the blockage clears and the timer decays back to zero — which takes several more ticks, so the icon does not immediately vanish the moment a single vehicle moves.
+
+The most reliable way to create gridlock is to build intersections that vehicles cannot clear. If the space inside an intersection is not long enough to hold the vehicles queuing through it, vehicles stop with their noses blocking a crossing lane. That crossing lane backs up. Vehicles on the crossing lane back into yet another intersection. In dense city cores with short block lengths, this cascades quickly.
+
+Box junctions — where the interior of the intersection is kept clear — prevent this specific failure mode. In CS2 terms, this is about ensuring that when a vehicle enters an intersection, there is physically room to complete the movement on the other side before stopping. You cannot enforce a box junction rule directly, but you can ensure your block lengths and turn pocket depths provide enough queue storage to keep intersections clear.
+
+> **Info:** The game does not simulate box junction rules. Vehicles will enter an intersection and stop inside it if they have nowhere to go on the other side. The player's job is to build enough capacity that this situation rarely arises.
+
+---
+
+## What the Traffic Overlay Shows
+
+The traffic flow overlay colors each road segment based on a congestion score. That score is the ratio of actual average travel speed to the road's posted speed limit. A segment where vehicles are averaging their expected speed shows as green. As average speed falls relative to the speed limit, the color shifts through yellow and orange toward red.
+
+This score is calculated from the same lane flow data that the pathfinder uses — average travel duration versus average distance covered, updated roughly 32 times per in-game day. Because the data is smoothed over time rather than measured instantaneously, the overlay reflects recent history, not this exact moment. A road that just cleared after a two-minute jam may still show orange for a little while. A road that just started backing up may still show green.
+
+The overlay is most useful as a diagnostic of chronic problems rather than acute ones. A persistently red segment tells you that this road has been slow for an extended period and is being avoided by the pathfinder — which in turn means the burden has shifted to adjacent roads, which may also be under pressure. Finding where red segments cluster and then tracing back to the upstream cause is the core workflow for traffic management.
+
+The overlay does not distinguish between different types of congestion. A road showing red could be at capacity and flowing slowly, could be completely stopped due to a bottleneck, or could be intermittently blocked by a vehicle event (an accident, a delivery). The bottleneck notification icons supplement the overlay for the most severe cases — when you see an orange exclamation icon on a red road, that is a confirmed gridlock situation rather than just general slowness.
+
+---
+
+## What Can Go Wrong
+
+**Traffic piles onto one route while a parallel road sits empty.** The pathfinder updates its congestion model approximately 32 times per in-game day, not in real time. Many vehicles choose the same route before the model registers that route as full. By the time the data catches up and redirects traffic, the road is already backed up. The parallel road will eventually absorb overflow, but there is always a lag. The fix is usually adding more capacity to the bottleneck — a second lane, a grade separation, or a new connection that spreads the load before the pinch point.
+
+**An intersection acts as a permanent choke point even though it looks wide enough.** Lane count on the approach is not what limits an intersection. What limits it is the number of independent signal phases, the duration of each phase, and the queue storage on each approach. A six-lane road feeding into an intersection that cycles through six signal groups will move less traffic than a four-lane road on a two-phase signal, because each group gets less total green time per cycle. Adding lanes without redesigning the intersection geometry and signal phasing often makes the problem worse, not better.
+
+**Vehicles back up even though the destination is right there.** When a road dead-ends or a turn is forbidden, vehicles that planned a route through that path must stop and reroute. If many vehicles share the same failed route — because they were all dispatched before a road was closed or a connection was broken — a queue forms that can trigger the bottleneck detection system. The orange notification icon in this case does not mean congestion: it means a connection problem. Look for dead-end notifications alongside bottleneck icons to distinguish the two.
+
+**The traffic overlay shows a road as green but it clearly has a queue.** Flow data is smoothed and updated periodically, not continuously. A queue that formed in the last minute or so may not yet be reflected in the overlay. The overlay is a lagging indicator. Trust what you see on the road when there is an obvious discrepancy; use the overlay to identify problems that have been developing over time.
+
+**A large merge area creates a perpetual slow zone before a bottleneck clears.** When a highway narrows from three lanes to two, vehicles start changing lanes well in advance. The cubic cost scaling of multi-lane changes means vehicles spread out their merges over a long approach distance. This is generally efficient but it means the slowdown zone extends far upstream from the actual physical narrowing. The road looks congested for a long stretch even though the actual constraint is a single point. Widening the downstream section — or adding a proper weave lane — resolves this more reliably than widening the approach.
+
+**Gridlock locks up an entire district.** Once mutual blocking cycles form, they do not resolve on their own unless at least one vehicle in the cycle can escape. In dense grids with many intersections close together, a single stalled vehicle at a bad location can cascade into a city-wide jam within minutes. Longer block lengths, one-way street systems, and grade-separated interchanges eliminate the conditions that allow gridlock cycles to form in the first place.

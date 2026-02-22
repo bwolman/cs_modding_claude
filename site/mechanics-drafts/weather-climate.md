@@ -1,0 +1,127 @@
+# Weather and Climate in Cities: Skylines II
+
+## Climate Zones and the Shape of Your Year
+
+Before you place a single road, your city's climate is already decided. Every map in Cities: Skylines II is assigned a climate profile that defines the entire character of its seasons — how cold winters get, how wet springs are, whether summers bring scorching heat or mild warmth, whether snowfall is a regular visitor or a rare surprise. This profile is not a random dice roll that resets each year; it is a fixed seasonal curve that repeats predictably, year after year, like a musical score the game plays in a continuous loop.
+
+The practical implication is that climate in CS2 is something you can learn and plan around. Once you've watched your city go through a full year, you know what the next year looks like. A cold continental map will always have its harsh winters. A mild coastal map will always have its overcast, rainy shoulder seasons. Understanding your specific climate's rhythm is one of the most useful pieces of information you can develop as a player, because so many downstream effects — fires, snow, leisure patterns, energy consumption — are downstream consequences of temperature and precipitation following their seasonal curves.
+
+> **Info:** Climate is driven by animation curves that are evaluated once per in-game frame at the current position in the year (expressed as a value from 0 to 1, where 0 is the start of year and 1 is the end). These curves smoothly interpolate temperature, precipitation, cloudiness, and fog across the year, producing the gradual seasonal transitions you see rather than abrupt shifts.
+
+---
+
+## Temperature and Precipitation: The Two Driving Forces
+
+Nearly every weather effect in the game flows from just two underlying values: temperature and precipitation. These are continuous quantities that slide up and down throughout the year according to your climate's seasonal curves. Temperature controls whether precipitation falls as rain or snow, and together the two values determine the probability of severe weather events. Everything else — snow on the ground, traffic accidents in storms, fire risk during dry periods, how warm citizens need to keep their homes — is a consequence of these two numbers changing through the year.
+
+Temperature and precipitation do not jump around randomly. They follow the seasonal patterns set by your map's climate profile, with some variance layered on top. This means you won't get a blizzard in midsummer on a mild coastal map, but you also won't get a perfectly predictable temperature reading on any given day. The curves provide the envelope; the variance provides the texture within it.
+
+> **Info:** The game tracks six visual weather classifications: Clear, Few (clouds), Scattered, Broken, Overcast, and Stormy. These are set based on the active cloudiness value and determine what you see in the sky. The simulation-side effects (fire risk, traffic, snow) are driven by the underlying temperature and precipitation numbers rather than the visual classification.
+
+---
+
+## How the Game Knows What Season It Is
+
+Even though the underlying climate values are continuous curves, the game also maintains an awareness of discrete seasons — Spring, Summer, Autumn, and Winter. Each season occupies a defined portion of the year, and the game uses the current position in the year to determine which season you're in and how far through it you've progressed.
+
+This matters because some in-game events and triggers are keyed to season state rather than to raw temperature. The change of seasons is also where you'll see the most dramatic shifts in the underlying climate values. Moving from Winter into Spring means the temperature curve is climbing and precipitation is increasing. Moving from Summer into Autumn means temperatures are beginning their descent. These transition periods are often when weather-related gameplay challenges are most unpredictable — you're no longer in the stable plateau of midsummer or midwinter, but on the slope between them.
+
+---
+
+## Rain and What It Does to Your Citizens
+
+When precipitation is active and temperature is above freezing, it rains. Rain is more than an aesthetic effect — it actively reshapes how your population behaves in its leisure time.
+
+Outdoor activities see a dramatic reduction in demand during rain. Citizens who might otherwise head to a park decide to stay indoors instead. The weight that the game puts on outdoor leisure — parks in particular — drops sharply when it's raining, effectively redirecting leisure demand toward indoor venues. If your city's leisure infrastructure skews heavily toward parks and outdoor spaces, a rainy season will create a noticeable wellbeing squeeze for residents who can no longer use their primary leisure options. You won't see citizens standing in the park in the rain; you'll see them unable to find a satisfying alternative if you haven't provided one.
+
+> **Info:** Rain suppresses outdoor leisure demand by up to 95% compared to clear weather. This is not a flat reduction across all citizens — the suppression is applied as a weight modifier to the lottery that determines each citizen's leisure destination. In practice, nearly all citizens will favor indoor options during rain. Beaches require clear weather and temperatures above 20°C; they receive no visitors at all during rain regardless of season.
+
+The other thing rain does is reduce fire risk. A wet city is a safer city from a fire standpoint. Precipitation creates a buffer against the kind of dry conditions that make fire spread faster and more catastrophically. This is the indirect side of the same coin: as rain goes away and dry conditions set in, fire danger climbs.
+
+---
+
+## Snow: Accumulation, Traffic, and the Melt
+
+When precipitation falls and temperature is at or below freezing, it snows. Snow is not just a visual change — it accumulates physically across the terrain as a depth value that persists until temperature rises and melts it. The game runs a continuous snow simulation that adds depth during cold precipitation and subtracts it as temperatures climb. Melt happens about twice as fast as accumulation, which is why a city can take days of snowfall to reach deep coverage but will clear out more quickly once a thaw arrives.
+
+Elevation changes this equation. Higher ground is colder. Snow will persist longer at elevation than at lower terrain even when the city center has fully thawed. If your city spans significant altitude variation, you may find that snow lingers on the hills well into spring while the valley neighborhoods have been clear for days.
+
+Wind redistributes snow while it's actively falling. The terrain simulation moves snow in the direction of the wind during precipitation, which means sheltered valleys can accumulate more than exposed ridges. After the snow stops, redistribution stops too — the snowpack freezes in place until the temperature climbs.
+
+> **Info:** Snow accumulates when temperature is at or below the map's freezing threshold and precipitation is above zero. The accumulation rate is governed by a constant multiplier, with the melt multiplier set at exactly twice the accumulation rate. Elevation scales the effective temperature for snow purposes at a rate of one degree per 100 elevation units, so a hill that's 300 units above the baseline is effectively three degrees colder for snow accumulation.
+
+Snow on the roads has real traffic consequences. Vehicles lose traction during heavy snowfall, and the combination of poor visibility and slippery surfaces increases the chance of accidents on your road network. Road infrastructure with snow management (plows, salting) mitigates this, but cities that run lean on maintenance services will see their traffic networks degrade noticeably during winter storms. The effect is not just slower movement — it increases the probability of traffic incidents that can cascade into congestion.
+
+---
+
+## Severe Weather: Thunderstorms and Beyond
+
+Periodically, conditions align for something more dramatic than ordinary rain or snow. The game's hazard system checks roughly every thirty real-time seconds whether current temperature, precipitation, and cloudiness values fall within the window that allows a particular severe weather type to spawn. When they do, and when a random probability roll succeeds, a weather event is created and begins moving across the map.
+
+Each severe weather event has an outer zone — the wide area where atmospheric effects are visible and moderate — and an inner hotspot where the real damage happens. The hotspot wanders within the outer zone, driven by the wind and a degree of random instability, so its path is not perfectly predictable. As the event moves across the map, it follows the prevailing wind direction, drifting from one part of the city to another before eventually dissipating.
+
+Buildings caught in the hotspot take structural damage over time. The faster this damage accumulates relative to a building's structural integrity, the sooner serious consequences arrive. Buildings with unusually high structural integrity — certain government and landmark structures — are effectively immune. The rest of the city is not. The game also issues danger warnings ahead of an approaching hotspot's projected path, giving you a brief window to understand where it's heading.
+
+Lightning during thunderstorms is not just visual. Each strike targets the tallest structure within the storm's hotspot and can ignite a fire depending on that structure's flammability. Trees are particularly susceptible. A thunderstorm that crosses a dense forested or low-maintained neighborhood can rapidly produce multiple simultaneous fire ignitions.
+
+> **Info:** Severe weather events only cause damage if the "Natural Disasters" option is enabled in your city configuration. With it disabled, weather phenomena may still appear visually and create atmospheric conditions, but their damage severity is effectively zero — no structural damage, no fire ignitions, no traffic incidents from storm conditions. The weather simulation continues running regardless of this setting; only the damage application is gated.
+
+Traffic accidents during severe weather occur when vehicles are inside the active hotspot. The game applies a loss-of-control effect to moving vehicles, which can trigger impact events. Dense road networks in the path of a storm can experience cascading disruption as incident responses compound.
+
+---
+
+## Drought and Fire Risk
+
+Fire risk in CS2 is not purely about electrical faults or arson. Dry conditions — low or absent precipitation combined with warmer temperatures — create a background environment where fires start more easily and spread more aggressively. When a fire begins (whether from lightning, an electrical fault, or other cause), the current weather state influences how quickly it can take hold and how far it spreads before suppression services contain it.
+
+The connection between drought and fire is indirect but consistent. A long dry spell in summer, especially combined with the kind of above-average temperatures that warmer climate maps produce, creates sustained elevated fire risk across the city. This is the period to make sure your fire station coverage is solid and your fire service budget hasn't been trimmed. Fire stations that can't reach all parts of your city within a reasonable response time during normal conditions will struggle badly when multiple simultaneous ignitions occur during a dry summer storm.
+
+> **Info:** Lightning fire ignition is probabilistic. When a lightning strike lands, the game checks the target's fire data — specifically a start probability value. Structures with high fire susceptibility (dense wooden construction, unmanaged trees) will ignite at a meaningfully higher rate than fire-resistant construction. Keeping your parks and natural areas maintained helps reduce the density of highly flammable vegetation.
+
+Wet seasons serve as a natural brake on fire cascades. When precipitation is consistently high, ignition events are less frequent and fires that do start spread more slowly. Temperate maps with regular rainfall benefit from this passive fire suppression in a way that arid or continental maps do not.
+
+---
+
+## Weather and Electricity Demand
+
+Your city's power consumption is not flat across the year. Temperature drives heating and cooling loads in a way that's directly visible in your electricity dashboard if you pay attention to seasonal patterns.
+
+Cold winters push demand upward as residential and commercial buildings require more power to stay warm. Hot summers — where your climate profile reaches high summer temperatures — push demand upward again from cooling loads. The shoulder seasons between these extremes typically represent your lowest consumption baseline. On a climate with both harsh winters and hot summers, you're essentially managing two separate demand peaks per year with a respite in between.
+
+This has a practical implication for capacity planning. If you build enough power generation to cover your mild spring baseline, you will run into brownouts in both winter and summer. Sizing your generation and grid capacity to the peak seasonal demand — either heating or cooling, whichever is larger on your specific map — is the correct approach.
+
+> **Info:** The game fires explicit trigger events when the temperature crosses thresholds: WeatherRainy, WeatherSnowy, WeatherSunny, WeatherClear, WeatherCloudy, and WeatherStormy are all active signals that connected systems respond to. Electricity consumption changes are among the downstream effects of these triggers — the simulation adjusts building consumption based on the temperature delta from a comfort baseline.
+
+Wind turbines are also directly affected by the weather simulation. Wind strength fluctuates with seasonal and weather conditions, meaning your renewable energy output is variable. Turbines produce peak output during stormy, high-wind conditions but underperform during calm, clear periods. If you're running heavy renewable capacity, build in storage or backup generation to cover the calm periods.
+
+---
+
+## Seasonal Patterns You Can Anticipate
+
+Once you've watched a full year pass, the weather system becomes predictable in the ways that matter most for planning:
+
+Winter brings cold, snow accumulation, traffic degradation, and elevated heating demand. If your map's winter is harsh, this is when your snow removal, emergency services, and power grid are under the most simultaneous pressure.
+
+Spring is the transition period. Snow melts, often producing muddy or wet terrain conditions, and precipitation increases as temperatures rise. Fire risk is still low, leisure demand shifts back toward outdoor options, and energy demand begins its descent from winter peaks.
+
+Summer represents the opposite pressure set from winter. Temperatures climb, precipitation drops in many climate profiles, and fire risk increases. Heat drives cooling demand upward. On maps with long dry summers, this is the season where fire station coverage and incident response time matter most.
+
+Autumn mirrors spring as a transition. Temperatures fall, precipitation often returns, and the city begins preparing for winter conditions again. This is typically the most comfortable operational period — fire risk is declining, heating demand hasn't yet peaked, and dry-weather constraints are easing.
+
+The specific intensity of each season varies dramatically by map. A coastal temperate map experiences these patterns as gentle gradients. A continental map may have winters cold enough for significant snow accumulation and summers dry enough to make fires a genuine concern in the same city.
+
+---
+
+## What Can Go Wrong
+
+**Winter traffic collapses without snow management.** If your road network doesn't have adequate snow plowing coverage, accumulated snow degrades traffic flow across the city simultaneously. Unlike a localized road closure, a winter storm affects every road at once. Cities that budget aggressively against maintenance services will discover this problem at the worst possible moment.
+
+**A city of parks runs into trouble in wet climates.** If outdoor leisure is your primary option for resident wellbeing, a wet climate with extended rainy seasons will create sustained leisure deficits. Citizens whose leisure needs go unmet become unhappy, and unhappiness spreads into productivity and residential desirability. Indoor venues — museums, libraries, entertainment facilities — are not optional luxuries in a rainy climate; they're load-bearing infrastructure.
+
+**Fire services get caught short during dry summers.** Low summer precipitation combined with high temperatures creates the window when lightning strikes or electrical faults are most likely to cascade into major fires. If your fire station coverage has gaps, and multiple ignitions occur simultaneously during a thunderstorm on a dry summer day, the fires that services can't reach in time will grow significantly before suppression arrives.
+
+**Power peaks arrive at the wrong time.** Players who set up their power grid during spring or fall and call it sufficient will find themselves with rolling shortages during both winter and summer peaks. Each climate type has characteristic peak demand seasons. Check your consumption trend across a full year before declaring your grid solved.
+
+**Storm paths are not telegraphed far enough in advance.** The danger zone warning ahead of an approaching weather hotspot gives you a rough projected path, but the hotspot wanders within its outer zone based on wind instability. Buildings inside the warning zone may avoid the worst; buildings just outside it may receive damage. Treating the entire outer zone of an active storm as a risk area — not just the projected hotspot path — is the safer approach.
+
+**Snow lingers at elevation long after the city is clear.** If you have buildings, roads, or infrastructure at significantly higher elevations than the rest of the map, expect snow to persist there days or weeks after the valley has thawed. Snow removal services that cover the lower city may not adequately reach elevated zones, and persistent snow at elevation will continue to cause traffic degradation on those roads even when the rest of your network is clear.

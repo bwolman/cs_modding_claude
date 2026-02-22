@@ -1,0 +1,71 @@
+## How Education Works in Cities: Skylines II
+
+Every citizen in your city who hasn't yet reached their education potential is constantly being evaluated against the available schools in your city. Whether it's a child seeking their first elementary school or a young adult weighing whether to attend university, the game runs each citizen through a full pipeline: find a school, commute to it daily, and eventually graduate — or drop out.
+
+### The Five Education Levels
+
+Citizens progress through up to five tiers of education over their lifetimes:
+
+- **Uneducated** — no schooling completed
+- **Poorly Educated** — completed elementary school
+- **Educated** — completed high school
+- **Well Educated** — completed college
+- **Highly Educated** — completed university
+
+Each tier unlocks access to higher-paying and more specialized jobs. An uneducated citizen will only ever qualify for the lowest-wage work; a highly educated one can fill your city's most demanding positions.
+
+### Finding a School
+
+When a citizen needs a school, the game attempts to find one by pathfinding — it looks for the nearest suitable school building that still has open seats. Children can only travel on foot to reach school; adults can also use vehicles. If a suitable school is found and has capacity, the citizen enrolls and is added to that school's roster. If no school is available — because they're all full or too far away — the citizen is placed on a short cooldown before trying again.
+
+> **ℹ️ Info — What "too far away" means**
+> The game does not use a fixed distance limit. Instead, it uses a pathfinding cost ceiling. If the travel cost to every reachable school exceeds that threshold, the search fails. Commute time feeds directly into dropout calculations later, so a long commute isn't just an inconvenience — it raises the chance a citizen quits school entirely.
+
+If a citizen who is already employed enrolls in school, they leave their job. Education takes priority, and the citizen is removed from their workplace's staff until they graduate or drop out.
+
+### Daily Attendance
+
+Enrolled students travel to their school building each in-game day during study hours, then return home. Each citizen has a slight individual offset in their departure time, which naturally staggers the morning rush rather than sending every student out at the same moment. On days where citywide traffic is especially heavy, some students may skip attendance — the simulation models a small attendance reduction based on population density and congestion.
+
+### Graduation: How Citizens Actually Progress
+
+The game periodically evaluates each enrolled student for graduation. At each evaluation, only about half of all students are checked on any given cycle — the rest are skipped until the next round. For those who are checked, the game calculates a graduation probability based on several factors:
+
+- The student's **wellbeing** — happier citizens study better
+- The student's **study willingness** — a fixed personal trait assigned to each citizen
+- The **efficiency** of their school building — a poorly maintained or understaffed school hurts everyone's chances
+- The **school's graduation modifier** — better schools have a flat bonus to graduation rates
+
+Elementary school students have a high baseline graduation chance and, once they graduate, automatically stay enrolled and proceed toward high school. High school, college, and university all use progressively more demanding probability curves, meaning the higher the education level, the harder it is to graduate.
+
+> **ℹ️ Info — How graduation probability is calculated**
+> The formula combines wellbeing and study willingness into a single score, then applies a different curve per school level. Elementary uses a generous S-curve with a high floor. High school uses a logarithmic curve. College and university factor in city-level education bonuses that you can accumulate through policies and specializations. Building efficiency scales everyone's final chance — a school running at half efficiency meaningfully reduces graduation rates for all students inside it.
+
+### Dropping Out
+
+Citizens at college and university level don't just graduate or wait forever — they can drop out. After each failed graduation check, the citizen accumulates a failure count. Once they've failed three times, they are forced out of the school. Between failures, however, the game runs an economic calculation to decide whether the citizen would voluntarily drop out sooner:
+
+The citizen weighs the wages they would earn right now (at their current education level) against the projected lifetime earnings they'd gain from the degree — accounting for their age, how long they expect to spend finishing school, tuition costs, and unemployment benefits during study time. If staying in school looks like a net loss, they drop out.
+
+> **ℹ️ Info — What makes dropout more likely**
+> Long commutes are weighted heavily in dropout decisions. A citizen spending a lot of time getting to school is effectively losing wages and time. High school fees, low wellbeing, and citizens who are close to elder age (with fewer working years left to recoup the investment) all push the dropout probability upward. Citizens far from a school are financially rational — they leave.
+
+### How Education Affects Jobs and Wages
+
+Education level is the primary gatekeeper for job eligibility across the city's economy. Each education tier corresponds to a wage bracket, and businesses hiring for higher-tier roles will only accept citizens who have reached the required level. As more of your citizens graduate from college and university, your city develops the workforce to attract and fill high-value commercial and industrial jobs — which in turn drives higher tax revenue and economic growth.
+
+Education level also shapes demand. A city where most residents are uneducated will generate demand for low-skill labor. As your graduation rates rise and education levels shift upward, the demand balance shifts: your residents start needing office jobs, specialized services, and high-density commercial space rather than factories and basic retail.
+
+---
+
+## What Can Go Wrong
+
+**Schools are full and enrollment fails.** If your schools reach capacity before citizens can enroll, the game puts those citizens on a retry cooldown. They are not stuck permanently, but they will keep failing to enroll until you add school capacity or an existing student graduates and frees a seat. Watch your school occupancy rates in the education infoview.
+
+**Citizens drop out due to long commutes.** A school placed on the far edge of a district serves residents poorly even if it technically has seats. Citizens with long travel times to school are significantly more likely to run the economic math and conclude dropping out is rational. Build schools close to residential areas.
+
+**School efficiency collapses.** Schools that are inoperable — due to no power, no water, or missing workers — have their efficiency drop to near zero. This directly tanks graduation probabilities for everyone enrolled. In severe cases, the game begins randomly ejecting students from the school entirely. An inoperable school is worse than no school.
+
+**Workforce mismatch after a rapid education push.** If you rapidly boost graduation rates (through policies or a burst of new school construction), you may produce more highly educated residents than your economy currently has high-skill jobs to fill. Those graduates become overqualified for available work, suppressing satisfaction and potentially driving emigration. Build economic capacity alongside educational capacity.
+
+**Older citizens stop bothering.** Because the dropout formula accounts for remaining working years, citizens who are close to elder age will almost always determine that college or university is not worth the investment. This is working as designed — the game models rational behavior — but it means education campaigns targeted at older populations will yield diminishing returns.
