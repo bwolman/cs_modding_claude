@@ -220,7 +220,7 @@ def build_page(title: str, body: str, active_file: str) -> str:
   <title>{title} - CS2 Game Mechanics</title>
   <link rel="stylesheet" href="../style.css">
 </head>
-<body>
+<body data-theme="cs2">
 
 <div class="top-bar">
   <a href="../index.html" class="site-title">CS2 Research</a>

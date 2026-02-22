@@ -1,29 +1,94 @@
-/* CS2 Modding Research - Microsoft Learn inspired */
+/* CS2 Modding Research — three-theme system
+   Default (:root)       = Dark Developer (GitHub Dark style)
+   [data-theme="cs2"]    = Dark CS2-Inspired (teal accent)
+   [data-theme="landing"]= Warm Neutral (amber accent, light bg)
+*/
 
 :root {
-  --bg: #ffffff;
-  --bg-sidebar: #f5f5f5;
-  --bg-code: #f6f8fa;
-  --bg-card: #ffffff;
-  --bg-banner: #0078d4;
-  --text: #24292f;
-  --text-muted: #57606a;
-  --text-heading: #1b1f24;
-  --accent: #0078d4;
-  --accent-hover: #005a9e;
-  --accent-light: #e8f4fd;
-  --border: #d0d7de;
-  --border-light: #e8ecef;
-  --link: #0969da;
-  --link-hover: #0550ae;
-  --tag-bg: #ddf4ff;
-  --tag-text: #0969da;
-  --scope-bg: #f0f7ff;
-  --scope-border: #0078d4;
-  --nav-bg: #24292f;
-  --nav-text: #ffffff;
+  --bg: #0d1117;
+  --bg-sidebar: #161b22;
+  --bg-code: #161b22;
+  --bg-card: #161b22;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --text-heading: #f0f6fc;
+  --accent: #58a6ff;
+  --accent-hover: #79c0ff;
+  --accent-light: rgba(88,166,255,0.15);
+  --border: #30363d;
+  --border-light: #21262d;
+  --link: #58a6ff;
+  --link-hover: #79c0ff;
+  --tag-bg: #1f3958;
+  --tag-text: #79c0ff;
+  --tag-border: #2d4f7c;
+  --scope-bg: rgba(88,166,255,0.08);
+  --scope-border: #388bfd;
+  --nav-bg: #161b22;
+  --nav-text: #f0f6fc;
   --nav-muted: #8b949e;
-  --sidebar-active: #0078d4;
+  --sidebar-active: #58a6ff;
+  --bg-table-stripe: rgba(240,246,252,0.04);
+  --bg-hero-end: #161b22;
+  --shadow-accent: rgba(88,166,255,0.15);
+}
+
+[data-theme="cs2"] {
+  --bg: #0e1823;
+  --bg-sidebar: #0a1520;
+  --bg-code: #0a1520;
+  --bg-card: #111e2d;
+  --text: #c8d6e5;
+  --text-muted: #6b8099;
+  --text-heading: #e8f2ff;
+  --accent: #3cc8a8;
+  --accent-hover: #5ddabf;
+  --accent-light: rgba(60,200,168,0.12);
+  --border: #1a2d40;
+  --border-light: #152538;
+  --link: #3cc8a8;
+  --link-hover: #5ddabf;
+  --tag-bg: rgba(60,200,168,0.1);
+  --tag-text: #3cc8a8;
+  --tag-border: rgba(60,200,168,0.25);
+  --scope-bg: rgba(60,200,168,0.08);
+  --scope-border: #3cc8a8;
+  --nav-bg: #080f18;
+  --nav-text: #e8f2ff;
+  --nav-muted: #6b8099;
+  --sidebar-active: #3cc8a8;
+  --bg-table-stripe: rgba(200,214,229,0.04);
+  --bg-hero-end: #0a1520;
+  --shadow-accent: rgba(60,200,168,0.12);
+}
+
+[data-theme="landing"] {
+  --bg: #faf8f5;
+  --bg-sidebar: #f0ebe2;
+  --bg-code: #f5efe6;
+  --bg-card: #ffffff;
+  --text: #2d2926;
+  --text-muted: #6b5f55;
+  --text-heading: #1a1613;
+  --accent: #b05e26;
+  --accent-hover: #8f4a1e;
+  --accent-light: #fef3e8;
+  --border: #ddd4c8;
+  --border-light: #ede6da;
+  --link: #b05e26;
+  --link-hover: #8f4a1e;
+  --tag-bg: #fdebd0;
+  --tag-text: #8f4a18;
+  --tag-border: #f4ccaa;
+  --scope-bg: #fef6ee;
+  --scope-border: #b05e26;
+  --nav-bg: #2d2926;
+  --nav-text: #faf8f5;
+  --nav-muted: #a09285;
+  --sidebar-active: #b05e26;
+  --bg-table-stripe: #f5efe6;
+  --bg-hero-end: #eef4ec;
+  --shadow-accent: rgba(176,94,38,0.12);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -249,7 +314,7 @@ code {
   padding: 0.15rem 0.4rem;
   border-radius: 4px;
   font-size: 0.87em;
-  color: #1b1f24;
+  color: var(--text);
   border: 1px solid var(--border-light);
 }
 
@@ -305,7 +370,7 @@ tr:first-child th {
   background: var(--bg-code);
 }
 
-tr:nth-child(even) td { background: #f8f9fa; }
+tr:nth-child(even) td { background: var(--bg-table-stripe); }
 
 /* ============================================================
    Scope / callout boxes
@@ -381,7 +446,7 @@ tr:nth-child(even) td { background: #f8f9fa; }
   font-size: 0.78em;
   font-family: monospace;
   margin: 0.1rem 0.15rem;
-  border: 1px solid #b6e3ff;
+  border: 1px solid var(--tag-border);
 }
 
 /* ============================================================
@@ -404,7 +469,7 @@ tr:nth-child(even) td { background: #f8f9fa; }
 
 .topic-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 1px 4px rgba(0, 120, 212, 0.1);
+  box-shadow: 0 1px 4px var(--shadow-accent);
 }
 
 .topic-card h3 {
@@ -541,7 +606,7 @@ footer .attribution-footer {
    Hero section for landing page
    ============================================================ */
 .hero {
-  background: linear-gradient(135deg, var(--scope-bg) 0%, #f0fff4 100%);
+  background: linear-gradient(135deg, var(--scope-bg) 0%, var(--bg-hero-end) 100%);
   border: 1px solid var(--border-light);
   border-radius: 8px;
   padding: 2rem 2.5rem;
@@ -579,7 +644,7 @@ footer .attribution-footer {
 
 .path-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 2px 8px rgba(0, 120, 212, 0.12);
+  box-shadow: 0 2px 8px var(--shadow-accent);
 }
 
 .path-card h3 {
@@ -724,4 +789,47 @@ hr {
   border: none;
   border-top: 1px solid var(--border-light);
   margin: 2rem 0;
+}
+
+/* ============================================================
+   Dark-theme overrides for light-hardcoded components
+   ============================================================ */
+:root .warning,
+[data-theme="cs2"] .warning {
+  background: rgba(154,103,0,0.15);
+  border-left-color: #d29922;
+}
+
+:root .warning strong,
+[data-theme="cs2"] .warning strong {
+  color: #d29922;
+}
+
+:root .quick-start,
+[data-theme="cs2"] .quick-start {
+  background: rgba(45,164,78,0.1);
+  border-left-color: #2da44e;
+}
+
+:root .quick-start h2,
+[data-theme="cs2"] .quick-start h2 {
+  color: #3fb950;
+}
+
+:root .badge-beginner,
+[data-theme="cs2"] .badge-beginner {
+  background: rgba(45,164,78,0.15);
+  color: #3fb950;
+}
+
+:root .badge-intermediate,
+[data-theme="cs2"] .badge-intermediate {
+  background: rgba(210,153,34,0.15);
+  color: #d29922;
+}
+
+:root .badge-advanced,
+[data-theme="cs2"] .badge-advanced {
+  background: rgba(248,81,73,0.15);
+  color: #f85149;
 }
