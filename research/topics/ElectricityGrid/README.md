@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-15
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -265,6 +265,7 @@ Counts total production, consumption, and battery capacity for UI statistics.
 
 ### PowerPlantData
 - `m_ElectricityProduction`: Base production in electricity units
+- **Runtime-confirmed (prefab dump)**: Nuclear=7,500,000, Coal=3,000,000, Gas=2,500,000. Dynamic sources (hydro/solar/wind) all have `m_ElectricityProduction = 0` in the prefab — their capacity is computed entirely at runtime by `PowerPlantAISystem` from wind speed, sun angle, and water flow. Never read `m_ElectricityProduction` from a prefab to estimate a dynamic plant's output; use `ElectricityProducer.m_Capacity` instead.
 
 ### BatteryData
 - `m_Capacity`: Energy storage in electricity-hours

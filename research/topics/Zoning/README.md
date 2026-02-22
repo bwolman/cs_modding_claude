@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-17
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -1014,7 +1014,7 @@ public static class BuildingSelectionReference
 - [ ] How exactly does the zone search tree (`Game.Zones.SearchSystem`) index blocks spatially? It uses a `NativeQuadTree<Entity, Bounds2>` but the rebuild frequency and spatial granularity weren't fully traced.
 - [ ] What determines the exact split points when `BlockSystem` divides a long road edge into multiple blocks? The roundabout-based splitting logic involves curve lengths and `TryOption()` with different width combinations (2, 3 cells).
 - [x] How does `ZoneCheckSystem` decide when to demolish vs. flag? **Answer**: It never demolishes directly. It adds the `Condemned` tag component when all lot cells don't match the zone type or lack a `CellFlags.Roadside` cell. A separate demolition pipeline handles condemned buildings. Valid buildings get their `Condemned` component removed. See `ZoneCheckSystem` section above for the full three-job pipeline.
-- [ ] What is the full list of zone type indices and their names? The `ZoneType.m_Index` maps to prefabs via `ZonePrefabs`, but the actual prefab names (Low Density Residential, High Density Commercial, etc.) are defined in game data files, not code.
+- [x] What is the full list of zone type indices and their names? **Runtime-confirmed (prefab dump)**: 108 total ZonePrefabs exist (indices 0–107), spanning base game + all DLC regions. Industrial Manufacturing (entity 81) is the most-referenced zone with 500 buildings. 12 previously undocumented **SpecializedIndustrial sub-zones** were discovered: Forestry, Agriculture, Ore, and Oil each have General/Manufacturing/Warehouses variants (4 × 3 = 12). Additional undocumented zones include aquaculture, offshore oil, and waterfront commercial (DLC). The `ZoneType.m_Index` enumeration is much larger than the base-game ZoneType enum values suggest.
 - [ ] How does `ZoneEvaluationUtils.GetScore()` calculate the evaluation score? This utility considers pollution, resource availability, land value, and zone preferences but the full formula was not traced.
 - [x] How does `BuildingSpawnGroupData` group building prefabs by zone type? **Answer**: It's an `ISharedComponentData` with a single `m_ZoneType` field. As a shared component, all entities with the same zone type are stored in the same archetype chunks. Building selection iterates chunks and skips non-matching zone types at the chunk level, making it very efficient.
 

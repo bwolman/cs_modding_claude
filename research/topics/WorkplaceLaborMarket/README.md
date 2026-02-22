@@ -146,8 +146,8 @@ Per-prefab workplace configuration. Attached to company and building prefabs.
 |-------|------|---------|-------------|
 | m_Complexity | WorkplaceComplexity | Varies | Determines education level distribution |
 | m_MaxWorkers | int | Varies | Base maximum worker count |
-| m_EveningShiftProbability | float | Varies | Probability a new hire gets evening shift |
-| m_NightShiftProbability | float | Varies | Probability a new hire gets night shift |
+| m_EveningShiftProbability | float | **0.25** (service buildings) | Probability a new hire gets evening shift |
+| m_NightShiftProbability | float | **0.25** (service buildings) | Probability a new hire gets night shift |
 | m_MinimumWorkersLimit | int | 0 | Minimum workers needed before efficiency drop |
 | m_WorkConditions | int | 0 | Work conditions factor (+/- affects employee happiness efficiency) |
 
