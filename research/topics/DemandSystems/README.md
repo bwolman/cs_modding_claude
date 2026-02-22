@@ -2,7 +2,7 @@
 
 > **Status**: Complete
 > **Date started**: 2026-02-15
-> **Last updated**: 2026-02-16
+> **Last updated**: 2026-02-22
 
 ## Scope
 
@@ -97,8 +97,8 @@ The default is `float2(1, 1)` (no scaling). Game modes can set different values 
 **Demand Calculation Factors:**
 
 1. **Population bonus**: 20 - smoothstep(0, 20, population/20000). New cities get a significant boost that tapers off.
-2. **Happiness**: `m_HappinessEffect * (avgHappiness - m_NeutralHappiness)`. Higher happiness above the neutral point (default 45) increases demand.
-3. **Homelessness**: Negative effect when homeless households exceed `m_NeutralHomelessness` (default 50). Capped at `kMaxFactorEffect` (15). Only affects high-density demand factors.
+2. **Happiness**: `m_HappinessEffect * (avgHappiness - m_NeutralHappiness)`. Higher happiness above the neutral point (default 50) increases demand.
+3. **Homelessness**: Negative effect when homeless households exceed `m_NeutralHomelessness` (default 2 — extremely strict). Capped at `kMaxFactorEffect` (15). Only affects high-density demand factors.
 4. **Tax rates**: Average deviation from 10% across 5 education levels, weighted by `m_TaxEffect.x`. Lower taxes increase demand.
 5. **Available workplaces**: `m_AvailableWorkplaceEffect * (freeWorkplaces - totalWorkplaces * neutralPercentage/100)`. Simple workplaces clamped to [0, 40], complex to [0, 20]. More available jobs attract residents.
 6. **Students**: `m_StudentEffect * clamp(studyPositions/200, 0, 5)`. Available education slots increase demand for medium/high density.
@@ -239,27 +239,27 @@ The central configuration struct, stored as an ECS singleton component. All thre
 | m_StudentEffect | float | 1.0 | Weight for study position factor |
 | m_AvailableWorkplaceEffect | float | 8.0 | Weight for free workplace factor |
 | m_HomelessEffect | float | 20.0 | Weight for homelessness factor |
-| m_NeutralHappiness | int | 45 | Happiness value that produces zero effect |
-| m_NeutralUnemployment | float | 20.0 | Unemployment rate (%) that produces zero effect |
+| m_NeutralHappiness | int | 50 | Happiness value that produces zero effect |
+| m_NeutralUnemployment | float | 15.0 | Unemployment rate (%) that produces zero effect |
 | m_NeutralAvailableWorkplacePercentage | float | 10.0 | Free workplace % that produces zero effect |
-| m_NeutralHomelessness | int | 50 | Homeless household count that produces zero effect |
-| m_FreeResidentialRequirement | int3 | (5, 10, 10) | Free property threshold per density (x=low, y=medium, z=high) |
-| m_FreeCommercialProportion | float | 10.0 | Free commercial property percentage target |
-| m_FreeIndustrialProportion | float | 10.0 | Free industrial property percentage target |
+| m_NeutralHomelessness | int | 2 | Homeless household count that produces zero effect (very strict — even 3 homeless hurts demand) |
+| m_FreeResidentialRequirement | int3 | (5, 60, 100) | Free property threshold per density (x=low, y=medium, z=high). Medium and high targets are much larger than expected. |
+| m_FreeCommercialProportion | float | 5.0 | Free commercial property percentage target |
+| m_FreeIndustrialProportion | float | 5.0 | Free industrial property percentage target |
 | m_CommercialStorageMinimum | float | 0.2 | Minimum commercial storage ratio threshold |
 | m_CommercialStorageEffect | float | 1.6 | Multiplier for commercial storage demand effect |
-| m_CommercialBaseDemand | float | 4.0 | Base demand multiplier for commercial |
+| m_CommercialBaseDemand | float | 5.0 | Base demand multiplier for commercial |
 | m_IndustrialStorageMinimum | float | 0.2 | Minimum industrial storage ratio threshold |
 | m_IndustrialStorageEffect | float | 1.6 | Multiplier for industrial storage demand effect |
-| m_IndustrialBaseDemand | float | 7.0 | Base demand multiplier for industrial |
-| m_ExtractorBaseDemand | float | 1.5 | Base demand multiplier for extractors |
-| m_StorageDemandMultiplier | float | 5e-5 | Scaling factor for storage demand |
-| m_CommuterWorkerRatioLimit | int | 8 | Max ratio of commuter workers to local workers before throttling |
+| m_IndustrialBaseDemand | float | 1.0 | Base demand multiplier for industrial |
+| m_ExtractorBaseDemand | float | 1.0 | Base demand multiplier for extractors |
+| m_StorageDemandMultiplier | float | 1.0 | Scaling factor for storage demand |
+| m_CommuterWorkerRatioLimit | int | 9 | Max ratio of commuter workers to local workers before throttling |
 | m_CommuterSlowSpawnFactor | int | 8 | Slowdown factor applied to commuter spawning when ratio exceeded |
-| m_CommuterOCSpawnParameters | float4 | (0.8, 0.2, 0, 0) | Commuter spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship) |
-| m_TouristOCSpawnParameters | float4 | (0.1, 0.1, 0.5, 0.3) | Tourist spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship) |
+| m_CommuterOCSpawnParameters | float4 | (0.5, 0.3, 0.2, 0) | Commuter spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship) |
+| m_TouristOCSpawnParameters | float4 | (0.1, 0.2, 0.4, 0.3) | Tourist spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship) |
 | m_CitizenOCSpawnParameters | float4 | (0.6, 0.2, 0.15, 0.05) | Citizen spawn distribution at outside connections (x=Road, y=Train, z=Air, w=Ship) |
-| m_TeenSpawnPercentage | float | 0.5 | Percentage of new households with children that include a teen |
+| m_TeenSpawnPercentage | float | 0.2 | Percentage of new households with children that include a teen |
 | m_FrameIntervalForSpawning | int3 | (0, 2000, 2000) | Frame cooldown per sector (x=residential, y=commercial, z=industrial) |
 | m_HouseholdSpawnSpeedFactor | float | 0.5 | Speed factor for new household spawning |
 | m_HotelRoomPercentRequirement | float | 0.5 | Fraction of tourists needing hotel rooms |
@@ -291,7 +291,7 @@ An `EntityQueryModePrefab` subclass under `ComponentMenu("Modes/Mode Parameters/
 `CountResidentialPropertySystem` is a dependency system that runs before the demand systems. It counts available (free) residential properties per density tier and feeds these counts into `ResidentialDemandSystem`. The free property counts are compared against `DemandParameterData.m_FreeResidentialRequirement` to determine building demand:
 
 - `m_FreeResidentialRequirement` is an `int3` where `x` = low density threshold, `y` = medium density threshold, `z` = high density threshold.
-- Default values are `(5, 10, 10)`, meaning the game targets at least 5 free low-density properties, 10 free medium, and 10 free high.
+- Runtime-confirmed values are `(5, 60, 100)`, meaning the game targets at least 5 free low-density properties, 60 free medium, and 100 free high. Medium and high thresholds are much larger than early decompilation estimates suggested.
 - When free properties fall below the requirement, building demand increases. The formula is: `100 * (requirement - freeProps) / requirement`.
 - When free properties meet or exceed the requirement, building demand from this factor is 0 or negative (suppressing spawning).
 
