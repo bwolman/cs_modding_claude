@@ -6,6 +6,12 @@ Before a citizen can drive anywhere, their household needs to own a car. Car own
 
 > **ℹ️ Ownership rule**: Each car belongs to a specific household. The game maintains a list of cars per household. If that list no longer contains a particular car — because the household sold it, moved, or was deleted — the car disappears from the game within roughly 1,000 simulation frames (about one in-game hour).
 
+Car ownership is not binary — households own different vehicle types based on their wealth level. Poorer households tend to own smaller, less capable vehicles; wealthier households own larger or more capable ones. This affects not just aesthetics but the vehicle's physical behavior: heavier, larger vehicles have different handling characteristics in the physics simulation and contribute differently to road congestion per vehicle.
+
+Households that own a car do not automatically use it for every trip. The pathfinder evaluates car use against transit, cycling, and walking for each journey. Short trips in walkable neighborhoods often result in the car staying parked. Long trips across a car-dependent city almost always result in the car being used.
+
+> **ℹ️ Info:** The game assigns a specific vehicle prefab to each household based on their wealth tier at the time of car acquisition. The vehicle stays with the household until it is deleted or until the household moves. A newly wealthy household that upgrades its income does not automatically upgrade its car — the car type was set at acquisition time.
+
 ## From Parked to Moving
 
 When a car is not in use, it sits parked — either in the garage attached to the home building or in a nearby parking lane on the street. The car exists in the simulation the whole time, quietly waiting.
@@ -32,6 +38,16 @@ Not every car you see on your roads belongs to a citizen living in your city. Tr
 
 > **ℹ️ Outside traffic rule**: Vehicles flagged as dummy traffic are generated at outside connection points and travel through the road network as normal cars. They are not counted as citizen-owned vehicles and do not park or disembark passengers inside your city.
 
+## Mode Choice: Why Citizens Sometimes Don't Drive
+
+Even car-owning households do not always drive. The pathfinder evaluates driving against all available alternatives for every trip, and driving only wins when it is the best option overall.
+
+Walking wins for very short trips where the destination is within a reasonable walk and no faster transit is available. Cycling wins in cities with good cycling infrastructure if the trip distance falls in the cycling sweet spot — too far to walk comfortably, too short to bother with transit. Transit wins when lines are frequent, stops are nearby, and the time savings over driving are significant — especially when parking at the destination is scarce or expensive.
+
+Car-dependent behavior in your city is therefore a function of what alternatives exist. A city with no transit and poor walking conditions will see nearly every car-owning household drive nearly everywhere. A city with frequent transit, good pedestrian coverage, and paid parking near commercial destinations will see car ownership remain high but car usage decline significantly.
+
+> **ℹ️ Info:** The pathfinder factors in parking search time when evaluating car use. If parking near a destination is scarce, the expected cost of the car trip includes the time spent circling for a spot. In areas where parking is very scarce, the car option can become more expensive than transit even for car-owning households — they will leave the car at home.
+
 ## When Cars Disappear
 
 Cars are cleaned up under a few circumstances:
@@ -52,3 +68,5 @@ Cars do not simply despawn after driving for a while or after being parked too l
 **Outside connection overload.** If you build wide roads connecting to outside regions without providing realistic capacity through your city network, dummy traffic from those connections floods your roads. This is not a bug — it reflects actual through-traffic demand — but it can overwhelm intersections that look fine on paper.
 
 **Car ownership outlasting the household.** In rare edge cases, a car can end up ownerless but not yet deleted, sitting as a ghost vehicle in a parking lane until the next ownership check clears it out. If you notice permanently stationary vehicles that never move, this is the likely cause.
+
+**Wealthy district generating disproportionate traffic.** Wealthier households own cars at higher rates and tend to own larger vehicles. A high-density wealthy residential district will generate significantly more car trips and road load than an equivalent-density lower-income district with similar population. Transit investment in wealthy areas is particularly effective at reducing this disproportion, because wealthier citizens are more willing to use transit when it is genuinely fast and comfortable.

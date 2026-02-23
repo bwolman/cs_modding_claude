@@ -2,6 +2,16 @@
 
 Every commercial strip, factory district, and office park in your city is filled with simulated companies that hire workers, produce goods or services, pay bills, and can go out of business. Understanding how this machinery runs helps you build cities that thrive rather than silently bleed out.
 
+## How New Companies Arrive
+
+Companies do not appear in your city randomly. A new company forms when the game's development system decides that a zoned building should be occupied. When a building is constructed and zoned for commercial or industrial use, the game selects a company type appropriate for that zone, building level, and the current economic conditions. The company is instantiated into the building and immediately begins the hiring process.
+
+The type of company placed in a building is influenced by the building's complexity tier (which depends on zone type and building level) and by what resources the city needs. In an industrial zone, the game picks from companies that extract or process resources currently in demand. In a commercial zone, it picks from companies that sell goods citizens need. This means your city's economic composition is not fully random — it responds to the resource demands and population profile of your city.
+
+Company quality also scales with building level. A level-1 building spawns a small, basic company. The same footprint at level 4 or 5 spawns a larger, more capable company with more workers, more output capacity, and — often — more sophisticated resource requirements. This is why letting buildings level up matters economically: you are not just getting a prettier building, you are getting a more productive company.
+
+> **Info:** When a building is demolished or condemned, its company is immediately dissolved. The workers are marked unemployed and the company's inventory is lost. If a building is demolished mid-production cycle, the goods it was processing disappear — they are not transferred to nearby buildings or warehouses. Plan demolitions in stable industrial areas, not during active production periods.
+
 ## How Companies Get Workers
 
 When a building opens for business, the game immediately calculates how many workers it needs and what education levels those workers should have. A small farm needs mostly uneducated laborers. A software office needs mostly well-educated and highly-educated staff. A retail shop lands somewhere in between.
@@ -87,3 +97,5 @@ Bankruptcy follows a different path. The game tracks each company's total worth 
 **Supply chain broken by road congestion.** Goods can exist in your industrial district and still never reach your commercial zone if delivery trucks are caught in gridlock. Unlike a simple traffic problem, this manifests as commercial buildings going idle and eventually bankrupt while nearby factories show full inventory. Dedicated freight routes, separated industrial road networks, or warehouses placed closer to retail districts all help move goods through a congested city.
 
 **Silent import dependency draining the budget.** If your commercial sector relies on imported goods because local industry is not producing enough, every sale at every shop in your city is coming at a cost your budget is absorbing quietly. The drain is easy to miss because it does not appear as a single line item. Check the trade balance in the Economy panel: if imports consistently outrun exports, your commercial sector is profitable on paper but costing the city more than it earns.
+
+**Company type mismatch with available resources.** When a new industrial building spawns a company that requires a specific input resource (petroleum, grain, metals) and that resource is not available locally or via import, the company immediately enters a no-inputs state. It employs workers but produces nothing. The building will show high employment but zero output. This often happens in cities that zone industrial land before establishing the supply chain the industry needs. Ensure outside connections or upstream producers exist before zoning downstream industrial buildings.

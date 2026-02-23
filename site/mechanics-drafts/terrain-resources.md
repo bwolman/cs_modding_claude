@@ -4,15 +4,16 @@
 
 Every Cities: Skylines II map ships with a hidden layer of natural resources baked into the land. Before you place a single road, the ground beneath your future city already contains pockets of ore, pools of oil, stretches of fertile soil, and fish-rich waters — all distributed unevenly across the map in organic, overlapping patterns. These resources are invisible until you look for them, but they shape every decision you make about where to place specialized industry.
 
-The four resources are:
+The five resources are:
 
 - **Fertile land** — the broad agricultural belt that supports farming. It tends to cover large areas of the map and is the most common resource.
 - **Ore** — mineral deposits for mining and metal production. Rarer and patchier than fertile land.
 - **Oil** — underground petroleum for drilling and refining. About as rare as ore but found in different locations.
+- **Timber (forest)** — the forested areas of the map that support logging operations. Timber-rich areas appear as dense forest coverage on the terrain. Unlike ore and oil, timber is a renewable resource — forests regrow after harvesting.
 - **Fish** — determined by water depth rather than geology. Any body of water deeper than a couple of meters supports fish populations.
 
 > **ℹ️ Info — Resource Distribution**
-> Resources are generated using layered noise at three different scales, biased so that ore and oil are significantly rarer than fertile land. Ore and oil start at the same relative rarity as each other. Fish availability is tied entirely to how deep the water is — shallow decorative ponds produce nothing, while deep lakes and coastal waters are productive.
+> Resources are generated using layered noise at three different scales, biased so that ore and oil are significantly rarer than fertile land. Ore and oil start at the same relative rarity as each other. Timber-rich areas are visually obvious as tree coverage on the terrain — unlike ore and oil, which are invisible without the overlay, you can often spot potential logging areas just by looking at the map. Fish availability is tied entirely to how deep the water is — shallow decorative ponds produce nothing, while deep lakes and coastal waters are productive. Five distinct resource types in total: fertile land, ore, oil, timber, and fish.
 
 ## Discovering Resources
 
@@ -38,6 +39,11 @@ The practical implication: check the resource overlay periodically throughout th
 This is where resource management gets consequential. Fertile land and fish behave very differently from ore and oil.
 
 **Fertile land** slowly recovers over time if it is not too polluted. Ground pollution from nearby industry, landfills, or contaminated soil raises the "used" counter independently of extraction, acting like a second drain on the resource. Clean up the pollution source and fertility can return.
+
+**Timber** regenerates similarly to fertile land. Logged-out forest areas regrow over time, with regrowth rate tied to temperature — colder climates have slower regrowth. A heavy logging operation that extracts faster than the forest can regrow will deplete timber availability over time, but a sustained-rate logging operation in a temperate climate can theoretically run indefinitely.
+
+> **ℹ️ Info — Timber Renewability**
+> Timber's renewability depends on the balance between extraction rate and regrowth rate. A small logging district on a rich forested tile may never meaningfully deplete — regrowth keeps pace with demand. A large logging operation pushing maximum output will outpace regrowth and gradually exhaust the area. Watch for declining forest density in the resource overlay as an early warning: the colors will shift from deep and saturated toward pale as the local timber stock drops.
 
 **Fish populations** recover in a similar way — they regenerate toward a level set by water depth, but water pollution and noise pollution from boats or industry push them down. Remove the pollution and the fishery bounces back.
 
@@ -98,3 +104,5 @@ You can open this overlay at any point during gameplay, not just during initial 
 **Mining an area that overlaps fertile land makes agricultural use of that land impossible even after the mine closes.** Ground pollution from extraction persists for years after demolition. If you later decide you wanted farming there, the soil damage means you effectively cannot have it. The choice to mine a contested area is permanent in practice.
 
 **Over-relying on a single export resource leaves the city exposed when that resource depletes.** Cities that build their entire industrial tax base around ore or oil exports have no fallback when the deposits run thin. Import costs replace free local extraction, company margins collapse, and there is no diversified manufacturing sector to absorb the shock. Planning for eventual depletion — by gradually building renewable industry alongside extraction — avoids a fiscal crisis that is entirely predictable from the start.
+
+**Logging operation outpacing forest regrowth**: A logging district operating at high efficiency in a cold climate may exhaust the local forest faster than it regrows. The terrain overlay will show declining timber availability as the colors wash out. Reducing the number of active logging buildings, or accepting that logging must be supplemented by timber imports from outside connections, prevents a full depletion that would leave those buildings sitting idle with no resource to draw on.

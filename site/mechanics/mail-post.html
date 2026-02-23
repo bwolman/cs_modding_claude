@@ -81,6 +81,11 @@
 <p>ℹ️ <strong>Mail generation formula</strong>: A building's accumulation rate equals a base rate for its zone type multiplied by the number of residents plus workers. Mail is capped at a global maximum per building; once a building hits that ceiling, no more mail accumulates until service arrives.</p>
 </blockquote>
 <p>Mail sits on a building until a threshold is crossed. Only then does the building raise its hand and request a post van. Below that threshold, the game considers the backlog negligible and does nothing. This means a small amount of waiting mail is completely normal and harmless.</p>
+<p>Post office coverage is a radius around the building. Buildings inside this radius are eligible for service. Buildings outside it will not receive post van service from that office, even if no other office covers them. The gap-coverage problem is identical to fire stations: a building in an unserved area accumulates mail until it hits the cap, at which point it stops accumulating but is permanently impaired.</p>
+<p>Unlike fire stations, mail coverage gaps are often invisible until buildings start showing efficiency warnings. The mail infoview overlay is your primary diagnostic tool.</p>
+<blockquote>
+<p>ℹ️ <strong>Hard accumulation cap</strong>: The mail accumulation cap is a hard ceiling. A building that hits the cap stops accumulating, but the efficiency penalty for being at cap is significant. Once a post van services the building and clears the backlog, efficiency restores immediately — mail does not have a recovery delay like some other services.</p>
+</blockquote>
 <h2>Mailboxes on the Street</h2>
 <p>Separate from buildings, streetside mailboxes dot the city's roads. Citizens drop outgoing mail into these as they pass by. Mailboxes have their own accumulation threshold and raise their own collection requests independently of buildings. Post vans service these stops too, sweeping them clean on their routes.</p>
 <h2>The Post Van's Route</h2>
@@ -89,6 +94,14 @@
 <p>ℹ️ <strong>Capacity limits</strong>: Each van has a fixed mail capacity. If the van finishes all its deliveries before the delivery compartment is empty, it has mail left over. If the collection compartment fills up before the route ends, it stops collecting. In either case, the van returns to its home facility to unload and reload.</p>
 </blockquote>
 <p>When the van returns, the outgoing mail it collected is handed over to the facility as unsorted mail. Any local mail it could not deliver gets returned to the facility's stock to be sent out again on the next run.</p>
+<h2>Post Offices vs. Sorting Facilities</h2>
+<p>The postal system uses two distinct building types that serve very different roles.</p>
+<p><strong>Post offices</strong> are the neighborhood-level facilities. They dispatch post vans to collect mail from buildings and mailboxes within their coverage area, and they receive inbound mail for local delivery. Post offices have a coverage radius within which they will service buildings — place them like you would a fire station, distributed to cover residential and commercial zones.</p>
+<p><strong>Sorting facilities</strong> (also called mail sorting centers) are regional hubs. They do not dispatch post vans to individual buildings. Instead, they receive bulk mail transferred from post offices, sort it by destination, and redistribute it onward — either to another sorting facility or back to the originating post office for last-mile delivery. A city without any sorting facility still functions at small scale, but as postal volume grows, sorting facilities reduce the load on individual post offices and improve throughput.</p>
+<p>The practical routing is: building → post van → post office → sorting facility (if present) → destination post office → delivery van → destination building. Each hop in this chain adds a small time delay. A missing sorting facility means post offices must handle all inter-district routing themselves, which can create backlogs in larger cities.</p>
+<blockquote>
+<p>ℹ️ <strong>Sorting facility road access</strong>: Sorting facilities require road access for their own fleet of transport vehicles. A sorting center placed in a location with poor road connectivity will back up mail internally even if the surrounding post offices are performing well. Treat sorting facility placement with the same road-access attention you would give a cargo hub.</p>
+</blockquote>
 <h2>Two Kinds of Facilities</h2>
 <p>Not all postal buildings do the same job, and the distinction matters for city planning.</p>
 <p><strong>Sorting facilities</strong> are the backbone of the network. They receive raw, unsorted mail from vans and trucks, process it, and split it into two streams: local mail (addressed to buildings within your city) and outgoing mail (destined for outside the city). Sorting happens continuously, limited by the facility's sorting rate and its current efficiency. A sorting facility with plenty of unsorted mail but low efficiency will fall behind, and the backlog will grow.</p>
@@ -104,12 +117,14 @@
 <p>ℹ️ <strong>Efficiency penalty</strong>: Below a small threshold, mail has no effect on a building's efficiency. Above it, the penalty grows with the size of the backlog. A building that never receives a post van can suffer a significant efficiency reduction, meaning it produces less output, employs fewer workers effectively, or generates less tax revenue.</p>
 </blockquote>
 <hr>
-<h2>What Can Go Wrong</h2>
+<h2><strong>What Can Go Wrong</strong></h2>
 <p><strong>Not enough vans.</strong> The most common failure. A post office or sorting facility with too few vans dispatches them infrequently. Buildings wait a long time between visits, mail accumulates, and efficiency penalties spread across a neighborhood. Adding a second facility or upgrading van capacity resolves this.</p>
 <p><strong>Sorting bottleneck.</strong> If your sorting facility cannot process incoming unsorted mail fast enough — because its sorting rate is low, it is operating at reduced efficiency, or it is simply receiving more than it can handle — local mail production slows. Post offices starve for deliveries even while the sorting facility is sitting on a growing pile of raw mail.</p>
 <p><strong>Facility overflow.</strong> Every facility has a storage capacity. If mail arrives faster than it leaves, the facility fills up. A full facility stops accepting new mail, which means vans returning from their routes have nowhere to dump their collected mail. The vans then back up at the facility, reducing the frequency of outbound runs.</p>
 <p><strong>Coverage gaps.</strong> Postal service is not automatic across the entire city. If a district grows beyond the natural reach of existing facilities — measured by travel time, not just distance — buildings there will rarely see a post van. Placing a post office closer to underserved neighborhoods shortens the route time and improves visit frequency.</p>
 <p><strong>Outgoing mail stranded.</strong> Some zone types require active collection — the van must physically stop to pick up outgoing mail rather than the building simply dropping it off. If a neighborhood is collecting mail but no trucks are running transfers between the local post office and the sorting facility, outgoing mail piles up at the post office with nowhere to go.</p>
+<p><strong>Coverage gap in a fast-growing district:</strong> New zones built on the edge of an existing post office's radius may sit just outside coverage. The post office looks like it covers the area on the map but individual buildings at the periphery are unserved. Place a second post office or extend coverage before the district's mail backlog accumulates.</p>
+<p><strong>Sorting facility bottleneck in a large city:</strong> When postal volume exceeds what sorting facilities can process, mail backs up at post offices waiting for the sorting center to clear. Post offices with full outbound queues stop dispatching vans for collection because they have nowhere to put additional incoming mail. The symptom is post vans sitting idle at a post office that appears busy. Adding a second sorting facility or relocating the existing one for better road access resolves this.</p>
 
     <footer>
       <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>

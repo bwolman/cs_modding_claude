@@ -10,6 +10,12 @@ Each occupied building acts as both a sender and a receiver. The rate at which m
 
 Mail sits on a building until a threshold is crossed. Only then does the building raise its hand and request a post van. Below that threshold, the game considers the backlog negligible and does nothing. This means a small amount of waiting mail is completely normal and harmless.
 
+Post office coverage is a radius around the building. Buildings inside this radius are eligible for service. Buildings outside it will not receive post van service from that office, even if no other office covers them. The gap-coverage problem is identical to fire stations: a building in an unserved area accumulates mail until it hits the cap, at which point it stops accumulating but is permanently impaired.
+
+Unlike fire stations, mail coverage gaps are often invisible until buildings start showing efficiency warnings. The mail infoview overlay is your primary diagnostic tool.
+
+> ℹ️ **Hard accumulation cap**: The mail accumulation cap is a hard ceiling. A building that hits the cap stops accumulating, but the efficiency penalty for being at cap is significant. Once a post van services the building and clears the backlog, efficiency restores immediately — mail does not have a recovery delay like some other services.
+
 ## Mailboxes on the Street
 
 Separate from buildings, streetside mailboxes dot the city's roads. Citizens drop outgoing mail into these as they pass by. Mailboxes have their own accumulation threshold and raise their own collection requests independently of buildings. Post vans service these stops too, sweeping them clean on their routes.
@@ -21,6 +27,18 @@ When a post van leaves its facility, it carries a load of sorted, locally-addres
 > ℹ️ **Capacity limits**: Each van has a fixed mail capacity. If the van finishes all its deliveries before the delivery compartment is empty, it has mail left over. If the collection compartment fills up before the route ends, it stops collecting. In either case, the van returns to its home facility to unload and reload.
 
 When the van returns, the outgoing mail it collected is handed over to the facility as unsorted mail. Any local mail it could not deliver gets returned to the facility's stock to be sent out again on the next run.
+
+## Post Offices vs. Sorting Facilities
+
+The postal system uses two distinct building types that serve very different roles.
+
+**Post offices** are the neighborhood-level facilities. They dispatch post vans to collect mail from buildings and mailboxes within their coverage area, and they receive inbound mail for local delivery. Post offices have a coverage radius within which they will service buildings — place them like you would a fire station, distributed to cover residential and commercial zones.
+
+**Sorting facilities** (also called mail sorting centers) are regional hubs. They do not dispatch post vans to individual buildings. Instead, they receive bulk mail transferred from post offices, sort it by destination, and redistribute it onward — either to another sorting facility or back to the originating post office for last-mile delivery. A city without any sorting facility still functions at small scale, but as postal volume grows, sorting facilities reduce the load on individual post offices and improve throughput.
+
+The practical routing is: building → post van → post office → sorting facility (if present) → destination post office → delivery van → destination building. Each hop in this chain adds a small time delay. A missing sorting facility means post offices must handle all inter-district routing themselves, which can create backlogs in larger cities.
+
+> ℹ️ **Sorting facility road access**: Sorting facilities require road access for their own fleet of transport vehicles. A sorting center placed in a location with poor road connectivity will back up mail internally even if the surrounding post offices are performing well. Treat sorting facility placement with the same road-access attention you would give a cargo hub.
 
 ## Two Kinds of Facilities
 
@@ -44,7 +62,7 @@ The system becomes visible to players when it starts to fail. If mail accumulate
 
 ---
 
-## What Can Go Wrong
+## **What Can Go Wrong**
 
 **Not enough vans.** The most common failure. A post office or sorting facility with too few vans dispatches them infrequently. Buildings wait a long time between visits, mail accumulates, and efficiency penalties spread across a neighborhood. Adding a second facility or upgrading van capacity resolves this.
 
@@ -55,3 +73,7 @@ The system becomes visible to players when it starts to fail. If mail accumulate
 **Coverage gaps.** Postal service is not automatic across the entire city. If a district grows beyond the natural reach of existing facilities — measured by travel time, not just distance — buildings there will rarely see a post van. Placing a post office closer to underserved neighborhoods shortens the route time and improves visit frequency.
 
 **Outgoing mail stranded.** Some zone types require active collection — the van must physically stop to pick up outgoing mail rather than the building simply dropping it off. If a neighborhood is collecting mail but no trucks are running transfers between the local post office and the sorting facility, outgoing mail piles up at the post office with nowhere to go.
+
+**Coverage gap in a fast-growing district:** New zones built on the edge of an existing post office's radius may sit just outside coverage. The post office looks like it covers the area on the map but individual buildings at the periphery are unserved. Place a second post office or extend coverage before the district's mail backlog accumulates.
+
+**Sorting facility bottleneck in a large city:** When postal volume exceeds what sorting facilities can process, mail backs up at post offices waiting for the sorting center to clear. Post offices with full outbound queues stop dispatching vans for collection because they have nowhere to put additional incoming mail. The symptom is post vans sitting idle at a post office that appears busy. Adding a second sorting facility or relocating the existing one for better road access resolves this.

@@ -30,7 +30,15 @@ Street parking and garages operate on different capacity models. Street parking 
 
 The capacity of a garage depends on the building: dedicated parking facilities have explicit capacities defined per building, while garages attached to residences scale roughly with unit count, and workplace parking scales with the number of workers (roughly one space per twenty workers).
 
-> **Info:** The comfort score of a parking option influences how strongly the pathfinder prefers it. Dedicated parking facilities have a base comfort value defined in their configuration (typically around 0.5). If a parking facility is not running efficiently — because it lacks workers or is damaged — its comfort score drops, making it less attractive even when spaces are available.
+The comfort score (0 to 1) is the parking option's attractiveness to the pathfinder beyond pure availability. Several factors push this score up or down.
+
+Distance from the parked spot to the final destination is the dominant factor: a garage two blocks away from the destination scores lower than an adjacent street space, even if both are free. The pathfinder weights parking comfort against the additional walking distance the driver will face after parking.
+
+Garage efficiency affects comfort directly: a garage running at low operational efficiency (due to staffing shortfalls, power issues, or building damage) sees its comfort score reduced. This makes the garage less attractive to the pathfinder even when it has empty spaces. A garage at 30% efficiency may be passed over entirely in favor of more distant street parking.
+
+Street parking comfort is simpler: freely available kerb space scores roughly 0.5 as a baseline and is not affected by efficiency in the same way garages are. This makes street parking a reliable fallback even when managed facilities are underperforming.
+
+> **Info:** The pathfinder uses comfort score at route-planning time, before the vehicle departs. If a high-comfort garage fills up between when the route was planned and when the vehicle arrives, the vehicle will find the space taken and must search forward along its path for the next option. This is the mechanism behind "I was heading to the garage and it was full when I got there."
 
 ## How Lack of Parking Affects Behavior
 
@@ -39,6 +47,16 @@ When parking is scarce, the effects ripple outward. Drivers reroute repeatedly, 
 Paid parking reduces the attractiveness of driving to a destination in the first place, nudging citizens toward public transit or walking if those options are viable. This is the game's representation of demand management — pricing people off roads rather than building more road capacity.
 
 > **Info:** Disabling street parking on a road immediately signals the pathfinder to stop considering those lanes. The change propagates automatically to the route cost model, so vehicles will seek alternatives without any manual nudging.
+
+## Paid Parking and Demand Management
+
+Paid parking's most important effect is not revenue — it is demand management. When a district enables paid parking, it adds a monetary cost to the pathfinder's evaluation of driving to any destination in that district. Citizens compare the total cost of driving (time + parking fee) against alternatives.
+
+At moderate fee levels, this nudges marginal car users toward transit or walking while leaving committed drivers mostly unaffected. At high fee levels, it significantly reduces driving demand in the district — but citizens who still drive will pay more, contributing to city revenue.
+
+The effect is strongest on lower-income households, whose pathfinder calculates a higher relative cost for the fee compared to their disposable income. Wealthier households are less sensitive to parking fees. A paid parking zone in a high-income commercial district may generate substantial revenue with minimal impact on actual traffic volumes.
+
+> **Info:** Paid parking revenue is not shown as a separate budget line — it appears as part of transport revenue in the Economy panel. If you want to evaluate whether paid parking is generating meaningful income, look at your transport revenue trend before and after enabling fees in a district.
 
 ## What Can Go Wrong
 
@@ -51,3 +69,5 @@ Paid parking reduces the attractiveness of driving to a destination in the first
 **Garages attached to buildings with low worker counts.** Workplace parking capacity is calculated from staff numbers. A large office tower that is partially empty due to low demand will have proportionally fewer garage spaces, potentially creating a mismatch between the building's visual size and its actual parking provision.
 
 **Efficiency-based deactivation.** A parking facility that loses all its workers (due to budget cuts, fire, or abandonment) will have its spaces marked inactive entirely. Vehicles will not try to park there at all, even if the structure is physically intact.
+
+**Comfort score suppressing newly-built garages.** A brand-new parking garage that has not yet reached full staffing or operational efficiency will have a reduced comfort score. The pathfinder will route vehicles to older, more established alternatives nearby instead of filling the new garage. Give new parking facilities time to staff up fully — their comfort score normalizes once efficiency reaches its baseline, and the pathfinder will naturally start filling them.

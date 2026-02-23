@@ -77,6 +77,8 @@
 <h2>How Citizens Get Sick or Injured</h2>
 <p>Every citizen in your city is constantly being evaluated for health problems. The lower a citizen's health, the more likely they are to fall ill — and the relationship isn't linear. A citizen at 50% health is far more than twice as likely to get sick as a citizen at full health. Older citizens, citizens living in pollution, and citizens with poor access to parks and services will naturally drift toward lower health, making them significantly more vulnerable over time.</p>
 <p>When a citizen does fall ill or get injured, the game decides one of two things: can this person manage on their own, or do they need an ambulance?</p>
+<p>The probability that a sick citizen needs an ambulance versus walks in depends on how serious the health event is. The game uses health-level-gated probability ranges: mild illness in a citizen at moderate health almost never requires ambulance transport. The same illness type in a citizen at very low health almost always requires it. The seriousness of the event and the citizen's current health together determine which side of the transport probability they land on.</p>
+<p>This is why keeping baseline citizen health high is so important for ambulance capacity: a city full of citizens at 80+ health generates far fewer ambulance requests than one where chronic pollution or poor services have pushed citizens to 40–50 health. The ambulance fleet is effectively a measure of how sick your population is, not just how large it is.</p>
 <blockquote>
 <p><strong>ℹ️ Info — What counts as "needing an ambulance"?</strong>
 Each type of health event (disease, injury, sudden death) has a transport probability range. Whether any given citizen needs an ambulance is rolled at the moment the health event occurs. Mild cases walk to the hospital themselves; serious cases require pickup. Citizens who are trapped in a burning or collapsed building are always flagged as needing emergency transport.</p>
@@ -119,11 +121,32 @@ After picking up a patient, the ambulance evaluates every healthcare facility in
 Each hospital has a health range it can treat (e.g., citizens between 30–100% health). Citizens outside that range won't be routed there at all — they go straight to a facility that can handle their severity. Upgrades can expand a hospital's health range, allowing it to treat more critical patients. This is why upgrading a clinic matters: it widens the range of citizens it can help, not just increases capacity.</p>
 </blockquote>
 <hr>
+<h2>Building Upgrades and What They Add</h2>
+<p>Healthcare buildings in CS2 are not static — they can be upgraded to expand their capability in three distinct ways.</p>
+<p><strong>Capacity upgrades</strong> add more patient beds to the facility. Every bed added allows the hospital to treat one more citizen simultaneously. A basic clinic has a fixed bed count; adding capacity upgrades is the primary way to expand throughput without building an entirely new facility.</p>
+<p><strong>Vehicle upgrades</strong> add ambulances to the facility's fleet. Ambulance count is what determines how many simultaneous dispatch requests the facility can answer. A facility with 8 beds but only 2 ambulances will have idle beds while serious cases wait for an available vehicle. Balancing beds and ambulances is the key resourcing decision for each hospital.</p>
+<p><strong>Range/capability upgrades</strong> expand the health range the facility can treat. A basic clinic treats citizens in the 50–100 health range. Upgrading the facility's treatment capability lowers that floor, allowing it to handle more critical patients. Without this upgrade, critically ill citizens are routed past the local clinic to a more capable facility further away.</p>
+<blockquote>
+<p><strong>ℹ️ Info — Upgrade priority:</strong>
+In high-density residential areas, ambulance upgrades typically matter more than bed upgrades. Beds are useless if all your ambulances are deployed. In areas with high illness rates or an elderly population, treatment range upgrades prevent long-distance transfers that leave local beds empty.</p>
+</blockquote>
+<hr>
+<h2>Service Districts and Ambulance Dispatch</h2>
+<p>Like fire stations and police stations, hospitals can be assigned to specific service districts. When assigned, a hospital's ambulances will prioritize calls from within the designated district.</p>
+<p>This is useful in large cities where a hospital on one side of the city might otherwise attempt to respond to a call across town when a closer, unassigned hospital could handle it. District assignment focuses each facility on its local area and keeps ambulances from making cross-city trips unnecessarily.</p>
+<p>A hospital without a district assignment covers the entire city — it will respond to any request it receives, as long as it has idle ambulances. The dispatch system will still prefer closer facilities, so an unassigned hospital in a dense city center will naturally be used more heavily than one on the periphery, even without explicit district configuration.</p>
+<blockquote>
+<p><strong>ℹ️ Info — Walk-in patients and districts:</strong>
+Service district assignment only affects ambulance dispatch, not walk-in patients. A citizen who walks or travels to a hospital under their own power can use any hospital in the city, regardless of which district the hospital is assigned to. Walk-ins do consume bed capacity, which can affect how many beds are available when the next ambulance arrives. In very busy hospitals, walk-in pressure can fill beds that were intended for ambulance deliveries.</p>
+</blockquote>
+<hr>
 <h2>What Can Go Wrong</h2>
 <p><strong>No ambulance shows up:</strong> All of that hospital's ambulances are already deployed. If a hospital's fleet is entirely out on calls, it can't send another one until one returns. Adding ambulance capacity via upgrades or building additional hospitals reduces how often this happens.</p>
 <p><strong>The ambulance takes a patient to a distant hospital:</strong> The local clinic's beds are full, or the patient's condition exceeds what the local clinic can treat. Building a larger hospital (or upgrading clinics to handle more patient severity) keeps patients closer to home.</p>
 <p><strong>Citizens are showing the "waiting for ambulance" warning icon:</strong> This appears after a citizen has been waiting too long for pickup. It's a sign that ambulance supply isn't keeping up with demand — either not enough vehicles, or a hospital's coverage district doesn't reach the area in need.</p>
 <p><strong>Citizens dying at home despite healthcare coverage:</strong> Very elderly citizens have a naturally high death probability regardless of health levels. Some deaths are simply age-related and won't be prevented by healthcare coverage. However, citizens who die without access to a hospital at all count differently and may affect your city statistics.</p>
+<p><strong>Ambulance/bed ratio miscalibrated:</strong> A hospital with many beds but few ambulances will have idle capacity while citizens wait outdoors for pickup. A hospital with many ambulances but few beds will have ambulances circling looking for a hospital that can accept the patient. Check both metrics separately — the building info panel shows current beds occupied vs. total and ambulances deployed vs. total.</p>
+<p><strong>Walk-ins quietly consuming beds during a crisis:</strong> During a major disease event or disaster, walk-in patients may fill beds faster than ambulances can deliver serious cases. Hospitals near a disaster zone that are accessible on foot will absorb a disproportionate number of walk-ins. If ambulance cases are being routed past a nearby hospital to a more distant one, check the nearby hospital's bed occupancy — it may be walk-in-full rather than genuinely full.</p>
 
     <footer>
       <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>

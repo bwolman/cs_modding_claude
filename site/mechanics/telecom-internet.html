@@ -89,6 +89,22 @@
 </blockquote>
 <p>This means dense neighborhoods are harder to serve than sparse ones. Placing a single tower over your downtown core might give strong signal, but if thousands of residents and workers are all connected through it, the effective quality will be poor. You need more towers, not just bigger ones.</p>
 <p>Installing upgrades on a facility stacks additional range and capacity on top of its base values. Upgraded towers serve a larger area and handle more users simultaneously.</p>
+<h2>Upgrades and How They Stack</h2>
+<p>Every telecom facility supports a set of upgrades that can be installed after the building is placed. Upgrades stack their bonuses additively on top of the facility's base range and capacity values — each upgrade independently adds a fixed amount to each.</p>
+<p>Range upgrades extend the radius outward from the facility. A facility with two range upgrades installed covers a larger geographic area than one with zero upgrades, even if the base building is the same type. This is useful for covering irregular terrain or extending coverage across a valley where a single central placement cannot reach both sides cleanly.</p>
+<p>Capacity upgrades add bandwidth to the facility's pool. Since quality at any point is a function of signal strength divided by congestion, increasing capacity directly improves the quality delivered to congested cells without changing the signal curve or moving the tower's physical location.</p>
+<blockquote>
+<p><strong>ℹ️ Info — Upgrades Are Per-Facility</strong>
+Upgrades are not shared between facilities. Each building's upgrade set applies only to that building's coverage area. To improve a congested downtown core, you need either a new facility or upgrades on a facility that already covers the area — upgrading a tower on the city edge does nothing for downtown congestion.</p>
+</blockquote>
+<h2>City-Wide Policies and Milestone Bonuses</h2>
+<p>Certain city-wide policies and milestone rewards apply a multiplier to your entire telecom network's capacity — effectively giving every tower more bandwidth without changing its physical range or requiring any building-level upgrades.</p>
+<p>These bonuses appear as a city modifier on the telecom network and are visible in the network panel. They stack multiplicatively with the base capacity of each facility, so a city with a strong telecom policy bonus benefits proportionally more from each additional facility it builds.</p>
+<p>Unlocking these modifiers through the development tree is often more cost-effective in a mature city than building additional towers in dense areas, because the modifier applies everywhere simultaneously rather than only within one tower's coverage footprint.</p>
+<blockquote>
+<p><strong>ℹ️ Info — What Policy Bonuses Do and Don't Affect</strong>
+City modifier bonuses to telecom capacity are applied after the base capacity calculation for each facility. They do not affect signal strength or coverage range — only bandwidth. A facility in a low-coverage area still has a weak signal at its edges regardless of how high the city-wide capacity modifier is. Policy bonuses fix congestion; they cannot fix gaps in geographic coverage.</p>
+</blockquote>
 <h2>What Buildings Need Connectivity For</h2>
 <p>Not every building cares equally about telecom service. Residential buildings need it for their households, commercial buildings need it to run their operations, and office buildings tend to be the most dependent of all — connectivity is essentially infrastructure for their core business.</p>
 <p>The game tracks how much each building type relies on telecom. Buildings with a high connectivity need will suffer steeper efficiency penalties when service is poor, while a small warehouse with minimal telecom needs may barely notice the same gap in coverage.</p>
@@ -105,6 +121,8 @@
 <p><strong>Terrain shadows.</strong> A hill between a residential area and your nearest tower can cut off an entire neighborhood. Watch for valleys and depressions in your terrain, especially on maps with significant elevation changes.</p>
 <p><strong>Upgrading too slowly.</strong> Tower upgrades stack capacity and range additively. Deferring upgrades means your network ages in place while the city grows around it.</p>
 <p><strong>Misreading the info view.</strong> The overlay shows signal, not congestion. An area can appear fully covered and still deliver poor quality if load is high. Check the network availability indicator for the true picture.</p>
+<p><strong>Upgrading range when capacity is the real problem.</strong> A downtown tower with strong signal but poor quality — due to congestion — does not need more range. It needs more capacity. Installing range upgrades when the network availability indicator shows congestion will extend the reach of the problem, not solve it. Diagnose whether your issue is coverage (signal too low) or congestion (signal fine, quality low) before spending on upgrades.</p>
+<p><strong>City-wide policy bonus masking a structural coverage gap.</strong> A high city-wide capacity modifier can make the network availability indicator look healthy even when entire neighborhoods have no signal at all. The indicator is population-weighted — congested but covered areas dominate the average, and uncovered edge areas with fewer residents barely register. Always check the signal overlay directly when expanding city boundaries, not just the aggregate indicator.</p>
 
     <footer>
       <p>Player-facing guide derived from CS2 game mechanics research. For editorial use.</p>
