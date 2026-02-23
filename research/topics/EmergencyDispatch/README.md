@@ -1125,7 +1125,7 @@ Done
 
 ## Car Accident Severity & Police Dispatch Timing
 
-*Decompiled 2026-02-22 from `Game.Simulation.AccidentVehicleSystem`, `Game.Simulation.VehicleOutOfControlSystem`, `Game.Simulation.AccidentSiteSystem`, `Game.Events.ImpactSystem`.*
+*Decompiled 2026-02-22 from `Game.Simulation.AccidentVehicleSystem`, `Game.Simulation.AccidentCreatureSystem`, `Game.Simulation.VehicleOutOfControlSystem`, `Game.Simulation.AccidentSiteSystem`, `Game.Events.ImpactSystem`.*
 
 ### The Severity Pipeline
 
@@ -1240,6 +1240,37 @@ The `StageAccident` flag on `AccidentSite` controls whether `AccidentSiteSystem`
 - **Only fires when `num == 0`**: if NO vehicles are already involved, `AccidentSiteSystem` uses `TrafficAccidentData` prefab to find a nearby random car and add it as an `Impact` with severity 5.0 (`LoseControl`) or 0.0 (other types)
 
 **Implication for mods**: A synthetic `AccidentSite` with `StageAccident` flag and `TrafficAccident` event pointing to a prefab with `TrafficAccidentData { m_AccidentType = LoseControl }` will automatically pull in a nearby vehicle as involved, with severity 5.0. This is the cleanest way to trigger police without manually creating `InvolvedInAccident`.
+
+### `AccidentCreatureSystem` — Pedestrian Accident Handling
+
+`AccidentCreatureSystem` (every 64 frames) is the pedestrian/creature mirror of `AccidentVehicleSystem`. It processes `InvolvedInAccident + Creature` entities.
+
+**Does NOT create `Impact` entities** — confirms the initial collision severity source is not in any of the five accident-handling systems.
+
+| | `AccidentVehicleSystem` | `AccidentCreatureSystem` |
+|---|---|---|
+| Query | `InvolvedInAccident + Vehicle` | `InvolvedInAccident + Creature` |
+| Injury mechanism | Creates `Impact + Game.Common.Event` for each passenger | Creates `AddHealthProblem + Game.Common.Event` directly |
+| Velocity stop threshold | Grows with time: `0.01 + t² × 3e-9` | Fixed: `0.0001f` |
+| Injury probability | Via Impact (no probability gate) | 50% pedestrian, 100% bicycle rider |
+| Injury severity | `random(0..vehicle_severity)` per passenger | 20% Dead (`flags \| 2`), 80% Injured (`flags \| 4`) |
+| Cleanup trigger | `IsSecured` or 14400-frame timeout | `IsSecured` OR target is `Hearse`/`Ambulance` |
+
+**`AddInjury()` details** (creates healthcare need for pedestrians hit by vehicles):
+```csharp
+AddHealthProblem component = new AddHealthProblem
+{
+    m_Event  = involvedInAccident.m_Event,
+    m_Target = resident.m_Citizen,     // bridges Creature → Citizen entity
+    m_Flags  = HealthProblemFlags.RequireTransport
+};
+component.m_Flags |= (random.NextInt(100) < 20) ? Dead : Injured;
+```
+Probability gate: 50% for pedestrians, 100% for bicycle riders (`m_BicycleData.HasComponent(currentVehicle.m_Vehicle)`).
+
+**Hearse/Ambulance pickup clears accident**: When a collapsed pedestrian (`HumanFlags.Collapsed`) is picked up by a `Hearse` or `Ambulance` (they become the creature's `Target`), `IsSecured()` returns true and `ClearAccident()` removes `InvolvedInAccident + Stumbling`.
+
+**`StageAccident` not applicable to creatures** — only `AccidentSiteSystem` triggers staged accidents via `TrafficAccidentData`, which selects moving cars (`m_SubjectType == MovingCar`). Pedestrians are never scripted-introduced as staged subjects.
 
 ## Open Questions
 
