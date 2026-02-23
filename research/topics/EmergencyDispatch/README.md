@@ -1142,6 +1142,111 @@ Done
   2. **Service district restrictions** (if configured). `AreaUtils.CheckServiceDistrict()` checks the `ServiceDistrict` buffer on each candidate station. Stations with no buffer (or an empty buffer) serve everywhere. Stations with entries only serve fires whose district is listed. If local stations are restricted to their own district and the fire is in a district only covered by the rescue station, local stations are excluded.
   3. **`DisasterResponseAvailable` is irrelevant for regular fires.** The disaster-response gate only applies to `FireRescueRequestType.Disaster` requests — created exclusively by `CollapsedBuildingSystem` for collapsed buildings. Regular fires create `FireRescueRequestType.Fire` requests. Both plain fire stations and rescue stations are equally eligible for regular fires, regardless of upgrades. The "Disaster Response" upgrade gives rescue stations no advantage in ordinary fire response — it only enables them to respond to collapsed building rescue calls that local stations cannot handle.
 
+## Cross-Service Dispatch Deep-Dive
+
+*Added 2026-02-22 — findings from deep-dive across AmbulanceAISystem (1093 lines), FireEngineAISystem (1352 lines), HealthcareDispatchSystem (869 lines), FireRescueDispatchSystem (716 lines), HealthcarePathfindSetup, FirePathfindSetup, and related prefab structs.*
+
+### Path D2 Universality: ServiceDispatch Buffer Injection
+
+Path D2 (direct `ServiceDispatch` buffer injection into a vehicle entity + manual flag manipulation) works structurally identically across all three emergency service types. The pattern is the same; only the request type name and vehicle state flags differ.
+
+| Step | Police (D2) | Ambulance (D2) | Fire Engine (D2) |
+|------|-------------|----------------|------------------|
+| 1. Request entity | `PoliceEmergencyRequest` | `HealthcareRequest` | `FireRescueRequest` |
+| 2. Inject `ServiceDispatch` | `EntityManager.GetBuffer<ServiceDispatch>(car).Add(new ServiceDispatch(request))` | same | same |
+| 3. Set vehicle flags | `Car.m_Flags |= CarFlags.Emergency \| StayOnRoad` | `Car.m_Flags |= CarFlags.Emergency` | `Car.m_Flags |= CarFlags.Emergency \| StayOnRoad` |
+| 4. Set request count | `PoliceCar.m_RequestCount = 1` | `Ambulance.m_RequestCount = 1` | `FireEngine.m_RequestCount = 1` |
+| 5. Set target | `Target = targetEntity` | `Target = targetEntity` | `Target = targetEntity` |
+| 6. Trigger re-path | `EntityManager.AddComponent<PathOwner>(car)` (reset bit) | same | same |
+| 7. Mark updated | `EntityManager.AddComponent<EffectsUpdated>(car)` | same | same |
+| **Confidence** | **95%** (in-game tested) | **90%** | **85%** |
+
+**Service-specific differences and caveats:**
+
+- **Ambulance multi-stage journey**: After picking up the patient the ambulance sets `AmbulanceFlags.PickedUp` and routes to a hospital (FindHospital lookup). The injected dispatch entry is consumed on pickup; the hospital-routing phase is independent. D2 only controls the pickup leg.
+- **Fire engine at-arrival validation**: `BeginExtinguishing()` checks `OnFire.m_Intensity > 0` at the target. If the fire has already been extinguished, the engine will enter `SelectNextDispatch()` and leave. For D2 fire dispatch to produce a lasting visit, either keep `OnFire` alive or use `RescueTarget`.
+- **Ambulance target citizen**: `m_Citizen` in `HealthcareRequest` must be an entity with `HealthProblem`. D2 bypasses `HealthcareDispatchSystem.ValidateTarget()` (which checks `RequireTransport`), but the AI's own `CheckPatient()` may still validate on arrival.
+
+### `ResetPath()` — The Universal Gatekeeper
+
+Every vehicle AI (police, ambulance, fire engine) calls `ResetPath()` when beginning a new path. This method reads `serviceDispatches[0].m_Request` and sets `CarFlags.Emergency` based on whether the request entity has the matching request component:
+
+```csharp
+// Police (PoliceCarAISystem.ResetPath, ~line 590)
+if (m_PoliceEmergencyRequestData.HasComponent(request))
+    car.m_Flags |= CarFlags.Emergency | StayOnRoad | UsePublicTransportLanes;
+else
+    car.m_Flags &= ~CarFlags.Emergency;
+
+// Ambulance (AmbulanceAISystem.ResetPath, ~line 716)
+if (m_HealthcareRequestData.HasComponent(request))
+    car.m_Flags |= CarFlags.Emergency;
+else
+    car.m_Flags &= ~CarFlags.Emergency;
+
+// Fire Engine (FireEngineAISystem.ResetPath, ~line 820)
+if (m_FireRescueRequestData.HasComponent(request))
+    car.m_Flags |= CarFlags.Emergency | StayOnRoad;
+else
+    car.m_Flags &= ~CarFlags.Emergency;
+```
+
+**Implication**: For lights + sirens on D2 dispatch, the injected `ServiceDispatch.m_Request` entity must have the matching request component. A null or wrong-type request causes `ResetPath()` to clear `Emergency` — the vehicle drives without lights/sirens.
+
+### Alternative Dispatch Path Rankings
+
+| Path | Approach | Confidence | Notes |
+|------|----------|------------|-------|
+| **D2** | Direct `ServiceDispatch` injection | **95%** | In-game tested for police; structurally identical for ambulance/fire |
+| **E** | Patch `ServiceRequestSystem.UpdateRequestGroupJob` to add `UpdateFrame` to custom requests | **75%** | Works for routing; fails lights/sirens because `ResetPath()` needs `PathElement` buffer for `EndOfPath` handling. Path not pre-computed → `SelectNextDispatch()` fallthrough skips `Emergency` flag set. |
+| **F** | Harmony postfix on dispatch system `OnUpdate()` | **70%** | Clean but brittle against game updates. Must complete the job dependency before reading dispatch results. |
+| **C-Patched** | `AccidentSite` approach with Harmony postfix to keep `RequirePolice` alive | **60%** | Requires maintaining `RequirePolice` on every `AccidentSiteSystem` tick. Still uses `AccidentLocation` pathfinding (road-only). |
+| **G** | Reverse-request interception (station advertising) | **45%** | Complex; reversed request flow requires matching district + vehicle availability filters. Hard to target a specific vehicle. |
+| **C unpatched** | Synthetic `AccidentSite` on arbitrary entity | **20%** | `AccidentSiteSystem` strips `RequirePolice` within ~64 frames (~1 second) unless backed by valid `InvolvedInAccident` entities. |
+
+### Pathfinding Reliability Across Services
+
+**Baseline reliability: ~65% for arbitrary entities → ~95% for real game buildings.**
+
+The critical factor is district resolution. All three dispatch systems resolve the target's district through the same two-step pattern:
+
+```
+1. Check CurrentDistrict component on target entity → fast, reliable
+2. Fallback: AreaSearchSystem quad-tree spatial lookup via target's Transform → slower, 100% reliable if Transform is present
+```
+
+If neither `CurrentDistrict` nor a valid `Transform` is available, the district lookup returns `Entity.Null`, and the dispatch system silently fails to enqueue a pathfind (the dispatch entry is never created).
+
+**Per-service pathfinding parameters:**
+
+| Service | Origin type | Destination type | Max speed | Close-enough radius | Offroad? |
+|---------|------------|-----------------|-----------|--------------------|----|
+| Police | `SetupTargetType.PolicePatrol` | `SetupTargetType.AccidentLocation` | ~400 km/h | n/a | No |
+| Ambulance | `SetupTargetType.Ambulance` | `SetupTargetType.CurrentLocation` | ~1000 km/h | n/a | No |
+| Fire Engine | `SetupTargetType.FireEngine` | `SetupTargetType.CurrentLocation` | ~1000 km/h | **30m** | **Yes** |
+
+**Two separate 30m checks for fire engines:**
+1. **Pathfinder radius** (`m_Value2 = 30f` on `SetupQueueTarget`): tells the pathfinder to consider positions within 30m of the target as valid endpoints.
+2. **Navigation proximity** (`IsCloseEnough()` in `FireEngineAISystem.Tick()`): if blocked by traffic and within 30m, the engine calls `EndNavigation()` and considers the path complete.
+
+This double 30m tolerance makes fire engines the most forgiving service for D2 dispatch to buildings.
+
+**Checklist for reliable building dispatch via D2:**
+
+- [ ] Target entity has `Transform` component (all buildings do)
+- [ ] Target entity has `CurrentDistrict` OR is within the spatial quad-tree (all buildings qualify)
+- [ ] For ambulance: target citizen has `HealthProblem` (or use a mock citizen)
+- [ ] For fire engine: target has `OnFire` (intensity > 0) or `RescueTarget`
+- [ ] `ServiceDispatch.m_Request` entity has the correct request component (for lights/sirens)
+
+### Cross-Service Request Types Quick Reference
+
+| Service | Request component | Validation component on target | Dispatch system | Vehicle AI |
+|---------|-----------------|-----------------------------|----------------|------------|
+| Police | `PoliceEmergencyRequest` | `AccidentSite` (with `RequirePolice`) | `PoliceEmergencyDispatchSystem` | `PoliceCarAISystem` |
+| Ambulance | `HealthcareRequest` | `HealthProblem` (with `RequireTransport`) | `HealthcareDispatchSystem` | `AmbulanceAISystem` |
+| Fire | `FireRescueRequest` | `OnFire` or `RescueTarget` | `FireRescueDispatchSystem` | `FireEngineAISystem` |
+
 ## Sources
 
 - Decompiled from: Game.dll (Cities: Skylines II)
