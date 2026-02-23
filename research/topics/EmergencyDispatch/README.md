@@ -1123,6 +1123,124 @@ Done
 
 4. **Custom behavior at RescueTarget**: If the goal is to have a fire engine perform some action at a non-destroyed RescueTarget scene, a Harmony patch on `TryExtinguishFire` or `BeginExtinguishing` would be needed to inject custom behavior.
 
+## Car Accident Severity & Police Dispatch Timing
+
+*Decompiled 2026-02-22 from `Game.Simulation.AccidentVehicleSystem`, `Game.Simulation.VehicleOutOfControlSystem`, `Game.Simulation.AccidentSiteSystem`, `Game.Events.ImpactSystem`.*
+
+### The Severity Pipeline
+
+```
+[Real collision or scripted accident event]
+    |
+    v
+Impact + Game.Common.Event entity created
+    (m_Event = traffic accident entity, m_Target = vehicle, m_Severity = <see below>)
+    |
+    v
+ImpactSystem (every frame):
+    Applies velocity delta to target's Moving component
+    Adds OutOfControl to cars (parked → moving; moving → stay moving)
+    Creates/updates InvolvedInAccident on target: m_Severity = impact.m_Severity
+    |
+    v
+VehicleOutOfControlSystem (every 16 frames per UpdateFrame group):
+    Physics simulation: apply braking, gravity, angular velocity
+    No Impact creation — pure movement update
+    |
+    v
+AccidentVehicleSystem (every 64 frames, query: InvolvedInAccident + Vehicle):
+    Two branches depending on whether the vehicle is still Moving:
+
+    BRANCH A — Vehicle still Moving:
+        Checks if velocity^2 < threshold (threshold grows with time: 0.01 + t^2 * 3e-9)
+        When slowed enough: StopVehicle() [removes Moving, adds Stopped]
+        AddInjuries() for each Passenger: creates Impact(severity=random.NextFloat(vehicle.m_Severity))
+        If no AccidentSite exists within 30m: creates AddAccidentSite + Game.Common.Event
+            (flags = TrafficAccident, target = nearest road segment)
+
+    BRANCH B — Vehicle already Stopped:
+        Checks IsSecured() → if accident secured or timeout (14400 frames ~4 min):
+            StartVehicle() + ClearAccident() [removes InvolvedInAccident + OutOfControl]
+
+    AddAccidentSiteSystem processes AddAccidentSite → creates AccidentSite on road segment
+    |
+    v
+AccidentSiteSystem (every 64 frames):
+    Reads max severity (num2) from all InvolvedInAccident entities for this event
+    CLEAR: m_Flags &= ~RequirePolice
+    EVALUATE: if (num2 > 0 AND highest-severity vehicle is STOPPED):
+        SET: m_Flags |= RequirePolice
+        RequestPoliceIfNeeded() → creates PoliceEmergencyRequest
+    |
+    v
+PoliceEmergencyDispatchSystem (every 16 frames): dispatches police car
+```
+
+### Severity Values
+
+| Source | Value | When |
+|--------|-------|------|
+| Staged accident — `LoseControl` type | **5.0** (hardcoded) | `AccidentSiteSystem.AddImpact()` when `StageAccident` flag and no vehicles present |
+| Staged accident — other types | **0.0** (default) | Same path, other `TrafficAccidentType`; no police |
+| Passenger injury (from vehicle crash) | `random.NextFloat(vehicle_severity)` decreasing per passenger | `AccidentVehicleSystem.AddInjuries()` |
+| Real vehicle collision | Unknown (velocity-based, from initial `Impact` creator) | Initial impact system not identified |
+
+The severity threshold for police dispatch is strictly `> 0.0f`. Any non-zero value triggers police evaluation.
+
+### The Stopped-Vehicle Requirement
+
+**Police are only dispatched to traffic accidents when the highest-severity involved vehicle has stopped.** This is the most important modding constraint:
+
+From `AccidentSiteSystem.AccidentSiteJob.Execute()` (line 139–142):
+```csharp
+if (componentData.m_Severity > num2)
+{
+    entity2 = (flag2 ? Entity.Null : entity3);  // flag2 = m_MovingData.HasComponent(entity3)
+    num2 = componentData.m_Severity;
+}
+```
+`entity2` is the target for `RequestPoliceIfNeeded`. If the highest-severity vehicle is still `Moving` (`flag2 = true`), `entity2 = Entity.Null`, and police are NOT dispatched.
+
+**Exception — Building AccidentSites**: When the AccidentSite entity itself is a `Building`, the stopped-vehicle check is bypassed:
+```csharp
+if (flag)   // flag = chunk.Has(ref m_BuildingType)
+{
+    entity2 = entity;  // use the building as target
+}
+```
+Crime scenes on buildings always dispatch police once `CrimeDetected` is set, regardless of whether any moving vehicles are involved.
+
+### Timing from Collision to Police Arrival
+
+| Phase | Duration |
+|-------|----------|
+| Vehicle slows to stop (physics simulation) | Variable, seconds to ~10 sim seconds |
+| `AccidentVehicleSystem` next tick — creates `AddAccidentSite` | ≤64 frames (~1s) |
+| `AddAccidentSiteSystem` processes → `AccidentSite` created | 1 frame |
+| `AccidentSiteSystem` next tick — creates `PoliceEmergencyRequest` | ≤64 frames (~1s) |
+| `ServiceRequestSystem` — assigns `UpdateFrame` | 1 frame |
+| `PoliceEmergencyDispatchSystem` next tick — pathfind request | ≤16 frames (~0.25s) |
+| Pathfinding resolves | 1-2 frames |
+| Police car dispatched, drives to scene | Minutes (distance-dependent) |
+| **Total from stop to dispatch** | **~2–3 seconds minimum** |
+
+### Vehicle Lifecycle After Accident
+
+From `AccidentVehicleSystem.AccidentVehicleJob` (stopped branch):
+- **Normal vehicles** (no `Destroyed`): `IsSecured` check → when `AccidentSite.Secured` is set by arriving police car OR after **14400 frames (~4 minutes)**, vehicle gets `StartVehicle()` + `ClearAccident()`
+- **Bicycles** (has `Bicycle`): timeout = **300 frames (~5 seconds)** instead of 14400
+- **Destroyed vehicles** (has `Destroyed`): wait for `Destroyed.m_Cleared >= 1.0` OR `14400 frames` → vehicle deleted
+- **Vehicles that fall below y = -1000** (fell off map): immediately deleted via `VehicleUtils.DeleteVehicle()`
+
+### StageAccident Flag Behavior
+
+The `StageAccident` flag on `AccidentSite` controls whether `AccidentSiteSystem` will scripted-trigger a nearby vehicle into the accident:
+- **Cleared after 3600 frames (~60 seconds)**: `if (m_SimulationFrame - accidentSite.m_CreationFrame >= 3600) accidentSite.m_Flags &= ~StageAccident`
+- **Cleared immediately when severity is found**: when a vehicle's severity > current max, `StageAccident` is cleared (`accidentSite.m_Flags &= ~AccidentSiteFlags.StageAccident`)
+- **Only fires when `num == 0`**: if NO vehicles are already involved, `AccidentSiteSystem` uses `TrafficAccidentData` prefab to find a nearby random car and add it as an `Impact` with severity 5.0 (`LoseControl`) or 0.0 (other types)
+
+**Implication for mods**: A synthetic `AccidentSite` with `StageAccident` flag and `TrafficAccident` event pointing to a prefab with `TrafficAccidentData { m_AccidentType = LoseControl }` will automatically pull in a nearby vehicle as involved, with severity 5.0. This is the cleanest way to trigger police without manually creating `InvolvedInAccident`.
+
 ## Open Questions
 
 - [ ] How does the pathfinder's `SetupTargetType.PolicePatrol` matching work internally? Does it filter by `PolicePurpose` flags on the station, or by distance only?
