@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-08-13 Cohtml layout ExecuteWork - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html" class="active">2026-08-13 Cohtml layout</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-08-13 — Cohtml layout <code>ExecuteWork</code></h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod native/Burst module on faulting stack?</th><td>No</td></tr>
+          <tr><th>MoreDispatchMod UI or native crash?</th><td>No. Panel never opened. No Burst DLL. No errors in its log.</td></tr>
+          <tr><th>Missing <code>coui://customassets/</code> thumbnails?</th><td>No. Handled on Unity main-thread coroutines.</td></tr>
+          <tr><th>Crash site</th><td>Cohtml layout thread. Native frames in <code>cohtml.WindowsDesktop.dll</code>. RIP in <code>VCRUNTIME140.dll+0xdf8b</code>.</td></tr>
+          <tr><th>Exact Cohtml function / cause</th><td>Not determined. No Cohtml source/symbols. Dump has no code page at RIP.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1 (419.d6c6) [6216.19404]</td></tr>
+        <tr><th>Unity</th><td>2022.3.71f1</td></tr>
+        <tr><th>OS</th><td>Windows 11 64-bit (10.0.26200)</td></tr>
+        <tr><th>CPU</th><td>Intel Core i9-14900KF (32 logical)</td></tr>
+        <tr><th>GPU</th><td>NVIDIA GeForce RTX 5080, driver 32.0.15.7688, D3D11</td></tr>
+        <tr><th>RAM</th><td>63.840 GB</td></tr>
+        <tr><th>Save</th><td>Gilbert County 42 (manual 18:25:38)</td></tr>
+        <tr><th>Last autosave</th><td>13-August-18-28-21 (18:28:24)</td></tr>
+        <tr><th>Crash (game log clock)</th><td>~18:30</td></tr>
+        <tr><th>Dump mtime</th><td>2026-08-13 21:30 (Mac view of the Windows volume)</td></tr>
+        <tr><th>Player.log</th><td><code>{UserData}/Player.log</code> (8733 lines)</td></tr>
+        <tr><th>Dump</th><td><code>{UserData}/.cache/backtrace/crashpad/reports/80f60f31-02a5-4f7d-af86-888772f15379.dmp</code> (51&nbsp;075&nbsp;168 bytes)</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Same-night dumps (not this crash)</h2>
+    <table>
+      <thead>
+        <tr><th>Dump</th><th>mtime</th><th>Exception</th><th>RIP</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>2c8c84ee-9f03-4646-958f-9784a82ae9f9</code></td>
+          <td>19:47</td>
+          <td><code>0x0517A7ED</code></td>
+          <td><code>BacktraceCrashpadWindows.dll+0x2dcd</code></td>
+          <td><code>ANRException: Blocked thread detected</code>. Launch.</td>
+        </tr>
+        <tr>
+          <td><code>b41e9532-044e-47c7-a5c2-085e95325f63</code></td>
+          <td>19:48</td>
+          <td><code>0x0517A7ED</code></td>
+          <td>same class</td>
+          <td>ANR. <code>MoreDispatchMod.mjs</code> mapped, not RIP.</td>
+        </tr>
+        <tr>
+          <td><code>9580b268-ea75-429d-98e7-c13862996c33</code></td>
+          <td>19:49</td>
+          <td><code>0x0517A7ED</code></td>
+          <td>same class</td>
+          <td>ANR</td>
+        </tr>
+        <tr>
+          <td><code>97e8388c-df04-4e7b-8747-2b0b4f250480</code></td>
+          <td>19:53</td>
+          <td><code>0x0517A7ED</code></td>
+          <td>same class</td>
+          <td>ANR</td>
+        </tr>
+      </tbody>
+    </table>
+    <p><code>Player-prev.log</code>: no <code>Native Crash Reporting</code>. Ends in Unity allocator stats.</p>
+
+    <h2><code>Player.log</code> crash block</h2>
+<pre>Native Crash Reporting
+Got a UNKNOWN while executing native code. This usually indicates
+a fatal error in the mono runtime or one of the native libraries
+used by your application.
+
+Managed Stacktrace:
+  at &lt;unknown&gt; &lt;0xffffffff&gt;
+  at cohtml.Net.cohtmlNativePINVOKE:Library_ExecuteWork__SWIG_1
+  at cohtml.Net.Library:ExecuteWork
+  at Colossal.UI.UIManager:ExecuteWork
+  at Colossal.UI.TaskScheduler:&lt;.ctor&gt;b__5_0
+  at System.Threading.ThreadHelper:ThreadStart_Context
+  ...</pre>
+
+    <p><code>TaskScheduler</code> constructor lambda <code>b__5_0</code> is the dedicated layout thread:</p>
+<pre>while (m_IsLayoutThreadRunning)
+{
+    UIManager.instance.ExecuteWork(WorkType.WT_Layout);
+    m_LayoutReset.WaitOne();
+}</pre>
+    <ul>
+      <li><code>UIManager.ExecuteWork</code> → <code>m_Library.ExecuteWork(type, WorkExecutionMode.WEM_UntilQueueEmpty)</code></li>
+      <li><code>Library.ExecuteWork(WorkType, WorkExecutionMode)</code> → <code>cohtmlNativePINVOKE.Library_ExecuteWork__SWIG_1</code></li>
+      <li><code>WT_Resources</code> uses the thread pool, not this lambda. This crash is <code>WT_Layout</code>.</li>
+    </ul>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0x355c</code></td></tr>
+        <tr><th>Code</th><td><code>0xC000001D</code> (<code>ILLEGAL_INSTRUCTION</code>)</td></tr>
+        <tr><th>RIP</th><td><code>0x7fff71e5df8b</code></td></tr>
+        <tr><th>RIP module</th><td><code>Cities2_Data/Plugins/x86_64/VCRUNTIME140.dll+0xdf8b</code></td></tr>
+        <tr><th>RSP</th><td><code>0x4d6ed8daa8</code></td></tr>
+        <tr><th>On-disk bytes at RVA <code>0xdf8b</code></th><td><code>33 c0 48 8b 5c 24 08 48 8b 7c 24 10 c3</code> (<code>xor eax,eax; mov rbx,[rsp+8]; mov rdi,[rsp+10h]; ret</code>)</td></tr>
+        <tr><th>In-dump code page at RIP</th><td>Not present</td></tr>
+        <tr><th>Nearest export ≤ <code>0xdf8b</code></th><td><code>strstr</code> @ <code>0xddd0</code>. <code>wcschr</code> @ <code>0xdfa0</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Native stack (qword scan)</h2>
+    <p>Return addresses under RIP. All in <code>cohtml.WindowsDesktop.dll</code> (base <code>0x7fff26b80000</code>).</p>
+    <table>
+      <thead>
+        <tr><th>RSP</th><th>Address</th><th>Offset</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>+0x000</td><td><code>0x7fff26f84d76</code></td><td>+<code>0x404d76</code></td></tr>
+        <tr><td>+0x030</td><td><code>0x7fff26f85716</code></td><td>+<code>0x405716</code></td></tr>
+        <tr><td>+0x060</td><td><code>0x7fff26f850aa</code></td><td>+<code>0x4050aa</code></td></tr>
+        <tr><td>+0x090</td><td><code>0x7fff26f84fba</code></td><td>+<code>0x404fba</code></td></tr>
+        <tr><td>+0x0b0</td><td><code>0x7fff26f85716</code></td><td>+<code>0x405716</code></td></tr>
+        <tr><td>+0x0e0</td><td><code>0x7fff26f850aa</code></td><td>+<code>0x4050aa</code></td></tr>
+        <tr><td>+0x110</td><td><code>0x7fff26f8a03f</code></td><td>+<code>0x40a03f</code></td></tr>
+        <tr><td>+0x130</td><td><code>0x7fff26f8629a</code></td><td>+<code>0x40629a</code></td></tr>
+        <tr><td>+0x190</td><td><code>0x7fff26f8ba69</code></td><td>+<code>0x40ba69</code></td></tr>
+        <tr><td>+0x1b0</td><td><code>0x7fff26f861ec</code></td><td>+<code>0x4061ec</code></td></tr>
+        <tr><td>+0x1e0</td><td><code>0x7fff26dd4600</code></td><td>+<code>0x254600</code></td></tr>
+      </tbody>
+    </table>
+    <p>Not on this scan: any mod Burst DLL, <code>MoreDispatchMod</code>, ExtraAssetsImporter, FindIt, <code>lib_burst_generated</code>.</p>
+
+    <h2>Coincident logs (not the crashing thread)</h2>
+    <p><code>UI.log</code> through 18:30:40:</p>
+    <ul>
+      <li>Repeated <code>loading button</code></li>
+      <li><code>ResourceHandler: Invalid host locations map.</code> for
+        <code>coui://customassets/W7RoundaboutAssetPack/W7Roundabouts/W7Roundabouts.png</code> and
+        <code>coui://customassets/W7MoreDeathcareAssetPack/W7OldCemetery/W7OldCemetery.png</code></li>
+      <li>Four <code>Cannot abort request with ID</code> lines at 17:35:03–17:35:04 (55 minutes earlier)</li>
+    </ul>
+    <p><code>DefaultResourceHandler.RequestResourceAsync</code> (<code>Colossal.UI.dll</code>):</p>
+    <ul>
+      <li>Host <code>customassets</code> missing from <code>m_HostLocationsMap</code> → <code>Error = "Invalid host locations map."</code> → <code>CheckForFailedRequest</code> → <code>RespondWithFailure</code></li>
+      <li>Unity coroutine on the main thread</li>
+      <li><code>OnAbortResourceRequest</code>: unknown id → log only</li>
+    </ul>
+
+    <h2>MoreDispatchMod</h2>
+    <table>
+      <tbody>
+        <tr><th>Log</th><td><code>{UserData}/Logs/MoreDispatchMod.log</code> (1&nbsp;087&nbsp;838 bytes), last line 18:30:47</td></tr>
+        <tr><th>Errors / exceptions</th><td>None</td></tr>
+        <tr><th><code>HandleToggleTool</code></th><td>Never this session</td></tr>
+        <tr><th>Last UI activity</th><td><code>OnToolChanged</code> for vanilla Net / Object / Zone / Default. <code>isDispatchTool=False</code></td></tr>
+        <tr><th>UI</th><td><code>moduleRegistry.append("GameTopLeft", DispatchToolButton)</code>. Bool bindings only. No Burst module in dump.</td></tr>
+        <tr><th>At crash</th><td><code>FireAccident</code> / <code>FireMedical</code> / <code>HeliBlock</code> info ticks, then process stop</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Decompiled for this case</h2>
+    <table>
+      <thead>
+        <tr><th>Type</th><th>Assembly</th><th>Role</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>Colossal.UI.UIManager</code></td><td><code>Colossal.UI.dll</code></td><td><code>ExecuteWork</code> → native library</td></tr>
+        <tr><td><code>Colossal.UI.TaskScheduler</code></td><td><code>Colossal.UI.dll</code></td><td>Layout thread = managed frame <code>b__5_0</code></td></tr>
+        <tr><td><code>Colossal.UI.DefaultResourceHandler</code></td><td><code>Colossal.UI.dll</code></td><td>Host map + abort (main thread)</td></tr>
+        <tr><td><code>cohtml.Net.Library</code></td><td><code>cohtml.Net.dll</code></td><td>SWIG <code>Library_ExecuteWork__SWIG_1</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Open</h2>
+    <ul>
+      <li>Cohtml function at <code>cohtml.WindowsDesktop.dll+0x404d76</code> (and listed callers): no public symbols.</li>
+      <li>Whether <code>ILLEGAL_INSTRUCTION</code> on a <code>xor/ret</code> region of <code>VCRUNTIME140</code> is a bad context, in-memory patch, or hardware (14900KF).</li>
+      <li>Whether other UI (FindIt / asset menus / vanilla toolbar) provoked a Cohtml abort without appearing on the native stack.</li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-08-13-cohtml-layout-execute-work.md">research/topics/CrashInvestigations/2026-08-13-cohtml-layout-execute-work.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

@@ -3,20 +3,21 @@
   var topBar = document.querySelector('.top-bar');
   if (!topBar) return;
 
-  var path = window.location.pathname;
-  var inMechanics = path.indexOf('/mechanics/') !== -1 ||
-                    path.indexOf('\\mechanics\\') !== -1 ||
-                    path.indexOf('/mechanics/') !== -1;
+  var path = window.location.pathname.replace(/\\/g, '/');
+  var inMechanics = path.indexOf('/mechanics/') !== -1;
+  var inCrashes = path.indexOf('/crashes/') !== -1;
+  var prefix = (inMechanics || inCrashes) ? '../' : '';
 
-  // Determine relative paths based on current section
-  var moddingHref   = inMechanics ? '../index.html'           : 'index.html';
-  var mechanicsHref = inMechanics ? 'index.html'              : 'mechanics/index.html';
+  var moddingHref   = prefix + 'index.html';
+  var mechanicsHref = prefix + 'mechanics/index.html';
+  var crashesHref   = prefix + 'crashes/index.html';
 
   var nav = document.createElement('nav');
   nav.className = 'section-nav';
   nav.innerHTML =
-    '<a href="' + moddingHref   + '" class="section-tab' + (inMechanics ? '' : ' active') + '">Modding Reference</a>' +
-    '<a href="' + mechanicsHref + '" class="section-tab' + (inMechanics ? ' active' : '') + '">Game Mechanics</a>';
+    '<a href="' + moddingHref   + '" class="section-tab' + (!inMechanics && !inCrashes ? ' active' : '') + '">Modding Reference</a>' +
+    '<a href="' + mechanicsHref + '" class="section-tab' + (inMechanics ? ' active' : '') + '">Game Mechanics</a>' +
+    '<a href="' + crashesHref   + '" class="section-tab' + (inCrashes ? ' active' : '') + '">Crash Investigations</a>';
 
   var title = topBar.querySelector('.site-title');
   if (title) {

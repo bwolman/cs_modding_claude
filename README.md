@@ -19,7 +19,7 @@ Each topic follows a rigorous 7-phase research process: decompile the game DLL, 
 | **Governance** | Districts & Policies, Zoning, Map Tile Purchase, Terrain & Resources |
 | **Mod Framework** | Mod Loading & Dependencies, Mod Options UI, Mod UI Buttons, Localization, Harmony Transpilers, Save/Load Persistence, Tool Activation, Tool Raycast, Object Tool System, Prefab System, Mod Hotkey Input, Input Action Lifecycle, Info Views & Overlays, Event Entity Archetype |
 
-### Site (52 HTML pages)
+### Site (52 HTML pages + mechanics + crash investigations)
 
 A static GitHub Pages site with searchable, interlinked documentation. Each page includes:
 
@@ -63,7 +63,9 @@ cs_modding_claude/
 │           └── snippets/        # Decompiled source files
 ├── site/
 │   ├── index.html               # Landing page with topic cards
-│   └── {topic-name}.html        # 52 documentation pages
+│   ├── {topic-name}.html        # documentation pages
+│   ├── mechanics/               # player-facing mechanics guides
+│   └── crashes/                 # process-crash investigations
 ├── docs/
 │   ├── coding-standards.md      # C# conventions for CS2 mods
 │   ├── project-setup.md         # Mod project setup guide

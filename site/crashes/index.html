@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crash Investigations - CS2 Modding Research</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html" class="active">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>Crash Investigations</h1>
+
+    <div class="scope">
+      <h2>Scope</h2>
+      <p><strong>What:</strong> Process crashes (native, managed, ANR) with stacks, dump data, and mod attribution.</p>
+      <p><strong>Not:</strong> Simulation bugs that do not take down the process. In-game traffic “accidents.”</p>
+    </div>
+
+    <h2>Cases</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Dump</th>
+          <th>Fault</th>
+          <th>Mod native stack?</th>
+          <th>Page</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>2026-08-13</td>
+          <td><code>80f60f31-…</code></td>
+          <td>Cohtml <code>WT_Layout</code> → <code>VCRUNTIME140+0xdf8b</code> (<code>0xC000001D</code>)</td>
+          <td>No</td>
+          <td><a href="2026-08-13-cohtml-layout-execute-work.html">Cohtml layout ExecuteWork</a></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Evidence paths</h2>
+    <table>
+      <thead>
+        <tr><th>Item</th><th>Path</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Player log</td><td><code>{UserData}/Player.log</code>, <code>Player-prev.log</code></td></tr>
+        <tr><td>Mod / subsystem logs</td><td><code>{UserData}/Logs/</code></td></tr>
+        <tr><td>Crashpad dumps</td><td><code>{UserData}/.cache/backtrace/crashpad/reports/*.dmp</code></td></tr>
+        <tr><td>Managed assemblies</td><td><code>{Game}/Cities2_Data/Managed/</code></td></tr>
+        <tr><td>Native plugins</td><td><code>{Game}/Cities2_Data/Plugins/x86_64/</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Classification</h2>
+    <table>
+      <thead>
+        <tr><th>Signal</th><th>Meaning</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><code>Native Crash Reporting</code> / <code>Got a UNKNOWN while executing native code</code></td>
+          <td>Native fault. Managed stack is the pinvoke boundary.</td>
+        </tr>
+        <tr>
+          <td>Dump strings: <code>ANRException: Blocked thread detected</code></td>
+          <td>Hung thread. RIP often in <code>BacktraceCrashpadWindows.dll</code>.</td>
+        </tr>
+        <tr>
+          <td>Managed exception only</td>
+          <td>C# fault. Mod types can appear in the managed stack.</td>
+        </tr>
+        <tr>
+          <td>Exception <code>0xC0000005</code></td>
+          <td>Access violation.</td>
+        </tr>
+        <tr>
+          <td>Exception <code>0xC000001D</code></td>
+          <td>Illegal instruction.</td>
+        </tr>
+        <tr>
+          <td>Exception <code>0x0517A7ED</code></td>
+          <td>Backtrace ANR custom code on this install.</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Attribution</h2>
+    <ul>
+      <li>Mod is the crashing <em>code</em> only if its managed type or Burst/native DLL is on the faulting stack.</li>
+      <li>Handled managed errors on another thread are not the crash site.</li>
+      <li><code>cohtml.WindowsDesktop.dll</code>, <code>cohtml.Net</code>, <code>VCRUNTIME140.dll</code> are game/runtime.</li>
+      <li>A mod can still provoke a vanilla native bug without appearing on the stack. That is not proven by stack absence, and cannot be proven without Cohtml source or a repro.</li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/README.md">research/topics/CrashInvestigations/README.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>
