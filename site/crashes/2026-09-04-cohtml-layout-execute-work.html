@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-09-04 Cohtml layout ExecuteWork - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html" class="active">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-09-04 — Cohtml layout ExecuteWork</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Cohtml <code>WT_Layout</code>. RIP in <code>cohtml.WindowsDesktop.dll+0x404bb9</code>. <code>0xC000001D</code> illegal instruction.</td></tr>
+          <tr><th>Exact root cause</th><td>Not determined. Same managed path as <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13</a>; RIP in Cohtml, not <code>VCRUNTIME140+0xdf8b</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1. Code mods on.</td></tr>
+        <tr><th>Cities</th><td>Cumberland County 4 from 12:34. Load <code>Gilbert County 56</code> 16:00:06. Manual <code>Gilbert County 57</code> 16:42 (284 MB, completed).</td></tr>
+        <tr><th>Last autosave</th><td><code>04-September-16-55-29</code> completed 16:55:32 (286 MB).</td></tr>
+        <tr><th>Crash</th><td>~16:58 (~58 min after Gilbert load). Dump mtime Mac 19:58.</td></tr>
+        <tr><th>Dump</th><td><code>13872449-e667-47c3-917c-079cd3a0bdba.dmp</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Same-day dumps (not this crash)</h2>
+    <p>ANRs <code>0x0517A7ED</code>, RIP <code>BacktraceCrashpadWindows.dll+0x2dcd</code>: <code>e3252d16</code> / <code>ceb56779</code> boot 15:29–15:31; <code>86ef7061</code> / <code>284fa20b</code> Gilbert load 19:00.</p>
+
+    <h2>Match to prior ExecuteWork</h2>
+    <p>Same <code>b__5_0</code> → <code>Library_ExecuteWork__SWIG_1</code>, same <code>0xC000001D</code>. Prior RIP was <code>VCRUNTIME140+0xdf8b</code>. This RIP is <code>cohtml+0x404bb9</code> (445 bytes before usual stack gadget <code>+0x404d76</code>). Not DEP-on-stack.</p>
+
+    <h2>Immediately before death</h2>
+    <p>GPU 80 → 256 MB. <code>JobTempAlloc</code> leak. <code>TravelPurpose</code> 9/10. Unused-asset unloads. 404s are <code>DefaultResourceHandler</code> main thread.</p>
+
+    <h2>Managed stack (dying thread)</h2>
+<pre>at cohtml.Net.cohtmlNativePINVOKE:Library_ExecuteWork__SWIG_1
+at cohtml.Net.Library:ExecuteWork
+at Colossal.UI.UIManager:ExecuteWork
+at Colossal.UI.TaskScheduler:&lt;.ctor&gt;b__5_0</pre>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0x20bc</code></td></tr>
+        <tr><th>Code</th><td><code>0xC000001D</code> illegal instruction</td></tr>
+        <tr><th>RIP</th><td><code>cohtml.WindowsDesktop.dll+0x404bb9</code></td></tr>
+        <tr><th>RSP</th><td><code>0xc652f4d5e0</code></td></tr>
+        <tr><th>In-dump bytes at RIP</th><td>not present</td></tr>
+      </tbody>
+    </table>
+    <p>Native scan: Cohtml offsets including <code>+0x4050aa</code>, <code>+0x40a03f</code>, <code>+0x40629a</code>; <code>RenoirCore+0xb4e4</code>. No mod Burst on the scan. 55 BurstRuntime DLLs loaded, none on the faulting stack.</p>
+
+    <h2>Coincident at Gilbert load</h2>
+    <p><code>VehicleController</code> missing property pack during <code>Deserialize</code> / <code>LoadGameSystem</code>. Handled. Autosaves after that completed for ~55 min. Not the dying thread.</p>
+
+    <h2>MoreDispatchMod</h2>
+    <p><code>HandleToggleTool</code> last 15:54 (Cumberland). Crash on Gilbert ~16:58. Last tool Zone Tool 16:57:59.</p>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-09-04-cohtml-layout-execute-work.md">research/topics/CrashInvestigations/2026-09-04-cohtml-layout-execute-work.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

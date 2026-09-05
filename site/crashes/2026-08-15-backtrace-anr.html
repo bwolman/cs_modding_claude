@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-08-15 Backtrace ANR - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html" class="active">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-08-15 — Backtrace ANR (blocked thread)</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Not a native exception. Code <code>0x0517A7ED</code> (Backtrace ANR). RIP <code>BacktraceCrashpadWindows.dll+0x2dcd</code> (watchdog raise).</td></tr>
+          <tr><th>Exact root cause</th><td>Not determined. ANR RIP is the reporter. No <code>Native Crash Reporting</code> in <code>Player.log</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1 (419.d6c6) [6216.19404]</td></tr>
+        <tr><th>Save</th><td>Gilbert County 45 loaded 14:34:47. Autosave 14:45:17.</td></tr>
+        <tr><th>Dump</th><td><code>9bc2166b-359f-447c-aacc-85fa6d508b79.dmp</code> (17:47 Mac)</td></tr>
+        <tr><th>Player.log</th><td>425–430 lines. No <code>Native Crash Reporting</code>.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Same-day dumps</h2>
+    <p>All <code>0x0517A7ED</code>, RIP <code>BacktraceCrashpadWindows.dll+0x2dcd</code>.</p>
+    <table>
+      <thead>
+        <tr><th>Dump</th><th>mtime</th><th>Thread</th><th>Notes</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>3e9014d9-…</code></td><td>17:21</td><td><code>0x20dc</code></td><td>Previous session</td></tr>
+        <tr><td><code>5d2ac3d9-…</code></td><td>17:31</td><td><code>0x3c38</code></td><td>This boot / MainMenu</td></tr>
+        <tr><td><code>0c85b1e1-…</code></td><td>17:34</td><td><code>0x3c38</code></td><td>Save load</td></tr>
+        <tr><td><code>9bc2166b-…</code></td><td>17:47</td><td><code>0x3c38</code></td><td>This case. ~12 min in-game</td></tr>
+      </tbody>
+    </table>
+    <p>Dump strings: <code>ANRException: Blocked thread detected.</code></p>
+
+    <h2>Last <code>Player.log</code> lines</h2>
+<pre>GPU instance buffer size changing to: 288 MB
+Worker 761451 had incorrect TravelPurpose 10!
+src\common\pipes.cpp (900) : fatal stalled cross-thread pipe.
+src\common\pipes.cpp (900) : Fatal assert; application exiting
+_ExitOnFatalAssert</pre>
+    <p>Instance buffer 80 → 288 MB this session. <code>pipes.cpp</code> is Steam IPC; stalled-pipe after ANR is Steam exiting a hung process, not a second crash class.</p>
+    <p>Player observation: game looked closed while Steam still showed it running. Matches hang → UI gone/frozen → Steam pipe still up → <code>pipes.cpp</code> fatal → Steam marks exited.</p>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0x3c38</code> (same as this boot's launch ANRs)</td></tr>
+        <tr><th>Code</th><td><code>0x0517A7ED</code></td></tr>
+        <tr><th>RIP</th><td><code>BacktraceCrashpadWindows.dll+0x2dcd</code></td></tr>
+        <tr><th>RSP</th><td><code>0x698aa8f000</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Native stack</h2>
+    <p><code>BacktraceCrashpadWindows.dll</code>, <code>mono-2.0-bdwgc.dll</code> (<code>+0x88110</code>, <code>+0x8aecc</code>, <code>+0x29504e</code>), <code>ntdll.dll</code>.</p>
+    <p>Not present: mod BurstRuntime, <code>lib_burst_generated.dll</code>, <code>cohtml*</code>.</p>
+
+    <h2>MoreDispatchMod</h2>
+    <p>No <code>HandleToggleTool</code>. No errors. Last lines 14:47:35 FireAccident/FireMedical ticks.</p>
+
+    <h2>Coincident UI</h2>
+    <ul>
+      <li>14:35:05 — 404 <code>coui://uil/Standard/Alarm.svg</code></li>
+      <li>14:38:59 — <code>W7MoreParksAssetPack/W7BaseballField.png</code> host map</li>
+      <li>14:42:22, 14:44:46 — <code>W7RoundaboutAssetPack/…png</code> host map</li>
+    </ul>
+
+    <h2>Open</h2>
+    <ul>
+      <li>Which thread was blocked, and on what.</li>
+      <li>Whether thread <code>0x3c38</code> ANRs at boot and at 14:47 are the same hang class.</li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-08-15-backtrace-anr.md">research/topics/CrashInvestigations/2026-08-15-backtrace-anr.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

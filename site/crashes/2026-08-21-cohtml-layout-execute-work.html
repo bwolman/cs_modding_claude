@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-08-21 Cohtml layout ExecuteWork - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html" class="active">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-08-21 — Cohtml layout ExecuteWork</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Cohtml <code>WT_Layout</code>. RIP in <code>VCRUNTIME140.dll+0xdf8b</code>. <code>0xC000001D</code> illegal instruction.</td></tr>
+          <tr><th>Exact root cause</th><td>Not determined. Same class as <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>. Not the DEP-on-stack class.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1; Unity 2022.3.71f1; Cohtml 1.64.0.7</td></tr>
+        <tr><th>Save</th><td><code>21-August-19-59-26</code> loaded 20:11:07; loading completed 20:11:39</td></tr>
+        <tr><th>Crash</th><td>~20:13:53 (~2 min after load). Dump mtime Mac 23:13</td></tr>
+        <tr><th>Dump</th><td><code>569f8e3e-b4da-41c7-80d7-862e3a638f7a.dmp</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Same-day dumps (not this crash)</h2>
+    <p>Launch ANRs, thread <code>0x3f2c</code>, RIP <code>BacktraceCrashpadWindows.dll+0x2dcd</code>: <code>f4b9e2d0</code> 23:09, <code>a6894516</code> 23:10, <code>6f2cb66a</code> 23:11.</p>
+    <p>Prior session <code>Player-prev.log</code> (empty managed stack): <code>8170a449</code> <code>UnityPlayer.dll+0x54f6ad</code> read AV <code>0xC0000005</code> of <code>0x51e8b28</code>. Different class. Not merged.</p>
+
+    <h2>Match to 2026-08-13</h2>
+    <table>
+      <thead>
+        <tr><th>Field</th><th><code>80f60f31</code></th><th>This <code>569f8e3e</code></th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Exception</td><td><code>0xC000001D</code></td><td>identical</td></tr>
+        <tr><td>RIP</td><td><code>VCRUNTIME140+0xdf8b</code></td><td><strong>identical</strong></td></tr>
+        <tr><td>Managed stack</td><td><code>b__5_0</code> → <code>ExecuteWork</code></td><td>identical</td></tr>
+        <tr><td>First Cohtml offsets</td><td><code>+0x404d76</code>, <code>+0x405716</code>, <code>+0x4050aa</code>, <code>+0x404fba</code></td><td>identical</td></tr>
+        <tr><td>Session</td><td>hours</td><td>~2 min after load</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Immediately before death</h2>
+    <p>GPU 80 → 192 MB, unused-asset unload, <code>FirstPersonCamera loaded!</code>. No <code>View_Advance</code>, no <code>TravelPurpose</code>, no extra-renter, no <code>JobTempAlloc</code>.</p>
+    <p>404 <code>coui://uil/Standard/Alarm.svg</code> (Id 182): <code>DefaultResourceHandler</code> main thread. Coincident.</p>
+
+    <h2>Managed stack (dying thread)</h2>
+<pre>at cohtml.Net.cohtmlNativePINVOKE:Library_ExecuteWork__SWIG_1
+at cohtml.Net.Library:ExecuteWork
+at Colossal.UI.UIManager:ExecuteWork
+at Colossal.UI.TaskScheduler:&lt;.ctor&gt;b__5_0</pre>
+    <p><code>b__5_0</code> = <code>WT_Layout</code>.</p>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0x3120</code></td></tr>
+        <tr><th>Code</th><td><code>0xC000001D</code> illegal instruction</td></tr>
+        <tr><th>RIP</th><td><code>VCRUNTIME140.dll+0xdf8b</code></td></tr>
+        <tr><th>RSP</th><td><code>0x2042d1dc18</code></td></tr>
+        <tr><th>RSP+0x0</th><td><code>cohtml.WindowsDesktop.dll+0x404d76</code></td></tr>
+        <tr><th>In-dump bytes at RIP</th><td>not present</td></tr>
+      </tbody>
+    </table>
+    <p>RIP mapped in CRT, not stack. Not DEP-on-stack.</p>
+
+    <h2>Native stack</h2>
+    <p><code>cohtml.WindowsDesktop.dll</code>: <code>+0x404d76</code>, <code>+0x405716</code>, <code>+0x4050aa</code>, <code>+0x404fba</code>, <code>+0x405759</code>, <code>+0x40629a</code>, <code>+0x40ba69</code>, <code>+0x4061ec</code>, <code>+0x254600</code>, <code>+0x40b7f7</code>, <code>+0x403994</code>, <code>+0x406a6d</code>, …</p>
+    <p><code>RenoirCore.WindowsDesktop.dll+0xb4e4</code>. No mod Burst, no <code>lib_burst_generated</code>.</p>
+
+    <h2>MoreDispatchMod / Water Features</h2>
+    <p>No <code>HandleToggleTool</code>. Last tool Yenyang's Water Tool 20:13:24. Water Features still logging evaporation-rate lines at 20:13:53. Ticking until death is not a stack hit. <code>Water_Features_win_x86_64.dll</code> not on the qword scan.</p>
+
+    <h2>Open</h2>
+    <ul>
+      <li>Why <code>VCRUNTIME140+0xdf8b</code> executed an illegal instruction.</li>
+      <li>Relation to same-day DEP smash <a href="2026-08-21-cohtml-layout-dep.html"><code>41f2ba03</code></a>.</li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-08-21-cohtml-layout-execute-work.md">research/topics/CrashInvestigations/2026-08-21-cohtml-layout-execute-work.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

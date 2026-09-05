@@ -21,23 +21,25 @@ Writeup shape: existing case in that folder and `site/crashes/`.
 
 Ask only if a path is missing. Defaults for this machine are in the README.
 
-Need:
+Need, **in this copy order** (relaunch rotates `Player.log` → `Player-prev.log` and truncates `Logs/`):
 
-1. `{UserData}/Player.log` and `Player-prev.log`
-2. `{UserData}/Logs/`
-3. `{UserData}/.cache/backtrace/crashpad/reports/*.dmp` (newest matching the session)
-4. `{Game}/Cities2_Data/Managed/` and `Plugins/x86_64/`
+1. Newest matching `*.dmp`
+2. `{UserData}/Player.log` **and** `Player-prev.log`
+3. `{UserData}/Logs/` (at least `UI.log`, `SceneFlow.log`, and any large/recent mod log)
+4. Destination: `research/topics/CrashInvestigations/evidence/<YYYY-MM-DD>-<dump-prefix>/` (gitignored)
+
+If `Player.log` has no `Native Crash Reporting` block, the crashed session is `Player-prev.log`.
 
 ## Procedure
 
-1. **Pick the session.** Newest `Player.log` `Native Crash Reporting` block, or the dump the user names. List other same-day dumps; do not merge ANR (`0x0517A7ED`, `ANRException`) with a native crash.
-2. **Managed boundary.** Copy the `Managed Stacktrace` from `Player.log`. Identify the thread (e.g. `TaskScheduler` ctor lambda = Cohtml `WT_Layout`; thread-pool = `WT_Resources`; main-thread coroutine = not the layout thread).
-3. **Dump exception.** Parse minidump Exception stream: thread id, code, RIP. Resolve RIP to a loaded module + offset. Prefer CONTEXT RIP if it differs from ExceptionAddress.
-4. **Native callers.** If MemoryList contains the stack, qword-scan from RSP and resolve each pointer to a module. Record only resolved return addresses.
-5. **On-disk vs RIP.** If RIP is in a game/plugin DLL you can read, dump bytes at that RVA. If they are a normal epilogue/`ret` and the exception is `0xC000001D`, say so. If the dump has no code page at RIP, say so.
-6. **Decompile only the managed wrappers on the stack** (`ilspycmd -t`, sequential, not parallel on the same DLL). Do not decompile Cohtml native.
-7. **Mod logs.** Same timestamps. A log that keeps ticking until process death is not a managed exception. A UI that never logged its open/toggle path was not in use.
-8. **Coincident errors.** Resource 404 / `Invalid host locations map` / `Cannot abort request` are `DefaultResourceHandler` main-thread paths unless the native stack says otherwise.
+1. **Copy first.** Then pick the session: `Native Crash Reporting` in the session log, or the newest dump if that banner is absent. No banner + dump code `0x0517A7ED` is an ANR, still a case. List other same-day dumps; do not merge ANR with a native `0xC0000005`/`0xC000001D`.
+2. **Managed boundary.** Copy `Managed Stacktrace`. Empty (header only, no `at` frames) is a result — GC, game Burst, or Unity job thread — not a missing log. If frames exist, name the thread (`TaskScheduler` ctor lambda = Cohtml `WT_Layout`; thread-pool = `WT_Resources`; main-thread coroutine ≠ layout).
+3. **Dump exception.** Thread id, code, CONTEXT RIP (prefer over ExceptionAddress), module+offset. For `0xC0000005`, also `ExceptionInformation[0]` (0=read, 1=write, 8=DEP) and `[1]` (address). Address `< 0x1000` is a null-base field read. `info0=8` and RIP within ~4 KiB of RSP is execute-stack (DEP); RIP will be unmapped as a module. Same `RIP-RSP` delta across dumps (e.g. `0xf78`) is the same smash, not a new class.
+4. **Native callers.** Qword-scan RSP if MemoryList has the stack. Record unique module+offset; collapse repeating pairs. Classify each module with the README (game `lib_burst_generated.dll` vs mod `BurstRuntime/…/<Mod>_win_x86_64.dll`). Huge RVAs far from RIP are often data pointers, not callers.
+5. **On-disk vs RIP.** Bytes at that RVA if the DLL is readable on the mount. Missing file or missing code page is a fact. Do not invent job names from nearby `Player.log` lines.
+6. **Decompile** only managed wrappers that actually appear on the stack (`ilspycmd -t`, sequential). Skip if the managed stack is empty. Do not decompile Cohtml, Mono, or Burst native.
+7. **Mod logs.** Same timestamps. Ticking until death ≠ managed exception. Last open/toggle time vs crash time; earlier use is not a stack hit.
+8. **Coincident errors.** Resource 404 / `Invalid host locations map` / `Cannot abort request` are `DefaultResourceHandler` main-thread paths unless the native stack says otherwise. Lines immediately above `Native Crash Reporting` (`GPU instance buffer size changing`, unused-asset unload, `IsTransitioning*`, `TravelPurpose`) are coincident until the RIP module matches that system.
 
 ## Verdict (required)
 
@@ -49,9 +51,9 @@ Fill this table before writing files:
 | Crash site (module + thread) | fact |
 | Exact root cause | fact or "not determined" + what is missing |
 
-A mod is the crashing *code* only if its managed type or Burst/native DLL is on the faulting stack. Game/runtime: `cohtml*.dll`, `VCRUNTIME140.dll`, `UnityPlayer.dll`, `ntdll.dll`, `BacktraceCrashpadWindows.dll`.
+A mod is the crashing *code* only if its managed type or Burst/native DLL is on the faulting stack. Game/runtime list is in the README.
 
-Stop when: no mod on the stack **and** remaining cause needs Cohtml/Unity native source, dump code pages, or a hardware repro you cannot run.
+Stop when: no mod on the stack **and** remaining cause needs Cohtml/Unity/Mono/Burst native source, dump code pages, a mods-off repro, or a hardware repro you cannot run.
 
 ## Writeup
 

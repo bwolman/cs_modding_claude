@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-08-14 Burst generated AV - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html" class="active">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-08-14 — <code>lib_burst_generated</code> access violation</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Thread <code>0x4550</code>. RIP <code>lib_burst_generated.dll+0xa69d</code>. Callers in that DLL and <code>UnityPlayer.dll</code>.</td></tr>
+          <tr><th>Exact root cause</th><td>Not determined. No Burst symbols. DLL not on the Mac mount. No code page at RIP. Managed stack empty.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>lib_burst_generated.dll</code> is the game's AOT Burst output, not a mod <code>BurstRuntime/…/<Mod>_win_x86_64.dll</code>.</p>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1 (419.d6c6) [6216.19404], <code>-developerMode</code></td></tr>
+        <tr><th>OS / CPU / GPU</th><td>Windows 11; i9-14900KF; RTX 5080 D3D11</td></tr>
+        <tr><th>Save</th><td><code>13-August-20-19-41</code> loaded 20:59:05. Autosave 21:04:37.</td></tr>
+        <tr><th>Crash (game log clock)</th><td>~21:08</td></tr>
+        <tr><th>Dump</th><td><code>114e1625-d749-4591-a211-e4af5b020daf.dmp</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Same-session dumps (not this crash)</h2>
+    <p>Launch ANRs, thread <code>0x5124</code>, RIP <code>BacktraceCrashpadWindows.dll+0x2dcd</code>, <code>0x0517A7ED</code>: <code>8fb8af87</code> 23:57, <code>ad8cd635</code> 23:58, <code>51067424</code> 23:59.</p>
+
+    <h2>Immediately before death</h2>
+<pre>GPU instance buffer size changing to: 80 MB
+...
+GPU instance buffer size changing to: 208 MB
+Worker 1246103 had incorrect TravelPurpose 10!
+Unloading 43 unused Assets ... Loaded Objects now: 359678.
+GPU instance buffer size changing to: 224 MB
+GPU instance buffer size changing to: 240 MB
+Native Crash Reporting</pre>
+    <p>Instance buffer 80 → 240 MB this session.</p>
+
+    <h2>Crash block</h2>
+<pre>Native Crash Reporting
+Got a UNKNOWN while executing native code.
+
+Managed Stacktrace:
+=================================================================</pre>
+    <p>Managed stack is empty.</p>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0x4550</code></td></tr>
+        <tr><th>Code</th><td><code>0xC0000005</code> read at <code>0x70</code></td></tr>
+        <tr><th>RIP</th><td><code>lib_burst_generated.dll+0xa69d</code></td></tr>
+        <tr><th>RSP</th><td><code>0x645fdfee40</code></td></tr>
+        <tr><th>Code page / on-disk DLL</th><td>Not in dump. Not readable on this mount.</td></tr>
+      </tbody>
+    </table>
+    <p><code>0x70</code> is a null-base field read (<code>*(null + 0x70)</code>).</p>
+
+    <h2>Native stack</h2>
+    <p>Modules: <code>lib_burst_generated.dll</code>, <code>UnityPlayer.dll</code>, <code>KERNELBASE.dll</code>.</p>
+    <p>Burst offsets: RIP <code>+0xa69d</code>, <code>+0x2685d0</code>, <code>+0x26b72f</code>, <code>+0x267476</code>, <code>+0xb54e6b</code>.</p>
+    <p>Not present: mod BurstRuntime DLLs, <code>cohtml*</code>, <code>mono-2.0-bdwgc.dll</code>.</p>
+
+    <h2>MoreDispatchMod</h2>
+    <p>No <code>HandleToggleTool</code> this session. No errors. Last lines 21:08:14 FireAccident/FireMedical ticks.</p>
+
+    <h2>Coincident UI</h2>
+    <ul>
+      <li>20:59:24 — 404 <code>coui://uil/Standard/Alarm.svg</code></li>
+      <li>21:00:52, 21:01:55 — <code>Invalid host locations map</code> <code>W7RoundaboutAssetPack/…png</code></li>
+    </ul>
+    <p><code>DefaultResourceHandler</code>, main thread. Not on the Burst stack.</p>
+
+    <h2>Open</h2>
+    <ul>
+      <li>Job at <code>+0xa69d</code> unnamed.</li>
+      <li>GPU instance-buffer growth vs <code>BatchManagerSystem</code> / AccidentSite rendering: not proven from this dump.</li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-08-14-burst-generated-access-violation.md">research/topics/CrashInvestigations/2026-08-14-burst-generated-access-violation.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

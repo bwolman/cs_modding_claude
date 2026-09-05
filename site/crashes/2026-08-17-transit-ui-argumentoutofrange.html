@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-08-17 TransitUI ArgumentOutOfRange - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html" class="active">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-08-17 — BetterTransitView <code>TransitUISystem</code> ArgumentOutOfRange</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>Yes. <code>BetterTransitView.Systems.TransitUISystem</code> (BetterTransitView 1.5.0.0)</td></tr>
+          <tr><th>Crash site</th><td>Not a process crash. Main-thread <code>UIUpdate</code>. <code>List.get_Item</code> ← <code>Game.Prefabs.PrefabSystem.GetPrefab</code> ← <code>BetterTransitView.Systems.TransitUISystem.GetStopResolvedName</code> (<code>TransitUISystem.cs:1137</code>, IL <code>0x0019c</code>)</td></tr>
+          <tr><th>Exact root cause</th><td>BTV opened the panel and called <code>GetPrefab</code> on a stop-owner <code>Building</code> whose <code>PrefabData.m_Index</code> is negative (obsolete / missing <strong>More Transport (OLD)</strong> 81040). Vanilla <code>GetPrefab</code> has no bounds check. Not a load-order bug.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>Game.dll</code> has no type named <code>TransitUISystem</code>. SceneFlow <code>UIUpdate-&gt;TransitUISystem</code> is the BetterTransitView ECS system.</p>
+    <p>The process stayed up. No <code>Native Crash Reporting</code> banner. <code>Game.UpdateSystem</code> logged CRITICAL and continued (123 times), then an orderly <code>OnDispose</code>.</p>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1 (419.d6c6) [6216.19404], <code>-developerMode</code></td></tr>
+        <tr><th>OS / CPU / GPU</th><td>Windows 11; i9-14900KF; RTX 5080 D3D11</td></tr>
+        <tr><th>Boot / load</th><td>01:20:22. Gilbert County 47 loaded 01:25:54, completed 01:26:28</td></tr>
+        <tr><th>Last save</th><td>Gilbert County 48 completed 02:06:54</td></tr>
+        <tr><th>First / last error</th><td>02:06:58,187 – 02:07:10,697. <strong>123</strong> identical CRITICALs</td></tr>
+        <tr><th>Shutdown</th><td>Mods disposed 02:07:10. GameManager destroyed 02:07:23</td></tr>
+      </tbody>
+    </table>
+
+    <h2>First exception</h2>
+<pre>[SceneFlow] [CRITICAL]  System update error during UIUpdate-&gt;TransitUISystem:
+ArgumentOutOfRangeException: Index was out of range. Must be non-negative and less than the size of the collection.
+Parameter name: index
+  at System.Collections.Generic.List`1[T].get_Item (System.Int32 index) [0x00009]
+  at Game.Prefabs.PrefabSystem.GetPrefab[T] (Game.Prefabs.PrefabData prefabData) [0x00000]
+  at Game.Prefabs.PrefabSystem.GetPrefab[T] (Game.Prefabs.PrefabRef refData) [0x00015]
+  at BetterTransitView.Systems.TransitUISystem.GetStopResolvedName (…) [0x0019c]
+      in TransitUISystem.cs:1137
+  at BetterTransitView.Systems.TransitUISystem.UpdateTransitLinesData () [0x00501]
+      in TransitUISystem.cs:701
+  at BetterTransitView.Systems.TransitUISystem.ActivateTransitMode (String mode) [0x00275]
+      in TransitUISystem.cs:930
+  at BetterTransitView.Systems.TransitUISystem.OnUpdate () [0x000c8]
+      in TransitUISystem.cs:382
+  at Unity.Entities.SystemBase.Update ()
+  at Game.UpdateSystem.Update (SystemUpdatePhase)
+Game.UI.UIUpdateSystem:OnUpdate()
+Game.SceneFlow.GameManager:UpdateWorld()</pre>
+    <p>Assemblies: <code>mscorlib</code>, <code>Game.dll</code> (<code>36b776ac…</code>), <code>BetterTransitView</code> 1.5.0.0 (PDX <code>139595_12</code>), <code>Unity.Entities</code>.</p>
+
+    <h2>Throwing methods</h2>
+    <p>Decompiled <code>BetterTransitView.Systems.TransitUISystem</code> from <code>.cache/Mods/pdx_mods/139595_12/BetterTransitView.dll</code> and <code>Game.Prefabs.PrefabSystem</code> from <code>lib/Game.dll</code>.</p>
+    <p><code>ActivateTransitMode</code> runs only from <code>OnUpdate</code> when the panel is being opened (hotkey or UI trigger <code>BetterTransitView.toggleTransitCustom</code>). It always calls <code>UpdateTransitLinesData</code>.</p>
+    <p><code>GetStopResolvedName</code> IL <code>0x0019c</code> is the first <code>GetPrefab</code> in that method: owner has <code>Building</code> + <code>PrefabRef</code>, then <code>GetPrefab&lt;PrefabBase&gt;(PrefabRef)</code>.</p>
+<pre>public T GetPrefab&lt;T&gt;(PrefabData prefabData) where T : PrefabBase
+{
+    return m_Prefabs[prefabData.m_Index] as T;
+}</pre>
+    <p><code>TryGetPrefab</code> only rejects <code>m_Index &lt; 0</code>. An index <code>&gt;= m_Prefabs.Count</code> still throws.</p>
+
+    <h2>Same-folder dumps (not this error)</h2>
+    <p>Launch ANRs. No <code>ArgumentOutOfRange</code>. No <code>TransitUISystem</code> string. Do not merge.</p>
+    <table>
+      <thead>
+        <tr><th>Dump</th><th>mtime (Mac)</th><th>Thread</th><th>Code</th><th>RIP</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>7c10b3fc-…</code></td><td>04:23</td><td><code>0x4ab0</code></td><td><code>0x0517A7ED</code></td><td><code>BacktraceCrashpadWindows.dll+0x2dcd</code></td></tr>
+        <tr><td><code>2dd558fc-…</code></td><td>04:26</td><td><code>0x4ab0</code></td><td><code>0x0517A7ED</code></td><td><code>BacktraceCrashpadWindows.dll+0x2dcd</code></td></tr>
+      </tbody>
+    </table>
+    <p>Dump strings: <code>ANRException: Blocked thread detected</code>. Mac 04:23 ≈ game boot 01:20.</p>
+
+    <h2>MoreDispatchMod</h2>
+    <p>No errors. No <code>HandleToggleTool</code>. Last <code>OnToolChanged</code> 01:58:54, <code>isDispatchTool=False</code>. Not on the exception stack.</p>
+
+    <h2>Other mods</h2>
+    <p><code>XTM</code>, <code>Traffic</code>, <code>ExtraLib</code>, <code>MoveIt</code>: no errors in their logs. None on the exception stack.</p>
+
+    <h2>Coincident</h2>
+    <ul>
+      <li>02:06:50 — render target 680×383 then 1920×1080 (save dialog).</li>
+      <li>02:06:58+ — <code>[BetterTransitView] Button rendering...</code> continues while SceneFlow logs the exception.</li>
+      <li>01:26:01 load: unknown prefabs include <code>W7MiniBusStation</code> and <code>W7EU_BusStop02</code>. Not shown to be the <code>PrefabRef</code> on this stack.</li>
+    </ul>
+
+    <h2>Root cause</h2>
+    <p>Shipped 1.5.0.0 source (<a href="https://github.com/kurupted/CS2TransitView">kurupted/CS2TransitView</a> <code>TransitUISystem.cs:1137</code>):</p>
+<pre>if (HasComponent&lt;Building&gt;(owner) &amp;&amp; HasComponent&lt;PrefabRef&gt;(owner))
+{
+    var pRef = GetComponentData&lt;PrefabRef&gt;(owner);
+    var ownerPrefab = prefabSystem.GetPrefab&lt;PrefabBase&gt;(pRef); // throws
+}</pre>
+    <p>On load, <code>ResolvePrefabsSystem</code> sets <code>m_Index = -1 - n</code> for every save prefab this boot did not register, then logs <code>Unknown prefab ID</code>. <code>GetPrefab</code> is <code>m_Prefabs[m_Index]</code> with no check. <code>TryGetPrefab</code> rejects <code>m_Index &lt; 0</code>.</p>
+    <p>This boot’s unknown transit IDs: <code>ContentPrefab:Mod:81040</code>, <code>W7MiniBusStation</code>, <code>W7EU_BusStop02</code> (GUID <code>28dd14c3…</code>). That is <strong>More Transport (OLD)</strong>. Playset has <strong>More Transport (NEW)</strong> <code>150791</code> instead. BTV has no <code>MissedDependencies</code> on 81040.</p>
+    <p>Same unknown IDs on 2026-08-16 sessions that did not throw: those logs never hit this <code>ActivateTransitMode</code> stack (button-render only). Mode string is always <code>"custom"</code> (source).</p>
+
+    <h2>Fix</h2>
+    <ul>
+      <li><strong>Code:</strong> replace <code>GetPrefab&lt;PrefabBase&gt;</code> at 1137 / 1175 / 1215 with <code>TryGetPrefab</code>; skip to the existing <code>"Bus Stop #n"</code> fallback. Do the same for <code>GetPrefab&lt;TransportLinePrefab&gt;</code> in <code>UpdateTransitLinesData</code>. Upstream <code>main</code> still uses <code>GetPrefab</code>.</li>
+      <li><strong>Playset workaround:</strong> enable <a href="https://mods.paradoxplaza.com/mods/81040/Windows">More Transport (OLD) 81040</a>. NEW <code>150791</code> does not register those old IDs. Not a BTV/XTM load-order issue.</li>
+    </ul>
+
+    <h2>Open</h2>
+    <ul>
+      <li>Owner entity is not logged. Inferred as <code>W7MiniBusStation</code> (only unknown transit <code>BuildingPrefab</code> this boot).</li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-08-17-transit-ui-argumentoutofrange.md">research/topics/CrashInvestigations/2026-08-17-transit-ui-argumentoutofrange.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

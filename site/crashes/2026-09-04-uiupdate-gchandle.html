@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-09-04 UIUpdate GCHandle - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html" class="active">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-09-04 — UIUpdate <code>GCHandle.GetTarget</code></h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Main thread. Native icall <code>GCHandle.GetTarget</code> while some <code>UIUpdate</code> system’s <code>SystemBase.Update</code> read <code>ComponentSystemBase.World</code>.</td></tr>
+          <tr><th>Exact root cause</th><td>Not determined. No Crashpad dump of this native crash. Child system type is not on the managed stack.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Save</th><td><code>04-September-18-32-12</code> loaded 18:38:16 (after the layout DEP).</td></tr>
+        <tr><th>Last autosave</th><td><code>04-September-19-36-14</code> completed 19:36:17.</td></tr>
+        <tr><th>Crash</th><td>~19:36:48 (~58 min). Idle: last tool Default 19:24:44. No dump.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Managed stack</h2>
+<pre>at &lt;unknown&gt; &lt;0xffffffff&gt;
+at System.Runtime.InteropServices.GCHandle:GetTarget &lt;0x00069&gt;
+at System.Runtime.InteropServices.GCHandle:get_Target &lt;0x0003a&gt;
+at Unity.Entities.ComponentSystemBase:get_World &lt;0x0003a&gt;
+at Unity.Entities.SystemBase:Update &lt;0x000da&gt;
+at Game.UpdateSystem:Update &lt;0x00183&gt;
+at Game.UI.UIUpdateSystem:OnUpdate &lt;0x0002a&gt;
+at Unity.Entities.SystemBase:Update &lt;0x001ca&gt;
+at Game.UpdateSystem:Update &lt;0x00183&gt;
+at Game.SceneFlow.GameManager:UpdateWorld &lt;0x00062&gt;
+at Game.SceneFlow.GameManager:Update &lt;0x000f2&gt;</pre>
+    <p><code>Got a UNKNOWN while executing native code.</code> Not Cohtml <code>ExecuteWork</code>.</p>
+    <p><code>UIUpdateSystem.OnUpdate</code> only calls <code>UpdateSystem.Update(UIUpdate)</code>. That walks every <code>UIUpdate</code> registrant and calls <code>Update()</code>. Native AV is not caught by its <code>catch (Exception)</code>. No <code>System update error during UIUpdate</code> in this log.</p>
+    <p><code>World</code> getter: <code>m_StatePtr != null</code> then <code>m_StatePtr-&gt;m_World.Target</code>. <code>get_Target</code> passed <code>IsAllocated</code>; death is inside the <code>GetTarget</code> icall.</p>
+
+    <h2>Dump</h2>
+    <p>None for this death. The three files in the evidence folder are boot ANRs, thread <code>0x5070</code>, <code>0x0517A7ED</code>, RIP <code>BacktraceCrashpadWindows.dll+0x2dcd</code>, same RSP: <code>2ca5d50a</code> 21:36, <code>153c2bfa</code> 21:37, <code>7b6af8a1</code> 21:37.</p>
+
+    <h2>Immediately before</h2>
+    <p>GPU 80→320 MB. Unused-asset unloads. <code>TravelPurpose 10</code>. Two <code>EventsController.TRIGGER</code> JS arity warnings. 404 <code>Police.svg</code>. Coincident.</p>
+    <p>MoreDispatch last ticks 19:36:48. Last tool Default 19:24:44. Not on the stack.</p>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-09-04-uiupdate-gchandle.md">research/topics/CrashInvestigations/2026-09-04-uiupdate-gchandle.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

@@ -9,3 +9,6 @@ external/
 
 # Claude Code local config
 .claude/
+
+# Crashpad minidumps (tens of MB). Keep writeups; do not commit dumps.
+research/topics/CrashInvestigations/evidence/

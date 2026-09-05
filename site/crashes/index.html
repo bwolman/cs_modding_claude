@@ -20,6 +20,22 @@
     <div class="sidebar-links expanded">
       <a href="index.html" class="active">Index</a>
       <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
     </div>
   </aside>
 
@@ -50,6 +66,118 @@
           <td>Cohtml <code>WT_Layout</code> → <code>VCRUNTIME140+0xdf8b</code> (<code>0xC000001D</code>)</td>
           <td>No</td>
           <td><a href="2026-08-13-cohtml-layout-execute-work.html">Cohtml layout ExecuteWork</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-13</td>
+          <td><code>76c70cc8-…</code></td>
+          <td><code>mono-2.0-bdwgc+0x27a5e8</code> read <code>0xffffffffffffffff</code> (<code>0xC0000005</code>)</td>
+          <td>No</td>
+          <td><a href="2026-08-13-mono-gc-access-violation.html">Mono GC access violation</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-14</td>
+          <td><code>114e1625-…</code></td>
+          <td><code>lib_burst_generated+0xa69d</code> read <code>0x70</code> (<code>0xC0000005</code>)</td>
+          <td>No</td>
+          <td><a href="2026-08-14-burst-generated-access-violation.html">Burst generated AV</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-15</td>
+          <td><code>9bc2166b-…</code></td>
+          <td>Backtrace ANR <code>0x0517A7ED</code> (no native banner)</td>
+          <td>No</td>
+          <td><a href="2026-08-15-backtrace-anr.html">Backtrace ANR</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-16</td>
+          <td><code>ce956c0b-…</code></td>
+          <td>Cohtml <code>WT_Layout</code> DEP; RIP on stack (<code>0xC0000005</code> <code>info0=8</code>)</td>
+          <td>No</td>
+          <td><a href="2026-08-16-cohtml-layout-dep.html">Cohtml layout DEP</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-16</td>
+          <td><code>ad178da9-…</code></td>
+          <td>Same DEP smash as <code>ce956c0b</code> (<code>RIP-RSP=0xf78</code>), 4 min after reload</td>
+          <td>No</td>
+          <td><a href="2026-08-16-cohtml-layout-dep-2.html">Cohtml layout DEP #2</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-16</td>
+          <td><code>44b20996-…</code></td>
+          <td><code>lib_burst_generated+0x8a01c9</code> read <code>0xb5003286b3</code> (<code>0xC0000005</code>)</td>
+          <td>No</td>
+          <td><a href="2026-08-16-burst-generated-access-violation.html">Burst generated AV</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-17</td>
+          <td>none (process stayed up)</td>
+          <td>BTV <code>GetStopResolvedName</code> <code>GetPrefab</code> on obsolete stop-owner (More Transport OLD 81040 missing)</td>
+          <td>Yes (managed BetterTransitView 1.5.0.0)</td>
+          <td><a href="2026-08-17-transit-ui-argumentoutofrange.html">TransitUI ArgumentOutOfRange</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-21</td>
+          <td><code>41f2ba03-…</code></td>
+          <td>Cohtml <code>WT_Layout</code> DEP; RIP zeros on stack; <code>RIP-RSP=0x12a8</code> (<code>0xC0000005</code> <code>info0=8</code>)</td>
+          <td>No</td>
+          <td><a href="2026-08-21-cohtml-layout-dep.html">Cohtml layout DEP</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-21</td>
+          <td><code>569f8e3e-…</code></td>
+          <td>Cohtml <code>WT_Layout</code> → <code>VCRUNTIME140+0xdf8b</code> (<code>0xC000001D</code>)</td>
+          <td>No</td>
+          <td><a href="2026-08-21-cohtml-layout-execute-work.html">Cohtml layout ExecuteWork</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-29</td>
+          <td><code>db5da537-…</code></td>
+          <td>Cohtml <code>WT_Layout</code> → <code>VCRUNTIME140+0xdf8b</code> (<code>0xC000001D</code>)</td>
+          <td>No</td>
+          <td><a href="2026-08-29-cohtml-layout-execute-work.html">Cohtml layout ExecuteWork</a></td>
+        </tr>
+        <tr>
+          <td>2026-08-29</td>
+          <td><code>4f46a920-…</code></td>
+          <td>Game <code>lib_burst_generated+0xc142</code> DEP; empty stack; code mods off (<code>0xC0000005</code> <code>info0=8</code>)</td>
+          <td>No</td>
+          <td><a href="2026-08-29-burst-generated-dep.html">Burst generated DEP</a></td>
+        </tr>
+        <tr>
+          <td>2026-09-04</td>
+          <td><code>13872449-…</code></td>
+          <td>Cohtml <code>WT_Layout</code> → <code>cohtml+0x404bb9</code> (<code>0xC000001D</code>)</td>
+          <td>No</td>
+          <td><a href="2026-09-04-cohtml-layout-execute-work.html">Cohtml layout ExecuteWork</a></td>
+        </tr>
+        <tr>
+          <td>2026-09-04</td>
+          <td><code>9455b60c-…</code></td>
+          <td>Cohtml <code>WT_Resources</code> → <code>v8.dll+0xdacdfa</code> read <code>0x2f00000086</code></td>
+          <td>No</td>
+          <td><a href="2026-09-04-cohtml-resources-execute-work.html">Cohtml resources ExecuteWork</a></td>
+        </tr>
+        <tr>
+          <td>2026-09-04</td>
+          <td><code>3d3320c4-…</code></td>
+          <td>Cohtml <code>WT_Layout</code> DEP; RIP on stack; <code>RIP-RSP=0xf78</code></td>
+          <td>No</td>
+          <td><a href="2026-09-04-cohtml-layout-dep.html">Cohtml layout DEP</a></td>
+        </tr>
+        <tr>
+          <td>2026-09-04</td>
+          <td>none (boot ANRs only)</td>
+          <td>Main-thread <code>UIUpdateSystem</code> → <code>GCHandle.GetTarget</code> native. No dump of this death.</td>
+          <td>No</td>
+          <td><a href="2026-09-04-uiupdate-gchandle.html">UIUpdate GCHandle</a></td>
+        </tr>
+        <tr>
+          <td>2026-09-05</td>
+          <td><code>7b0a8cf8-…</code></td>
+          <td>Cohtml <code>WT_Layout</code> DEP; RIP on stack; <code>RIP-RSP=0x1458</code></td>
+          <td>No</td>
+          <td><a href="2026-09-05-cohtml-layout-dep.html">Cohtml layout DEP</a></td>
         </tr>
       </tbody>
     </table>

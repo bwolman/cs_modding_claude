@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-08-16 Cohtml DEP repeat - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html" class="active">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-08-16 — Cohtml layout DEP (repeat)</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Cohtml <code>WT_Layout</code>. <code>0xC0000005</code> DEP. RIP on the stack.</td></tr>
+          <tr><th>Exact root cause</th><td>Same class as <a href="2026-08-16-cohtml-layout-dep.html"><code>ce956c0b</code></a> (~17 min earlier).</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Match to <code>ce956c0b</code></h2>
+    <table>
+      <thead>
+        <tr><th>Field</th><th><code>ce956c0b</code> (~14:41)</th><th><code>ad178da9</code> (~14:58)</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Managed stack</td><td><code>b__5_0</code> → <code>ExecuteWork</code></td><td>identical</td></tr>
+        <tr><td>Exception</td><td>DEP <code>info0=8</code></td><td>identical</td></tr>
+        <tr><td>RIP-RSP</td><td><code>0xf78</code></td><td><strong>identical <code>0xf78</code></strong></td></tr>
+        <tr><td>First Cohtml offsets</td><td><code>+0x4050aa</code> <code>+0x40a03f</code> <code>+0x40629a</code></td><td>identical</td></tr>
+        <tr><td>Session</td><td>~3 h, GPU → 320 MB</td><td><strong>~4 min reload</strong>, GPU → 112 MB</td></tr>
+      </tbody>
+    </table>
+    <p>GPU instance-buffer growth is not required.</p>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Load</th><td>Autosave <code>16-August-14-41-03</code> at 14:54:20 (save from just before <code>ce956c0b</code>)</td></tr>
+        <tr><th>Crash</th><td>~14:58. Dump <code>ad178da9-d794-4742-9d3e-11ba1496396d</code></td></tr>
+        <tr><th>MoreDispatch</th><td>No <code>HandleToggleTool</code>. No errors.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Dump</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0x2e90</code></td></tr>
+        <tr><th>RIP</th><td><code>0x74f923e9b0</code> unmapped (stack page)</td></tr>
+        <tr><th>RSP</th><td><code>0x74f923da38</code></td></tr>
+        <tr><th>Native stack</th><td>only <code>cohtml.WindowsDesktop.dll</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>What this session is not</h2>
+    <ul>
+      <li><code>infoviews.zoneInfos</code> is absent. Not required for the smash.</li>
+      <li>No main-thread <code>View_Advance</code> frames and no unused-asset unload immediately above the banner (unlike <code>ce956c0b</code>).</li>
+      <li><code>RenoirCore</code> not on this qword scan (it was on <code>ce956c0b</code>).</li>
+    </ul>
+
+    <h2>Extra-renter (unique to this reload)</h2>
+    <p>44 lines, 44 unique building indexes. Vanilla <code>Game.Simulation.RentAdjustSystem.AdjustRentJob</code> when <code>renters.Length &gt; num</code>. <strong>Zero</strong> such lines on <code>ce956c0b</code>. Not on the layout native stack.</p>
+    <p>11× <code>TravelPurpose 10</code> = vanilla <code>WorkProviderSystem.RemoveWorker</code> (purpose GoingToSchool/Studying). Also seen on other crash classes.</p>
+
+    <h2>Last ~2 min (not the dying thread)</h2>
+    <ul>
+      <li>14:54:37 — 404 <code>coui://uil/Standard/Alarm.svg</code></li>
+      <li>14:56:04 — Net Tool selected; last <code>UI.log</code> line (<code>BetterTransitView</code> button)</li>
+      <li>14:58:52 — last MoreDispatch tick, then extra-renter + <code>Native Crash Reporting</code></li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-08-16-cohtml-layout-dep-2.md">research/topics/CrashInvestigations/2026-08-16-cohtml-layout-dep-2.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

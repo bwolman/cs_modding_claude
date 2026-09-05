@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-08-13 Mono GC access violation - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html" class="active">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-08-13 — Mono GC access violation</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Thread <code>0xf74</code>. RIP <code>mono-2.0-bdwgc.dll+0x27a5e8</code>. Scanned stack is only that DLL.</td></tr>
+          <tr><th>Exact root cause</th><td>Not determined. No Mono symbols. No code page at RIP. Managed stack empty.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1 (419.d6c6) [6216.19404]</td></tr>
+        <tr><th>Unity</th><td>2022.3.71f1</td></tr>
+        <tr><th>OS / CPU / GPU</th><td>Windows 11 64-bit; i9-14900KF; RTX 5080 D3D11</td></tr>
+        <tr><th>Crash (game log clock)</th><td>~20:24</td></tr>
+        <tr><th>Dump</th><td><code>76c70cc8-8542-4f88-8562-507e466f7c79.dmp</code> (23:24 Mac mtime)</td></tr>
+        <tr><th>Session log</th><td>Became <code>Player-prev.log</code> on relaunch (1590 lines). Copied locally.</td></tr>
+        <tr><th><code>UI.log</code> / <code>SceneFlow.log</code></th><td>Overwritten by next launch. Not copied in time.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Same-session dumps (not this crash)</h2>
+    <p>Launch ANRs, thread <code>0x1ef8</code>, RIP <code>BacktraceCrashpadWindows.dll+0x2dcd</code>, code <code>0x0517A7ED</code>: <code>aff1cca7</code> 22:07, <code>253abb37</code> 22:08, <code>d05dcc84</code> 22:09, <code>f2e1c341</code> 22:14.</p>
+
+    <h2>Immediately before death</h2>
+    <ul>
+      <li>Unity unused-asset unload (Loaded Objects ~364151)</li>
+      <li><code>IsTransitioningIn</code> / <code>IsTransitioningOut</code></li>
+      <li><code>Worker … had incorrect TravelPurpose 10!</code></li>
+      <li><code>Invalid host locations map</code> for <code>coui://customassets/W7RoundaboutAssetPack/…</code> — <code>DefaultResourceHandler</code> main-thread coroutine</li>
+    </ul>
+
+    <h2>Crash block</h2>
+<pre>Native Crash Reporting
+Got a UNKNOWN while executing native code.
+
+Managed Stacktrace:
+=================================================================</pre>
+    <p>Managed stack is empty. No C# frames.</p>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0xf74</code></td></tr>
+        <tr><th>Code</th><td><code>0xC0000005</code> (<code>ACCESS_VIOLATION</code>)</td></tr>
+        <tr><th>AV type</th><td>read (<code>info0=0</code>)</td></tr>
+        <tr><th>AV address</th><td><code>0xffffffffffffffff</code></td></tr>
+        <tr><th>RIP</th><td><code>0x7ffef5aca5e8</code> = <code>mono-2.0-bdwgc.dll+0x27a5e8</code></td></tr>
+        <tr><th>RSP</th><td><code>0x3bfb6ea040</code></td></tr>
+        <tr><th>Code page at RIP</th><td>Not in dump</td></tr>
+      </tbody>
+    </table>
+    <p><code>bdwgc</code> = Boehm–Demers–Weiser GC in this Mono runtime.</p>
+
+    <h2>Native stack</h2>
+    <p>400-qword scan: only <code>mono-2.0-bdwgc.dll</code>. Repeating <code>+0x27b2b4</code> / <code>+0x27b2d6</code> and <code>+0x27b5c9</code>.</p>
+    <p>Not present: <code>cohtml*</code>, <code>VCRUNTIME140</code>, Burst, any mod DLL.</p>
+
+    <h2>MoreDispatchMod</h2>
+    <table>
+      <tbody>
+        <tr><th>Errors</th><td>None</td></tr>
+        <tr><th><code>HandleToggleTool</code></th><td>19:34:10, 19:34:30, 19:38:21, 19:46:21, 19:46:31</td></tr>
+        <tr><th>Last 4 minutes</th><td>Selection / Default / Bulldoze. <code>isDispatchTool=False</code></td></tr>
+        <tr><th>Last line</th><td>20:24:41 FireAccident/FireMedical ticks, then process stop</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Open</h2>
+    <ul>
+      <li>Mono function at <code>+0x27a5e8</code>: no symbols.</li>
+      <li>AV on <code>0xffffffffffffffff</code>: collected object vs GC invariant vs hardware — not determined.</li>
+      <li>Unload + <code>IsTransitioning*</code> immediately before fault: coincident, not proven causal.</li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-08-13-mono-gc-access-violation.md">research/topics/CrashInvestigations/2026-08-13-mono-gc-access-violation.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-08-21 Cohtml layout DEP - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html" class="active">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-08-21 — Cohtml layout DEP</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Cohtml <code>WT_Layout</code> thread. <code>0xC0000005</code> DEP. RIP unmapped on the stack (32 bytes of zeros).</td></tr>
+          <tr><th>Exact root cause</th><td>Not determined. Same managed path as <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13</a> / <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 DEP</a>. <code>RIP-RSP=0x12a8</code>, not Aug 16 <code>0xf78</code>.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1; Unity 2022.3.71f1; Cohtml 1.64.0.7</td></tr>
+        <tr><th>Boot / load</th><td>MoreDispatch <code>OnLoad</code> 18:47:14. First sim ticks 18:51:11. Loaded save name not in <code>Player-prev.log</code> (SceneFlow overwritten by 19:34 relaunch).</td></tr>
+        <tr><th>Last autosave</th><td><code>21-August-19-30-51</code></td></tr>
+        <tr><th>Crash</th><td>~19:32 (~45 min session). Dump mtime Mac 22:32.</td></tr>
+        <tr><th>Dump</th><td><code>41f2ba03-37d9-410f-83a5-267e1d1f77f2.dmp</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Same-day dumps (not this crash)</h2>
+    <p>Launch ANRs, RIP <code>BacktraceCrashpadWindows.dll+0x2dcd</code>, <code>0x0517A7ED</code>: <code>57f47227</code> 21:47, <code>8ca96ab7</code> 21:50, <code>ca69ba56</code> 21:51 (thread <code>0x3950</code>). Post-crash relaunch: <code>59d33b87</code> 22:35, <code>1b013ff0</code> 22:36 (thread <code>0x3470</code>).</p>
+
+    <h2>Match to Aug 16 DEP</h2>
+    <table>
+      <thead>
+        <tr><th>Field</th><th>Aug 16 <code>ce956c0b</code> / <code>ad178da9</code></th><th>This <code>41f2ba03</code></th></tr>
+      </thead>
+      <tbody>
+        <tr><td>Managed stack</td><td><code>b__5_0</code> → <code>ExecuteWork</code></td><td>identical</td></tr>
+        <tr><td>Exception</td><td>DEP <code>info0=8</code></td><td>identical</td></tr>
+        <tr><td>RIP-RSP</td><td><code>0xf78</code></td><td><code>0x12a8</code></td></tr>
+        <tr><td>Bytes at RIP</td><td>not recorded</td><td>32 zeros</td></tr>
+        <tr><td>First stack qword</td><td><code>+0x4050aa</code></td><td><code>+0x4050aa</code></td></tr>
+      </tbody>
+    </table>
+    <p>Same class, different smash offset.</p>
+
+    <h2>Immediately before death</h2>
+    <p>GPU instance buffer 80 → 304 MB. <code>JobTempAlloc</code> &gt;4-frame leak at 192 MB. CSS <code>syntax error</code> near <code>5.000000e-02</code>. Unused-asset unloads. No <code>View_Advance</code>, no <code>TravelPurpose</code>, no extra-renter, no <code>infoviews.zoneInfos</code>.</p>
+    <p>404 <code>coui://uil/Standard/Alarm.svg</code> (Id 332): <code>DefaultResourceHandler</code> main thread. Coincident.</p>
+
+    <h2>Managed stack (dying thread)</h2>
+<pre>at cohtml.Net.cohtmlNativePINVOKE:Library_ExecuteWork__SWIG_1
+at cohtml.Net.Library:ExecuteWork
+at Colossal.UI.UIManager:ExecuteWork
+at Colossal.UI.TaskScheduler:&lt;.ctor&gt;b__5_0</pre>
+    <p><code>b__5_0</code> = <code>WT_Layout</code>. Same IL offsets as 2026-08-13 / 2026-08-16.</p>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0x4c78</code></td></tr>
+        <tr><th>Code</th><td><code>0xC0000005</code> DEP (<code>info0=8</code>)</td></tr>
+        <tr><th>RIP / AV address</th><td><code>0xd7d1d0ea50</code> (no module; 32 zeros)</td></tr>
+        <tr><th>RSP</th><td><code>0xd7d1d0d7a8</code></td></tr>
+        <tr><th>RIP vs RSP</th><td><code>0x12a8</code> (4776 bytes), adjacent 4 KiB pages</td></tr>
+        <tr><th>RSP+0x0</th><td><code>cohtml.WindowsDesktop.dll+0x4050aa</code></td></tr>
+        <tr><th>RSP+0x68</th><td>RIP value stored on the stack</td></tr>
+      </tbody>
+    </table>
+    <p>NX/DEP blocked executing zeros on the stack (corrupted return / function pointer).</p>
+
+    <h2>Native stack</h2>
+    <p><code>cohtml.WindowsDesktop.dll</code>: <code>+0x4050aa</code>, <code>+0x40512b</code>, <code>+0x4051a7</code>, <code>+0x394ef6</code>, <code>+0x404f0b</code>, <code>+0x4057ad</code>, <code>+0x40a03f</code>, <code>+0x4062cc</code>, <code>+0x40ba69</code>, <code>+0x4061ec</code>, <code>+0x254600</code>, <code>+0x40b7f7</code>, <code>+0x403994</code>, <code>+0x406a6d</code>, …</p>
+    <p>Also <code>ntdll</code> / <code>MSVCP140</code> / <code>mono-2.0-bdwgc</code> (thread start). No mod Burst, no <code>lib_burst_generated</code>, RIP not in <code>VCRUNTIME140</code>.</p>
+    <p>55 BurstRuntime DLLs loaded in-process; none on the faulting stack scan.</p>
+
+    <h2>MoreDispatchMod</h2>
+    <p>No <code>HandleToggleTool</code>. No errors. Last tool Object Tool 19:31:53. Last ticks 19:32:49.</p>
+
+    <h2>Open</h2>
+    <ul>
+      <li>What overwrote the layout-thread return address (<code>0x12a8</code> vs Aug 16 <code>0xf78</code>).</li>
+      <li>Whether 2026-08-13 illegal-instruction, Aug 16 <code>0xf78</code> DEP, and this <code>0x12a8</code> DEP are one Cohtml bug.</li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-08-21-cohtml-layout-dep.md">research/topics/CrashInvestigations/2026-08-21-cohtml-layout-dep.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

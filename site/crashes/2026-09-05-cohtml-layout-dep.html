@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-09-05 Cohtml layout DEP - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html" class="active">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-09-05 — Cohtml layout DEP</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Cohtml <code>WT_Layout</code>. DEP. RIP unmapped on the stack. <code>RIP-RSP=0x1458</code>.</td></tr>
+          <tr><th>Exact root cause</th><td>Same class as prior layout DEP. Not the <code>0xf78</code> or <code>0x12a8</code> gadget. Not yesterday’s <code>GCHandle</code> main-thread death.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Save</th><td><code>04-September-19-36-14</code> loaded 10:56:14 (after the UIUpdate GCHandle crash).</td></tr>
+        <tr><th>Last autosave</th><td><code>05-September-11-06-10</code> completed 11:06:13.</td></tr>
+        <tr><th>Crash</th><td>~11:07 (~11 min). Dump <code>7b0a8cf8-…</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0x2834</code></td></tr>
+        <tr><th>Code</th><td><code>0xC0000005</code> DEP (<code>info0=8</code>)</td></tr>
+        <tr><th>RIP</th><td><code>0xd4e52ce830</code> (no module)</td></tr>
+        <tr><th>RSP</th><td><code>0xd4e52cd3d8</code></td></tr>
+        <tr><th>RIP-RSP</th><td><code>0x1458</code> (not <code>0xf78</code> / <code>0x12a8</code>)</td></tr>
+        <tr><th>RSP+0x0</th><td><code>cohtml.WindowsDesktop.dll+0x4050aa</code></td></tr>
+      </tbody>
+    </table>
+<pre>at cohtml.Net.cohtmlNativePINVOKE:Library_ExecuteWork__SWIG_1
+at cohtml.Net.Library:ExecuteWork
+at Colossal.UI.UIManager:ExecuteWork
+at Colossal.UI.TaskScheduler:&lt;.ctor&gt;b__5_0</pre>
+    <p>Native: Cohtml offsets including <code>+0x4050aa</code>, <code>+0x40a03f</code>, <code>+0x4062cc</code> (Aug 21, not Aug 16 <code>+0x40629a</code>). No <code>RenoirCore</code> on this scan. No mod Burst.</p>
+
+    <h2>Same-boot ANRs</h2>
+    <p>Thread <code>0x51d4</code>, <code>BacktraceCrashpadWindows.dll+0x2dcd</code>: <code>305ed515</code> 13:42, <code>0a443954</code> 13:44, <code>dd711b8d</code> 13:46, <code>4dfd7355</code> 13:55.</p>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-09-05-cohtml-layout-dep.md">research/topics/CrashInvestigations/2026-09-05-cohtml-layout-dep.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

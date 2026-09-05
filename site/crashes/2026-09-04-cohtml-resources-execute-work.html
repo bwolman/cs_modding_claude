@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-09-04 Cohtml resources ExecuteWork - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html" class="active">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-09-04 — Cohtml resources ExecuteWork</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Cohtml <code>WT_Resources</code> thread-pool (<code>ScheduleTask</code> <code>b__8_0</code>). RIP <code>v8.dll+0xdacdfa</code>. Read AV of <code>0x2f00000086</code>.</td></tr>
+          <tr><th>Exact root cause</th><td>Not determined. Same pinvoke as layout deaths; <strong>not</strong> <code>b__5_0</code>. Steam no-mod report used this managed path.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1; Cohtml 1.64.0.7. Code mods on.</td></tr>
+        <tr><th>Save</th><td><code>04-September-16-55-29</code> loaded 17:11:42. Manual <code>Gilbert County 57</code> 17:12 (286 MB).</td></tr>
+        <tr><th>Last autosave</th><td><code>04-September-17-32-38</code> completed 17:32:42 (283 MB).</td></tr>
+        <tr><th>Crash</th><td>~17:33 (~21 min after load). Dump mtime Mac 20:33.</td></tr>
+        <tr><th>Dump</th><td><code>9455b60c-4398-4cc7-a805-9db4b007577c.dmp</code></td></tr>
+      </tbody>
+    </table>
+
+    <h2>Same-boot dumps (not this crash)</h2>
+    <p>ANRs: <code>522ceb30</code> 20:03, <code>8895c12b</code> 20:11. Earlier-today layout crash is <a href="2026-09-04-cohtml-layout-execute-work.html"><code>13872449</code></a> — do not merge.</p>
+
+    <h2>Not layout</h2>
+    <p>Layout deaths: <code>b__5_0</code>, <code>0xC000001D</code> or DEP, RIP in <code>VCRUNTIME140</code> / <code>cohtml+0x404bb9</code> / stack. This: thread-pool <code>b__8_0</code>, read AV in <code>v8.dll</code>.</p>
+
+    <h2>Immediately before death</h2>
+    <p>GPU 80 → 288 MB. Hundreds of CSS <code>stroke-dasharray - none</code> / JS <code>assetdb://gameui/index.js:1:40289</code>. Same engine that died; not a named RIP. BetterTransitView button lines in <code>UI.log</code> until 17:33:09 — not on the native scan.</p>
+
+    <h2>Managed stack (dying thread)</h2>
+<pre>at cohtml.Net.cohtmlNativePINVOKE:Library_ExecuteWork__SWIG_1
+at cohtml.Net.Library:ExecuteWork
+at Colossal.UI.UIManager:ExecuteWork
+at Colossal.UI.TaskScheduler:&lt;ScheduleTask&gt;b__8_0
+at System.Threading.QueueUserWorkItemCallback:WaitCallback_Context
+…
+at System.Threading.ThreadPoolWorkQueue:Dispatch</pre>
+    <p><code>b__8_0</code> = <code>WT_Resources</code>.</p>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0xc30</code></td></tr>
+        <tr><th>Code</th><td><code>0xC0000005</code> read (<code>info0=0</code>)</td></tr>
+        <tr><th>AV address</th><td><code>0x2f00000086</code></td></tr>
+        <tr><th>RIP</th><td><code>v8.dll+0xdacdfa</code></td></tr>
+        <tr><th>In-dump bytes at RIP</th><td>not present</td></tr>
+      </tbody>
+    </table>
+    <p>Native scan: mostly <code>v8.dll</code>; later <code>cohtml.WindowsDesktop.dll+0x5a2c33</code>, <code>+0x477429</code>, <code>+0x3d4aeb</code>. No mod Burst.</p>
+
+    <h2>MoreDispatchMod</h2>
+    <p>No <code>HandleToggleTool</code>. Last tool Default 17:31:59.</p>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-09-04-cohtml-resources-execute-work.md">research/topics/CrashInvestigations/2026-09-04-cohtml-resources-execute-work.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>2026-08-16 Burst generated AV - CS2 Crash Investigations</title>
+  <link rel="stylesheet" href="../style.css">
+</head>
+<body>
+
+<div class="top-bar">
+  <a href="../index.html" class="site-title">CS2 Modding Research</a>
+  <span class="attribution">Generated with Grok | Supervised by repository owner</span>
+</div>
+
+<div class="page-layout">
+
+  <aside class="sidebar">
+    <h3 class="sidebar-toggle expanded">Cases</h3>
+    <div class="sidebar-links expanded">
+      <a href="index.html">Index</a>
+      <a href="2026-08-13-cohtml-layout-execute-work.html">2026-08-13 Cohtml layout</a>
+      <a href="2026-08-13-mono-gc-access-violation.html">2026-08-13 Mono GC AV</a>
+      <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a>
+      <a href="2026-08-15-backtrace-anr.html">2026-08-15 ANR</a>
+      <a href="2026-08-16-cohtml-layout-dep.html">2026-08-16 Cohtml DEP</a>
+      <a href="2026-08-16-cohtml-layout-dep-2.html">2026-08-16 Cohtml DEP #2</a>
+      <a href="2026-08-16-burst-generated-access-violation.html" class="active">2026-08-16 Burst AV</a>
+      <a href="2026-08-17-transit-ui-argumentoutofrange.html">2026-08-17 TransitUI AORE</a>
+      <a href="2026-08-21-cohtml-layout-dep.html">2026-08-21 Cohtml DEP</a>
+      <a href="2026-08-21-cohtml-layout-execute-work.html">2026-08-21 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-cohtml-layout-execute-work.html">2026-08-29 Cohtml ExecuteWork</a>
+      <a href="2026-08-29-burst-generated-dep.html">2026-08-29 Burst DEP</a>
+      <a href="2026-09-04-cohtml-layout-execute-work.html">2026-09-04 Cohtml ExecuteWork</a>
+      <a href="2026-09-04-cohtml-resources-execute-work.html">2026-09-04 Cohtml resources</a>
+      <a href="2026-09-04-cohtml-layout-dep.html">2026-09-04 Cohtml DEP</a>
+      <a href="2026-09-04-uiupdate-gchandle.html">2026-09-04 UIUpdate GCHandle</a>
+      <a href="2026-09-05-cohtml-layout-dep.html">2026-09-05 Cohtml DEP</a>
+    </div>
+  </aside>
+
+  <main class="content">
+    <h1>2026-08-16 — <code>lib_burst_generated</code> access violation</h1>
+
+    <div class="scope">
+      <h2>Verdict</h2>
+      <table>
+        <tbody>
+          <tr><th>Mod module on faulting stack?</th><td>No</td></tr>
+          <tr><th>Crash site</th><td>Thread <code>0xf08</code>. RIP <code>lib_burst_generated.dll+0x8a01c9</code>. Callers in that DLL and <code>UnityPlayer.dll</code>.</td></tr>
+          <tr><th>Exact root cause</th><td>Not determined. No Burst symbols. DLL not on the Mac mount. No code page at RIP. Managed stack empty.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><code>lib_burst_generated.dll</code> is the game's AOT Burst output, not a mod <code>BurstRuntime/…/&lt;Mod&gt;_win_x86_64.dll</code>.</p>
+    <p>Not the Cohtml DEP smash (<a href="2026-08-16-cohtml-layout-dep.html"><code>ce956c0b</code></a> / <a href="2026-08-16-cohtml-layout-dep-2.html"><code>ad178da9</code></a>): read AV, RIP mapped, <code>RIP-RSP</code> is not <code>0xf78</code>.</p>
+    <p>Same family as <a href="2026-08-14-burst-generated-access-violation.html">2026-08-14 Burst AV</a> (<code>+0xa69d</code> read of <code>0x70</code>). Different RIP and AV address.</p>
+
+    <h2>Session</h2>
+    <table>
+      <tbody>
+        <tr><th>Game</th><td>1.6.0f1 (419.d6c6) [6216.19404], <code>-developerMode</code></td></tr>
+        <tr><th>OS / CPU / GPU</th><td>Windows 11; i9-14900KF; RTX 5080 D3D11</td></tr>
+        <tr><th>Boot / load</th><td>15:35:23. Save <code>16-August-15-21-05</code> loaded 15:39:10, completed 15:39:39</td></tr>
+        <tr><th>Last autosave</th><td><code>16-August-20-37-46</code> (20:37:49)</td></tr>
+        <tr><th>Crash</th><td>~20:38. Dump <code>44b20996-0643-416b-bcba-6a92f73b264e</code> (mtime 23:38 Mac)</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Same-session dumps (not this crash)</h2>
+    <p>Launch ANRs, thread <code>0x15e8</code>, RIP <code>BacktraceCrashpadWindows.dll+0x2dcd</code>, <code>0x0517A7ED</code>: <code>3a660f5f</code> / <code>60df0133</code> 18:36, <code>9c5cb13e</code> 18:39.</p>
+    <p><code>Player-prev.log</code> is a prior Cohtml <code>ExecuteWork</code> session. Not this dump.</p>
+
+    <h2>Immediately before death</h2>
+<pre>Unloading unused assets (Loaded Objects now: 369329 … 369397)
+GPU instance buffer size changing to: 320 MB
+Worker 1920552 had incorrect TravelPurpose 10!
+Native Crash Reporting</pre>
+    <p>Instance buffer 80 → 304 MB early, then 320 MB above the banner. Coincident.</p>
+
+    <h2>Crash block</h2>
+<pre>Native Crash Reporting
+Got a UNKNOWN while executing native code.
+
+Managed Stacktrace:
+=================================================================</pre>
+    <p>Managed stack is empty.</p>
+
+    <h2>Dump exception</h2>
+    <table>
+      <tbody>
+        <tr><th>Thread</th><td><code>0xf08</code></td></tr>
+        <tr><th>Code</th><td><code>0xC0000005</code> read of <code>0xb5003286b3</code></td></tr>
+        <tr><th>RIP</th><td><code>lib_burst_generated.dll+0x8a01c9</code></td></tr>
+        <tr><th>RSP</th><td><code>0xf3beefef40</code></td></tr>
+        <tr><th>RCX</th><td><code>0xb5003286b7</code> (<code>info1+4</code>)</td></tr>
+        <tr><th>Code page / on-disk DLL</th><td>Not in dump. Plugins path not on this mount.</td></tr>
+      </tbody>
+    </table>
+    <p><code>0xb5003286b3</code> is not a mapped module and not a null-base field read.</p>
+
+    <h2>Native stack</h2>
+    <p>Modules: <code>lib_burst_generated.dll</code>, <code>UnityPlayer.dll</code>, <code>KERNELBASE.dll</code>, <code>KERNEL32.DLL</code>, <code>ntdll.dll</code>.</p>
+    <p>Burst near RIP: <code>+0x8a01c9</code>, <code>+0x8a0870</code>, <code>+0x89f956</code>. Large RVAs (<code>+0x35c0840</code> etc.) treated as data.</p>
+    <p>Not present on scan: mod BurstRuntime DLLs (mapped in-process, not on this stack), <code>cohtml*</code>, <code>mono-2.0-bdwgc.dll</code>.</p>
+
+    <h2>MoreDispatchMod</h2>
+    <p>No errors. Last <code>HandleToggleTool</code> 19:22:01 (deactivate). Last line 20:38:23 Object Tool, <code>isDispatchTool=False</code>.</p>
+
+    <h2>Coincident UI</h2>
+    <ul>
+      <li>15:39:28 — 404 <code>coui://uil/Standard/Alarm.svg</code></li>
+      <li>20:21–20:27 — <code>Invalid host locations map</code> <code>medclbyMrSandcrfat_AssetPack/…png</code> (last Id 5765)</li>
+    </ul>
+    <p><code>DefaultResourceHandler</code>, main thread. Not on the Burst stack.</p>
+
+    <h2>Open</h2>
+    <ul>
+      <li>Job at <code>+0x8a01c9</code> unnamed.</li>
+      <li>Whether this and <code>114e1625</code> (<code>+0xa69d</code>) are the same job family is not shown.</li>
+    </ul>
+
+    <footer>
+      <p>Source: <a href="../../research/topics/CrashInvestigations/2026-08-16-burst-generated-access-violation.md">research/topics/CrashInvestigations/2026-08-16-burst-generated-access-violation.md</a></p>
+    </footer>
+  </main>
+
+</div>
+
+<script src="../sidebar.js"></script>
+</body>
+</html>
